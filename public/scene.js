@@ -263,6 +263,10 @@ export class World {
     if (target) this.landRing.position.set(target.x, 0.02, target.z);
   }
 
+  ripple(x, z) {
+    if (!this.rip) { this.rip = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.26, 40), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false })); this.rip.rotation.x = -Math.PI / 2; this.scene.add(this.rip); }
+    this.rip.position.set(x, 0.02, z); this.ripT = 0;
+  }
   burst(x, y, z, colors, n = 80, speed = 6, gravity = 9, size = 0.08) {
     for (let i = 0; i < n; i++) {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size * 1.4), new THREE.MeshBasicMaterial({ color: colors[i % colors.length], side: THREE.DoubleSide, transparent: true }));
@@ -284,6 +288,7 @@ export class World {
       p.m.material.opacity = Math.min(1, p.life);
       if (p.life <= 0) { this.fx.remove(p.m); p.m.geometry.dispose(); p.m.material.dispose(); this.particles.splice(i, 1); }
     }
+    if (this.rip && this.ripT < 0.5) { this.ripT += dt; const s = 1 + 9 * this.ripT; this.rip.scale.set(s, s, s); this.rip.material.opacity = 0.8 * (1 - this.ripT / 0.5); }
     if (this.fan) this.fan.rotation.y += dt * 2.5;
     if (this.blink) this.blink.visible = Math.sin(t * 4) > 0;
     if (this.crowd && this.cheer > 0) {

@@ -129,6 +129,9 @@ body.playing #toast{bottom:auto;top:calc(60px + var(--sat))}
 .pc-timer{position:relative;flex:none;width:42px;height:42px}.pc-timer svg{width:100%;height:100%;transform:rotate(-90deg)}
 .pc-timer circle{fill:none;stroke-width:4}.pc-timer .trk{stroke:rgba(255,255,255,.12)}.pc-timer .arc{stroke:var(--lime);stroke-dasharray:106.8;stroke-linecap:round;transition:stroke-dashoffset .2s linear}
 .pc-timer.low .arc{stroke:var(--hot)}.pc-timer b{position:absolute;inset:0;display:grid;place-items:center;font:800 17px var(--cond)}
+.meter{position:relative;width:min(300px,70vw);height:22px;border-radius:11px;background:rgba(10,14,28,.8);border:1px solid var(--line);overflow:hidden;opacity:0;transition:opacity .15s}
+.meter.on{opacity:1}.meter i{position:absolute;inset:0;transform-origin:left;transform:scaleX(0);background:linear-gradient(90deg,#9be000,var(--lime) 60%,#ffb02e)}
+.meter b{position:relative;display:grid;place-items:center;height:100%;font:800 12px var(--cond);letter-spacing:.12em;color:#fff;text-shadow:0 1px 2px #000}.meter.max i{background:linear-gradient(90deg,#ff8a1f,#ff3a1a)}
 .power{padding:12px 26px;border-radius:13px;background:linear-gradient(90deg,#ff3a1a,#ff8a1f);color:#fff;font:800 italic 20px var(--cond);letter-spacing:.06em;box-shadow:0 0 0 2px rgba(255,255,255,.3),0 10px 30px rgba(255,90,31,.5);animation:pulse .6s ease-in-out infinite alternate}
 .banner{position:absolute;top:calc(64px + var(--sat));left:50%;transform:translate(-50%,-10px) skew(-6deg);padding:10px 28px;border-radius:12px;background:rgba(10,14,28,.9);border:1px solid var(--line);text-align:center;opacity:0;transition:.25s}
 .banner.show{opacity:1;transform:translate(-50%,0) skew(-6deg)}

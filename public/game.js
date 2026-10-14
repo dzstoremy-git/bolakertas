@@ -57,6 +57,10 @@ const SFX = {
   ignite: () => { noise(0.6, 0.2, 400, 0.4); tone(110, 0.6, 'sawtooth', 0.08, 2.2); },
 };
 
+// Paper squash when tapped: press 0.08s, hold to 0.2s, damped wobble out to 0.9s.
+const squash = (t, p) => { if (t < 0 || t > 0.9) return 0; const u = 0.3 + 0.7 * Math.max(0, Math.min(1, p)); if (t < 0.08) return u * Math.sin(t / 0.08 * Math.PI / 2); if (t < 0.2) return u; const s = (t - 0.2) / 0.7; return u * Math.exp(-4 * s) * Math.cos(8.5 * s) * (1 - s); };
+const TAP_DELAY = 0.1, CHARGE_S = 1.2;
+
 // ── world ──────────────────────────────────────────────────
 const world = new World($('#scene'));
 const ray = new THREE.Raycaster(), ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), v3 = new THREE.Vector3();
@@ -95,9 +99,9 @@ function startMatch({ setup, mode, seat = 0, mid = null, paperIds, names }) {
   world.pieces.forEach(p => { p.x = p.data.x; p.z = p.data.z; });
   $('#menu').hidden = true; $('#hud').hidden = false; document.body.classList.add('playing');
   buildHud(); onTurnStart(); SFX.whistle(false);
-  setTimeout(() => { if (M && S.hints) toast('Tarik ke belakang dari bola untuk tepuk. Seret tempat lain untuk pusing kamera.', 5200); }, 600);
+  setTimeout(() => { if (M && S.hints) toast('Tekan dan tahan kertas pemain, lepas untuk tepuk. Lagi lama tahan, lagi padu.', 5200); }, 600);
 }
-const humanTurn = () => M && !M.over && M.e.phase === 'aim' && (M.mode === 'local' || (M.mode === 'cpu' && M.e.turnTeam === 0) || (M.mode === 'online' && M.e.turnTeam === M.seat && !M.pending && !M.sent));
+const humanTurn = () => M && !M.over && !M.queued && M.e.phase === 'aim' && (M.mode === 'local' || (M.mode === 'cpu' && M.e.turnTeam === 0) || (M.mode === 'online' && M.e.turnTeam === M.seat && !M.pending && !M.sent));
 const myTeam = () => M.mode === 'online' ? M.seat : M.mode === 'local' ? M.e.turnTeam : 0;
 
 function onTurnStart() {
@@ -107,17 +111,23 @@ function onTurnStart() {
   if (e.phase === 'aim' && e.canPowerStrike() && humanTurn()) { SFX.ignite(); toast('Membara! Tekan REMBATAN PADU. Bola terus meluncur ke gol.', 3000); }
 }
 
+function startTap(a) {
+  const k = M.e.kicker; if (a.t !== 'aim' || !k) return;
+  const vp = world.pieces[k.id]; vp.flipT = 0; vp.tapPower = a.ps ? 1 : a.power;
+  world.ripple(k.x - a.dx * 0.35, k.z - a.dz * 0.35); SFX.tap(a.power); haptic(a.ps ? 'heavy' : 'medium');
+}
 function act(a) {
-  if (!M) return;
-  if (M.mode === 'online') { if (M.sent) return; M.sent = true; M.ws?.send(JSON.stringify({ t: 'act', a })); world.showAim(null); return; }
-  if (!M.e._applyAction(a)) return;
-  M.actions.push(a); world.showAim(null);
+  if (!M || M.queued) return;
+  world.showAim(null); M.cpuPlan = null;
+  if (M.mode === 'online') { if (M.sent) return; M.sent = true; startTap(a); M.ws?.send(JSON.stringify({ t: 'act', a })); return; }
+  if (a.t !== 'aim') { if (M.e._applyAction(a)) M.actions.push(a); return; }
+  startTap(a); M.queued = { a, t: TAP_DELAY };
 }
 
 function drainEvents() {
   const e = M.e;
   for (const ev of e.events) {
-    if (ev.type === 'kick') { const vp = world.pieces[ev.id]; vp.hop = 1; SFX.tap(ev.power); haptic(ev.ps ? 'heavy' : 'medium'); if (ev.ps) { M.shake = 0.5; world.burst(e.ball.x, 0.3, e.ball.z, ['#ff7a1a', '#ffd45a', '#ff3a1a'], 40, 4, 5, 0.07); } }
+    if (ev.type === 'kick') { if (ev.ps) { M.shake = 0.5; world.burst(e.ball.x, 0.3, e.ball.z, ['#ff7a1a', '#ffd45a', '#ff3a1a'], 40, 4, 5, 0.07); } }
     else if (ev.type === 'hit') { SFX.hit(ev.v); world.pieces[ev.id].hop = Math.min(1, 0.3 + ev.v * 0.06); }
     else if (ev.type === 'post') { SFX.post(); M.shake = 0.35; haptic('rigid'); flash('TIANG!'); }
     else if (ev.type === 'bounce') SFX.bounce(ev.v);
@@ -137,9 +147,14 @@ function tick(dt) {
   const sim = dt * M.slow;
   // drive non-human turns
   if (e.phase === 'aim' && !M.over) {
-    if (M.mode === 'cpu' && e.turnTeam === 1) { M.cpuWait -= dt; if (M.cpuWait <= 0) act(e.cpuAction()); }
+    if (M.mode === 'cpu' && e.turnTeam === 1 && !M.queued) {
+      M.cpuWait -= dt;
+      if (M.cpuWait <= 0.6 && !M.cpuPlan) M.cpuPlan = e.cpuAction(); // same RNG draw the server replay makes
+      if (M.cpuPlan && M.cpuWait <= 0) act(M.cpuPlan);
+    }
     else if (M.mode !== 'online' && M.turnLeft !== null) { M.turnLeft -= dt; if (M.turnLeft <= 0) { act({ t: 'skip' }); } }
   }
+  if (M.queued && (M.queued.t -= dt) <= 0) { const a = M.queued.a; M.queued = null; if (e._applyAction(a)) M.actions.push(a); }
   if (e.phase === 'halftime' && M.mode !== 'online') { M.halfWait += dt; if (M.halfWait > 2.6) { M.halfWait = 0; act({ t: 'half' }); } }
   e.acc += sim;
   let n = 0; while (e.acc >= STEP && n++ < 8) { e.step(STEP); e.acc -= STEP; }
@@ -157,7 +172,9 @@ function syncVisuals(dt, t) {
   for (const vp of world.pieces) {
     const p = vp.data; vp.x += (p.x - vp.x) * k; vp.z += (p.z - vp.z) * k;
     const facing = Math.atan2(0, e.attackSign(p.team)); // front faces the goal it attacks
-    const lift = Math.sin(Math.min(1, vp.hop) * Math.PI) * 0.35; vp.hop = Math.max(0, vp.hop - dt * 3);
+    const lift = Math.sin(Math.min(1, vp.hop) * Math.PI) * 0.25; vp.hop = Math.max(0, vp.hop - dt * 3);
+    vp.flipT = (vp.flipT ?? 9) + dt; const sq = squash(vp.flipT, vp.tapPower ?? 0.5);
+    vp.body.scale.set(1 + sq * 0.12, Math.max(0.2, 1 - sq * 0.7), 1 + sq * 0.9);
     vp.root.position.set(vp.x, lift, vp.z);
     vp.root.rotation.set(Math.sin(t * 30 + p.id) * p.wobble * 0.18, (e.attackSign(p.team) > 0 ? 0 : Math.PI), Math.sin(t * 26 + p.id) * p.wobble * 0.12);
     const active = p === e.kicker && e.phase === 'aim';
@@ -167,6 +184,7 @@ function syncVisuals(dt, t) {
   }
   const b = e.ball; world.ballMesh.position.set(b.x, b.y + 0.16, b.z);
   const cue = humanTurn() && !M.aim; world.ballRing.position.set(b.x, 0.015, b.z);
+  if (M.hold && humanTurn()) { M.hold.p = Math.min(1, (performance.now() - M.hold.t0) / 1000 / CHARGE_S); if (!M.hold.dragged) M.aim = { ...goalDir(), power: Math.max(0.05, M.hold.p) }; }
   world.ballRing.material.opacity += ((cue ? 0.9 : 0) - world.ballRing.material.opacity) * k; world.ballRing.scale.setScalar(1 + Math.sin(t * 6) * 0.15);
   const sp = Math.hypot(b.vx, b.vz); if (sp > 0.01) { world.ballMesh.rotation.x += b.vz * dt / 0.16; world.ballMesh.rotation.z -= b.vx * dt / 0.16; }
   if (world.trailLine) {
@@ -174,7 +192,8 @@ function syncVisuals(dt, t) {
     if (pts.length > 2) { const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length * 2, 0.07, 6); world.trailLine.geometry.dispose(); world.trailLine.geometry = g; world.trailLine.visible = true; } else world.trailLine.visible = false;
   }
   // aim guide
-  if (M.aim && humanTurn()) world.showAim(b, M.aim.dx, M.aim.dz, M.aim.power, predictPath(e, M.aim.dx, M.aim.dz, M.aim.power, M.shot, M.ps), M.ps);
+  if (M.cpuPlan && M.cpuPlan.t === 'aim') { const r = Math.min(1, (0.6 - M.cpuWait) / 0.6), a = M.cpuPlan; world.showAim(b, a.dx, a.dz, a.power * r, predictPath(e, a.dx, a.dz, a.power * r, a.shot, a.ps), a.ps); }
+  else if (M.aim && humanTurn()) world.showAim(b, M.aim.dx, M.aim.dz, M.aim.power, predictPath(e, M.aim.dx, M.aim.dz, M.aim.power, M.shot, M.ps), M.ps);
   else if (M.ps && humanTurn()) { const s = e.attackSign(e.kicker.team); world.showAim(b, -b.x, s * FIELD.L / 2 - b.z, 1, predictPath(e, 0, 1, 1, 0, true), true); }
   else world.showAim(null);
   updateCamera(dt);
@@ -182,7 +201,7 @@ function syncVisuals(dt, t) {
 
 function updateCamera(dt) {
   const e = M.e, cam = world.cam, b = e.ball;
-  cam.fov = cam.aspect < 0.8 ? 62 : cam.aspect < 1.2 ? 52 : 46; cam.updateProjectionMatrix();
+  const fov = (cam.aspect < 0.8 ? 58 : cam.aspect < 1.2 ? 50 : 45) - (M.goalCam > 0 ? 7 : 0); if (Math.abs(cam.fov - fov) > 0.05) { cam.fov += (fov - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix(); }
   const viewTeam = (M.mode === 'cpu' && e.turnTeam === 1) || (M.mode === 'online' && e.turnTeam !== M.seat) ? myTeam() : e.turnTeam;
   const sign = e.attackSign(viewTeam);
   let pos, look;
@@ -190,21 +209,23 @@ function updateCamera(dt) {
     pos = new THREE.Vector3(b.x * 0.35, cam.aspect < 1 ? 23 : 17, b.z * 0.5 - sign * (cam.aspect < 1 ? 7 : 9));
     look = new THREE.Vector3(b.x * 0.35, 0, b.z * 0.5 + sign * 1.5);
   } else {
-    let dx, dz;
-    if (e.phase === 'aim' && e.kicker) { const a = M.aim && humanTurn() ? M.aim : e.aim; dx = a.dx; dz = a.dz; if (viewTeam !== e.turnTeam) { dx = 0; dz = sign; } }
-    else { dx = 0; dz = sign; }
-    const yaw = Math.atan2(dx, dz) + M.camYaw, back = cam.aspect < 1 ? 4.6 : 5.4, up = cam.aspect < 1 ? 9.4 : 5.6;
-    const fx = Math.sin(yaw), fz = Math.cos(yaw);
-    const focus = e.phase === 'rolling' ? new THREE.Vector3(b.x, 0, b.z) : new THREE.Vector3(b.x, 0, b.z);
-    pos = new THREE.Vector3(focus.x - fx * back, up, focus.z - fz * back);
-    const ahead = cam.aspect < 1 ? 4.4 : 4.6; look = new THREE.Vector3(focus.x + fx * ahead, 0, focus.z + fz * ahead);
-    if (e.phase === 'goal') { pos.set(b.x * 0.6 + 3, 2.6, b.z - Math.sign(b.z) * 4.5); look.set(b.x * 0.5, 0.5, b.z); }
+    const k0 = e.kicker, sp = Math.hypot(b.vx, b.vz); let tx, tz;
+    if (e.phase === 'rolling' && sp > 1.5) { tx = b.vx / sp; tz = b.vz / sp; }
+    else { const s = e.attackSign(k0 ? k0.team : e.turnTeam), gx = -0.6 * b.x, gz = s * FIELD.L / 2 - b.z, l = Math.hypot(gx, gz) || 1; tx = gx / l; tz = gz / l; }
+    const d = M.camDir || (M.camDir = new THREE.Vector2(tx, tz)); d.lerp(new THREE.Vector2(tx, tz), 1 - Math.exp(-3 * dt)).normalize();
+    const c = Math.cos(M.camYaw), s2 = Math.sin(M.camYaw), fx = d.x * c + d.y * s2, fz = d.y * c - d.x * s2;
+    const ax = k0 && e.phase !== 'rolling' ? k0.x : b.x, az = k0 && e.phase !== 'rolling' ? k0.z : b.z;
+    const portrait = cam.aspect < 1, back = portrait ? 4.2 : 3.4, up = portrait ? 3.7 : 3;
+    pos = new THREE.Vector3(ax - fx * back, up, az - fz * back);
+    look = new THREE.Vector3(b.x + fx * 1.3, 0, b.z + fz * 1.3);
+    if (e.phase === 'goal') { const gs = Math.sign(b.z) || 1; pos.set(fz * 5.2 * 0.6, 3.1, gs * (FIELD.L / 2 - 4.6)); look.set(b.x * 0.5, 0.8, gs * (FIELD.L / 2 + 0.4)); }
   }
-  const k = 1 - Math.exp(-dt * (e.phase === 'rolling' ? 2.6 : 4));
+  if (!M.hold && !drag && performance.now() - (M.lastLook || 0) > 4000) M.camYaw *= Math.exp(-3 * dt); // drift back to centre
+  const k = 1 - Math.exp(-dt * (e.phase === 'goal' ? 4 : 5));
   world.camPos.lerp(pos, k); world.camLook.lerp(look, k);
   cam.position.copy(world.camPos);
-  if (M.shake > 0) { M.shake = Math.max(0, M.shake - dt); const s = M.shake * 0.25; cam.position.x += (Math.random() - 0.5) * s; cam.position.y += (Math.random() - 0.5) * s; }
   cam.lookAt(world.camLook);
+  if (M.shake > 0) { M.shake = Math.max(0, M.shake - dt); const s = M.shake * M.shake * 0.25; cam.translateX((Math.random() - 0.5) * s); cam.translateY((Math.random() - 0.5) * s); }
 }
 
 // ── controls: drag back from the ball ──────────────────────
@@ -212,25 +233,31 @@ const canvas = $('#scene');
 let drag = null;
 function groundAt(x, y) { ray.setFromCamera({ x: (x / innerWidth) * 2 - 1, y: -(y / innerHeight) * 2 + 1 }, world.cam); return ray.ray.intersectPlane(ground, v3) ? v3.clone() : null; }
 function ballScreen() { const p = world.ballMesh.position.clone().project(world.cam); return { x: (p.x + 1) / 2 * innerWidth, y: (1 - p.y) / 2 * innerHeight }; }
+// Reference controls: press the paper (or ball), hold to charge, release to tap.
+// Default aim is straight at goal. Dragging while holding steers the aim (pull back, slingshot).
+// Dragging anywhere else orbits the camera.
+function screenOf(x, z) { const p = new THREE.Vector3(x, 0.2, z).project(world.cam); return { x: (p.x + 1) / 2 * innerWidth, y: (1 - p.y) / 2 * innerHeight }; }
+function goalDir() { const e = M.e, b = e.ball, s = e.attackSign(e.kicker.team), gx = -b.x * 0.85, gz = s * FIELD.L / 2 - b.z, l = Math.hypot(gx, gz) || 1; return { dx: gx / l, dz: gz / l }; }
 canvas.addEventListener('pointerdown', ev => {
   audio(); if (!M || M.paused) return;
-  const bs = ballScreen(), near = Math.hypot(ev.clientX - bs.x, ev.clientY - bs.y) < Math.max(70, innerWidth * 0.09);
   canvas.setPointerCapture(ev.pointerId);
-  if (humanTurn() && near && !M.ps) drag = { kind: 'aim', id: ev.pointerId };
+  const k = M.e.kicker, r = Math.max(64, Math.min(innerWidth, innerHeight) * 0.14);
+  const hit = humanTurn() && !M.ps && k && [screenOf(M.e.ball.x, M.e.ball.z), screenOf(k.x, k.z)].some(p => Math.hypot(ev.clientX - p.x, ev.clientY - p.y) < r);
+  if (hit) { drag = { kind: 'aim', id: ev.pointerId, x: ev.clientX, y: ev.clientY, g: groundAt(ev.clientX, ev.clientY) }; M.hold = { t0: performance.now(), p: 0, dragged: false }; M.aim = { ...goalDir(), power: 0.05 }; haptic('light'); }
   else drag = { kind: 'look', id: ev.pointerId, x: ev.clientX, yaw: M.camYaw };
 });
 canvas.addEventListener('pointermove', ev => {
   if (!drag || ev.pointerId !== drag.id || !M) return;
-  if (drag.kind === 'look') { M.camYaw = drag.yaw + (ev.clientX - drag.x) / innerWidth * 3; return; }
-  const g = groundAt(ev.clientX, ev.clientY); if (!g) return;
-  const b = M.e.ball, dx = b.x - g.x, dz = b.z - g.z, d = Math.hypot(dx, dz);
-  if (d < 0.15) { M.aim = null; return; }
-  M.aim = { dx: dx / d, dz: dz / d, power: Math.min(1, d / MAX_DRAG) };
-  updateShotChips();
+  if (drag.kind === 'look') { M.camYaw = drag.yaw - (ev.clientX - drag.x) / innerWidth * 3; M.lastLook = performance.now(); return; }
+  if (!M.hold || Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) < 18) return; // small wobble stays a straight tap
+  const g = groundAt(ev.clientX, ev.clientY); if (!g || !drag.g) return;
+  const dx = drag.g.x - g.x, dz = drag.g.z - g.z, d = Math.hypot(dx, dz); if (d < 0.05) return;
+  M.hold.dragged = true; M.aim = { dx: dx / d, dz: dz / d, power: Math.max(0.05, M.hold.p) };
 });
 const endDrag = ev => {
   if (!drag || ev.pointerId !== drag.id) return;
-  if (drag.kind === 'aim' && M?.aim && humanTurn()) { if (M.aim.power > 0.07) act({ t: 'aim', dx: M.aim.dx, dz: M.aim.dz, power: M.aim.power, shot: M.shot }); M.aim = null; }
+  if (drag.kind === 'aim' && M?.hold && humanTurn() && ev.type === 'pointerup') act({ t: 'aim', dx: M.aim.dx, dz: M.aim.dz, power: Math.max(0.05, M.hold.p), shot: M.shot });
+  if (M) { M.hold = null; M.aim = null; }
   drag = null;
 };
 canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
@@ -263,6 +290,7 @@ function buildHud() {
   <div class="bottom">
     <div class="shots" id="shots">${SHOT_TYPES.map((s, i) => `<button class="shot" data-i="${i}"><b>${['BUMI', 'CUNGKIL', 'LAMBUNG'][i]}</b><kbd>${i + 1}</kbd></button>`).join('')}</div>
     <div class="pcard" id="pcard"><div class="pc-badge"></div><div class="pc-main"><b id="pc-name"></b><div class="charge" id="charge">${'<i></i>'.repeat(POWER_CHARGE)}</div><small id="pc-state"></small></div><div class="pc-timer" id="pc-timer"><svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="17" class="trk"/><circle cx="20" cy="20" r="17" class="arc" id="arc"/></svg><b id="tl">15</b></div></div>
+    <div class="meter" id="meter"><i id="meter-fill"></i><b>TAHAN UNTUK CAS</b></div>
     <button class="power" id="power-btn" hidden>REMBATAN PADU</button>
   </div>
   <div class="banner" id="banner"><b></b><small></small></div>`;
@@ -298,6 +326,7 @@ function updateHud() {
   const showT = e.phase === 'aim' && left != null && !(M.mode === 'cpu' && e.turnTeam === 1);
   $('#pc-timer').style.visibility = showT ? 'visible' : 'hidden';
   if (showT) { $('#tl').textContent = Math.ceil(Math.min(15, left)); $('#arc').style.strokeDashoffset = 106.8 * (1 - Math.min(1, left / 15)); $('#pc-timer').classList.toggle('low', left < 5); }
+  const mt = $('#meter'), p = M.hold?.p || 0; mt.classList.toggle('on', !!M.hold); $('#meter-fill').style.transform = `scaleX(${p})`; mt.classList.toggle('max', p >= 1);
   updateShotChips();
 }
 let bannerT = 0;
@@ -562,13 +591,13 @@ function showShop(slot = 'paper') {
 function showHelp() {
   const m = screen(`${header(true)}<main class="help"><h2 class="ttl">CARA MAIN</h2>
     <ol class="rules">
-      <li><b>Tepuk bola.</b> Sentuh dekat bola, tarik ke belakang, lepaskan. Lagi jauh tarik, lagi kuat. Titik putih tunjuk laluan bola.</li>
+      <li><b>Tepuk kertas.</b> Tekan dan tahan kertas pemain yang bercincin, lepas untuk tepuk. Lagi lama tahan, lagi padu. Bola terus ke arah gol.</li><li><b>Nak ubah arah?</b> Sambil tahan, seret jari ke belakang macam lastik. Titik putih tunjuk laluan bola.</li>
       <li><b>Pilih jenis sepakan.</b> BUMI bergolek. CUNGKIL naik sikit melepasi seorang pemain. LAMBUNG tinggi melepasi barisan.</li>
       <li><b>${MAX_TAPS} tepukan.</b> Pemain paling dekat dengan bola akan tepuk. Satu pasukan boleh tepuk ${MAX_TAPS} kali berturut, kemudian giliran bertukar.</li>
       <li><b>Rembatan Padu.</b> Setiap kali pemain dapat giliran, cas naik. Penuh ${POWER_CHARGE} kali, tekan REMBATAN PADU dan bola meluncur terus ke gol.</li>
       <li><b>Penjaga gol</b> bergerak sendiri di garisan gol. Bidik ke sudut.</li>
       <li><b>Bola keluar</b> jadi bola lawan. Keluar di garisan gol: sepakan sudut atau sepakan gol.</li>
-      <li><b>Kamera.</b> Seret di tempat kosong untuk pusing. Butang kamera tukar ke pandangan atas.</li>
+      <li><b>Kamera.</b> Kamera ikut pemain dan bola sendiri. Seret di tempat kosong untuk pusing, butang kamera tukar ke pandangan atas.</li>
       <li><b>Kertas.</b> Kertas lain beri stat lain. Kertas mahal tidak semestinya kuat: sesetengahnya untuk gaya sahaja.</li>
     </ol></main>`);
   bindHeader(m);
