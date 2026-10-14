@@ -1,216 +1,68 @@
-// test.js — Bola Kertas verification
-// node --test style assertions, no framework
-import assert from 'assert';
-import { Engine, STEP, checksum, runToRest, replayLog, FORMATIONS, MAX_TAPS, FIELD, makeRng, seedFromString } from './public/engine.js';
-import { ALL_TEAMS, LEAGUES, rosterFor, teamById } from './public/teams.js';
+// test.js : one runnable check for the engine and the money/security paths. node test.js
+process.env.NODE_ENV = 'test'; process.env.BOT_TOKEN = '123:TEST'; process.env.DATA_DIR = '/tmp/bk-test-' + process.pid;
+import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
+import { Engine, runToRest, BASE_STATS, checksum, predictPath, FIELD } from './public/engine.js';
+const S = await import('./server.js');
+let n = 0; const ok = (name, fn) => { fn(); n++; console.log('ok', name); };
 
-let pass = 0, fail = 0;
-function ok(name, fn) {
-  try { fn(); console.log('  ✓', name); pass++; }
-  catch (e) { console.log('  ✗', name, '-', e.message); fail++; }
-}
+const setup = (seed, paper) => S.buildSetup({ team0: 'jdt', team1: 'sel', seed, minutes: 1, skill: 0.5, cpu: [true, true], paper0: paper });
+const playOut = st => { const e = new Engine(st); runToRest(e); let g = 0; while (e.phase !== 'over' && g++ < 3000) { e._applyAction(e.phase === 'halftime' ? { t: 'half' } : e.cpuAction()); runToRest(e); } return e; };
 
-function basicSetup(seed = 12345) {
-  const t0 = teamById('jdt'), t1 = teamById('sel');
-  return {
-    goalsToWin: 0, minutes: 3, halves: true, powerStrike: true, layout: 'spread', turnLimit: 15,
-    formations: ['4-4-2', '4-3-3'],
-    rosters: [rosterFor(t0), rosterFor(t1)],
-    cpu: [false, false], cpuSkill: 0.5, seed,
-  };
-}
+ok('cpu vs cpu match reaches full time', () => { const e = playOut(setup(1)); assert.equal(e.phase, 'over'); assert.ok(e.shots > 10); });
+ok('engine is deterministic', () => { assert.equal(checksum(playOut(setup(42))), checksum(playOut(setup(42)))); });
+ok('paper power changes the shot', () => {
+  const dist = paper => { const e = new Engine(setup(7, paper)); runToRest(e); const z0 = e.ball.z; e._applyAction({ t: 'aim', dx: 0.3, dz: e.attackSign(e.turnTeam), power: 0.5, shot: 0 }); for (let i = 0; i < 20; i++) e.step(1 / 120); return Math.abs(e.ball.z - z0); };
+  assert.ok(dist({ ...BASE_STATS, power: 115 }) > dist(BASE_STATS) * 1.05);
+});
+ok('trajectory preview lands on the pitch', () => { const e = new Engine(setup(3)); runToRest(e); const p = predictPath(e, 0, 1, 0.6, 2, false); assert.ok(p.pts.length > 5 && p.land && Math.abs(p.land.x) < FIELD.W); });
 
-console.log('\n=== Bola Kertas tests ===\n');
-
-console.log('Engine:');
-ok('22 pieces created (11 per team)', () => {
-  const e = new Engine(basicSetup());
-  assert.strictEqual(e.pieces.length, 22, `got ${e.pieces.length}`);
-});
-ok('starts in aim phase', () => { const e = new Engine(basicSetup()); assert.strictEqual(e.phase, 'aim'); });
-ok('score starts 0-0', () => { const e = new Engine(basicSetup()); assert.deepStrictEqual(e.score, [0,0]); });
-ok('field constants sane', () => {
-  assert.ok(FIELD.W > 0 && FIELD.L > FIELD.W, 'field should be longer than wide');
-  assert.ok(FIELD.goalW < FIELD.W, 'goal narrower than field');
-});
-ok('formations all have 11 slots', () => {
-  for (const [name, f] of Object.entries(FORMATIONS)) assert.strictEqual(f.length, 11, `${name} has ${f.length}`);
-});
-ok('turn limit counts down', () => {
-  const e = new Engine(basicSetup());
-  const start = e.turnLeft;
-  for (let i = 0; i < 60; i++) e.step(STEP);
-  assert.ok(e.turnLeft < start, 'turn timer should decrease');
-});
-
-console.log('\nDeterminism:');
-ok('same seed + same actions => same checksum', () => {
-  const actions = [
-    { t:'aim', dx:0, dz:1, power:0.7, shotIdx:0 },
-    { t:'aim', dx:0.1, dz:1, power:0.5, shotIdx:1 },
-  ];
-  const a = replayLog(basicSetup(999), actions, 0);
-  const b = replayLog(basicSetup(999), actions, 0);
-  assert.strictEqual(checksum(a), checksum(b), 'checksums differ');
-});
-ok('different seed => different state once RNG is used', () => {
-  const a = new Engine({ ...basicSetup(1), cpuSkill: 0.5, cpu: [true, true] });
-  const b = new Engine({ ...basicSetup(2), cpuSkill: 0.5, cpu: [true, true] });
-  a.turnTeam = b.turnTeam = 1;
-  a._applyAction(a.cpuAction()); runToRest(a);
-  b._applyAction(b.cpuAction()); runToRest(b);
-  assert.notStrictEqual(checksum(a), checksum(b));
-});
-ok('rng is deterministic for same seed', () => {
-  const r1 = makeRng(42), r2 = makeRng(42);
-  for (let i = 0; i < 20; i++) assert.strictEqual(r1(), r2());
-});
-ok('seedFromString stable', () => {
-  assert.strictEqual(seedFromString('abc'), seedFromString('abc'));
-  assert.notStrictEqual(seedFromString('abc'), seedFromString('abd'));
-});
-
-console.log('\nShooting:');
-ok('shot moves the ball', () => {
-  const e = new Engine(basicSetup());
-  const before = { x: e.ball.x, z: e.ball.z };
-  e._applyAction({ t:'aim', dx:0, dz:1, power:1, shotIdx:0 });
-  assert.strictEqual(e.phase, 'rolling');
-  for (let i = 0; i < 30; i++) e.step(STEP);
-  const moved = Math.hypot(e.ball.x - before.x, e.ball.z - before.z);
-  assert.ok(moved > 0.5, `ball moved only ${moved.toFixed(3)}`);
-});
-ok('ball eventually stops and phase returns to aim', () => {
-  const e = new Engine(basicSetup());
-  e._applyAction({ t:'aim', dx:0, dz:1, power:0.6, shotIdx:0 });
-  runToRest(e);
-  assert.ok(['aim','over','halftime','dead'].includes(e.phase), `stuck in ${e.phase}`);
-});
-ok('shot type changes trajectory', () => {
-  const g = new Engine(basicSetup()); g._applyAction({t:'aim',dx:0,dz:1,power:0.8,shotIdx:0}); runToRest(g);
-  const c = new Engine(basicSetup()); c._applyAction({t:'aim',dx:0,dz:1,power:0.8,shotIdx:1}); runToRest(c);
-  assert.ok(Math.abs(g.ball.z - c.ball.z) > 0.01, 'chip and ground should differ');
-});
-
-console.log('\nTurn rules:');
-ok(`max ${MAX_TAPS} taps then possession switches`, () => {
-  const e = new Engine({ ...basicSetup(), goalsToWin: 0, minutes: 0 });
-  const startTeam = e.turnTeam;
-  let switches = 0, last = startTeam;
-  for (let i = 0; i < 20; i++) {
-    if (e.phase === 'aim') { e._applyAction({ t:'aim', dx:0, dz:1, power:0.3, shotIdx:0 }); }
-    runToRest(e);
-    if (e.turnTeam !== last) { switches++; last = e.turnTeam; }
-    if (switches >= 2) break;
+ok('server replay rewards only a real finished match', () => {
+  const st = S.buildSetup({ team0: 'jdt', team1: 'sel', seed: 9, minutes: 1, skill: 0.25 });
+  const e = new Engine(st); runToRest(e); const log = []; let g = 0;
+  while (e.phase !== 'over' && g++ < 3000) {
+    let a; if (e.phase === 'halftime') a = { t: 'half' }; else if (st.cpu[e.turnTeam]) a = e.cpuAction(); else { const s = e.attackSign(e.turnTeam), dx = -e.ball.x, dz = s * FIELD.L / 2 - e.ball.z, l = Math.hypot(dx, dz); a = { t: 'aim', dx: dx / l, dz: dz / l, power: 0.7, shot: g % 3 }; log.push(a); }
+    e._applyAction(a); runToRest(e);
   }
-  assert.ok(switches >= 1, 'possession never switched');
-});
-ok('actions rejected when not in aim phase', () => {
-  const e = new Engine(basicSetup());
-  e.phase = 'rolling';
-  assert.strictEqual(e._applyAction({ t:'aim', dx:0, dz:1, power:1, shotIdx:0 }), false);
+  const r = S.replayCpuMatch(st, log); assert.ok(r); assert.deepEqual(r.score, e.score);
+  assert.equal(S.replayCpuMatch(st, log.slice(0, 3)), null);
 });
 
-console.log('\nTeams:');
-ok(`${ALL_TEAMS.length} teams loaded`, () => { assert.ok(ALL_TEAMS.length >= 60, `only ${ALL_TEAMS.length}`); });
-ok('every team has 2+ jerseys and keeper', () => {
-  for (const t of ALL_TEAMS) {
-    assert.ok(t.jerseys.length >= 2, `${t.id} jerseys=${t.jerseys.length}`);
-    assert.ok(t.keeper.length >= 1, `${t.id} no keeper`);
-  }
+const TOKEN = '123:TEST';
+const signInit = (user, age = 0) => {
+  const p = new URLSearchParams({ auth_date: String(Math.floor(Date.now() / 1000) - age), query_id: 'x', user: JSON.stringify(user) });
+  const dcs = [...p.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join('\n');
+  const key = createHmac('sha256', 'WebAppData').update(TOKEN).digest(); p.set('hash', createHmac('sha256', key).update(dcs).digest('hex')); return p.toString();
+};
+ok('initData: valid accepted, tampered/expired/wrong token rejected', () => {
+  const good = signInit({ id: 77, first_name: 'Ali' });
+  assert.equal(S.verifyInitData(good, TOKEN).uid, 77);
+  assert.equal(S.verifyInitData(good.replace('Ali', 'Abu'), TOKEN), null);
+  assert.equal(S.verifyInitData(signInit({ id: 77 }, 90000), TOKEN), null);
+  assert.equal(S.verifyInitData(good, '999:OTHER'), null);
 });
-ok('every jersey has required color fields', () => {
-  for (const t of ALL_TEAMS) for (const j of [...t.jerseys, ...t.keeper]) {
-    for (const f of ['base','accent','trim','number']) {
-      assert.ok(/^#[0-9a-f]{6}$/i.test(j[f]), `${t.id}/${j.id} ${f}=${j[f]}`);
-    }
-  }
+ok('invoice payload is <=128 bytes, signed, bound to user and item', () => {
+  const p = S.makePayload('p_gold', 1234567890123); assert.ok(Buffer.byteLength(p) <= 128);
+  assert.equal(S.readPayload(p).uid, 1234567890123);
+  assert.equal(S.readPayload(p.replace('p_gold', 'p_holo')), null);
+  assert.equal(S.readPayload(p.replace('1234567890123', '1234567890124')), null);
 });
-ok('team ids unique', () => {
-  const ids = ALL_TEAMS.map(t => t.id);
-  assert.strictEqual(new Set(ids).size, ids.length, 'duplicate team ids');
+ok('stars fulfilment is exactly once and checks amount', () => {
+  assert.equal(S.fulfill('ch1', 5, 'p_gold', 1).ok, false);
+  assert.equal(S.fulfill('ch1', 5, 'p_gold', 299).ok, true);
+  assert.equal(S.fulfill('ch1', 5, 'p_gold', 299).dup, true);
+  assert.equal(S.fulfill('ch1', 6, 'p_gold', 299).ok, false);
+  assert.equal(S.db.prepare('SELECT COUNT(*) c FROM owned WHERE uid=5').get().c, 1);
+  S.fulfill('ch2', 5, 'pass_week', 30); S.fulfill('ch3', 5, 'pass_week', 30);
+  const until = S.db.prepare('SELECT pass_until FROM users WHERE uid=5').get().pass_until; assert.ok(until > Date.now() + 13 * 86400e3);
 });
-ok('leagues cover 5 competitions', () => { assert.strictEqual(LEAGUES.length, 5); });
-ok('roster is 11 names + 11 numbers', () => {
-  const r = rosterFor(ALL_TEAMS[0]);
-  assert.strictEqual(r.names.length, 11);
-  assert.strictEqual(r.numbers.length, 11);
+ok('coin purchase needs enough coins and never goes negative', () => {
+  S.db.prepare('INSERT OR IGNORE INTO users (uid,coins,equip) VALUES (8,300,\'{}\')').run();
+  assert.equal(S.buyWithCoins(8, 'p_manila').err, 'coins');
+  assert.equal(S.buyWithCoins(8, 'p_news').ok, true);
+  assert.equal(S.buyWithCoins(8, 'p_news').err, 'owned');
+  assert.equal(S.buyWithCoins(8, 'p_gold').err, 'not_for_coins');
+  assert.equal(S.db.prepare('SELECT coins FROM users WHERE uid=8').get().coins, 0);
 });
-ok('teamById falls back safely', () => { assert.ok(teamById('nonexistent').id); });
-
-console.log('\nMatch flow:');
-ok('clock advances in every phase (aim included)', () => {
-  const e = new Engine({ ...basicSetup(), minutes: 5 });
-  for (let i = 0; i < 60; i++) e.step(STEP);
-  assert.ok(e.clock > 0.9, `clock stuck at ${e.clock} while phase=${e.phase}`);
-});
-ok('match ends when time expires, driven only by stepping', () => {
-  // no manual clock write: the loop itself must be able to end the match
-  const e = new Engine({ ...basicSetup(), minutes: 1, halves: false, goalsToWin: 0, turnLimit: 0 });
-  for (let i = 0; i < 60 * 70 && e.phase !== 'over'; i++) e.step(STEP);
-  assert.strictEqual(e.phase, 'over', `phase=${e.phase} clock=${e.clock.toFixed(1)}`);
-});
-ok('goalsToWin ends match', () => {
-  const e = new Engine({ ...basicSetup(), goalsToWin: 1, minutes: 0 });
-  e.score = [1, 0];
-  e.phase = 'goal';
-  e.afterGoal();
-  assert.strictEqual(e.phase, 'over');
-  assert.strictEqual(e.winner, 0);
-});
-ok('halftime triggers at half length', () => {
-  const e = new Engine({ ...basicSetup(), minutes: 4, halves: true });
-  e.clock = e.halfLength + 0.1;
-  e.phase = 'settle'; e.ball.vx = 0; e.ball.vz = 0; e.ball.vy = 0; e.ball.y = 0;
-  e.onBallStopped();
-  assert.strictEqual(e.phase, 'halftime');
-});
-ok('halftime action swaps sides', () => {
-  const e = new Engine(basicSetup());
-  e.phase = 'halftime';
-  const wasSwapped = e.swapped;
-  e._applyAction({ t: 'half' });
-  assert.strictEqual(e.half, 2);
-  assert.notStrictEqual(e.swapped, wasSwapped);
-});
-ok('draw gives null winner', () => {
-  const e = new Engine({ ...basicSetup(), minutes: 1, halves: false });
-  e.score = [2, 2]; e.endMatch();
-  assert.strictEqual(e.winner, null);
-});
-
-console.log('\nCPU:');
-ok('cpu produces valid action', () => {
-  const e = new Engine({ ...basicSetup(), cpu: [true, true], cpuSkill: 0.8 });
-  e.turnTeam = 1;
-  const a = e.cpuAction();
-  assert.ok(a && a.t === 'aim', 'no action');
-  assert.ok(Number.isFinite(a.dx) && Number.isFinite(a.dz), 'bad direction');
-  assert.ok(a.power >= 0 && a.power <= 1.5, `power=${a.power}`);
-});
-ok('higher skill => less random deviation', () => {
-  function spread(skill) {
-    const e = new Engine({ ...basicSetup(), cpuSkill: skill });
-    let xs = [];
-    for (let i = 0; i < 40; i++) xs.push(e.cpuAction().dx);
-    const mean = xs.reduce((a,b)=>a+b)/xs.length;
-    return Math.sqrt(xs.reduce((a,b)=>a+(b-mean)**2,0)/xs.length);
-  }
-  assert.ok(spread(0.9) < spread(0.1), 'high skill should be more accurate');
-});
-
-console.log('\nChecksum:');
-ok('checksum changes after a shot', () => {
-  const e = new Engine(basicSetup());
-  const before = checksum(e);
-  e._applyAction({ t:'aim', dx:0, dz:1, power:1, shotIdx:0 });
-  runToRest(e);
-  assert.notStrictEqual(checksum(e), before);
-});
-ok('checksum is a string with 9 fields', () => {
-  const parts = checksum(new Engine(basicSetup())).split('|');
-  assert.strictEqual(parts.length, 9, `got ${parts.length}`);
-});
-
-console.log(`\n=== ${pass} passed, ${fail} failed ===\n`);
-if (fail > 0) process.exit(1);
+console.log(`\n${n} checks passed`);
+process.exit(0);

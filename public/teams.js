@@ -1,4 +1,4 @@
-// teams.js — Bola Kertas team database
+// teams.js : Bola Kertas team database
 // Each team: id, name, short, league, jerseys (pattern+colors), keeper kits
 
 const kit = (id, label, pattern, base, accent, trim, number, extra = {}) =>
