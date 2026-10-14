@@ -477,12 +477,40 @@ function startOnlineMatch() {
   startCpuMatch();
 }
 
+// ── QA hook ─────────────────────────────────────────────────
+function expose() {
+  window.__bk = {
+    get engine() { return engine; },
+    get state() { return state; },
+    get online() { return online; },
+    get errs() { return window.__errs || []; },
+    snapshot() {
+      if (!engine) return null;
+      return {
+        screen: state.screen, phase: engine.phase, score: engine.score,
+        turnTeam: engine.turnTeam, clock: +engine.clock.toFixed(2),
+        timeLeft: engine.timeLeft, taps: engine.tapsInRow,
+        ball: { x: +engine.ball.x.toFixed(3), z: +engine.ball.z.toFixed(3), y: +engine.ball.y.toFixed(3) },
+        pieces: engine.pieces.length, msg: engine.message?.text || null,
+      };
+    },
+    shoot(dx, dz, power, shotIdx = 0) {
+      if (!engine || engine.phase !== 'aim') return false;
+      const a = { t: 'aim', dx, dz, power, shotIdx };
+      if (online && engine.intercept) engine.intercept(a); else engine._applyAction(a);
+      return true;
+    },
+    menu() { showMenu(); },
+  };
+}
+
 // ── boot ────────────────────────────────────────────────────
 function boot() {
   tg()?.ready?.();
   tg()?.expand?.();
   initRenderer();
   setupInput();
+  expose();
   showMenu();
   animate();
 }

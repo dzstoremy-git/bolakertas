@@ -285,6 +285,8 @@ export class Engine {
   // ── physics step ──
   step(dt) {
     this.phaseT += dt;
+    // must advance before any phase-specific early return, or match time never runs out
+    this.clock += dt;
     if (this.phase === 'aim') {
       if (this.checkTime()) return;
       this.turnT += dt;
@@ -316,7 +318,6 @@ export class Engine {
       }
     }
     if (this.message && this.message.t < 10) this.message.t += dt;
-    this.clock += dt;
   }
 
   stepBall(dt) {

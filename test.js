@@ -139,11 +139,16 @@ ok('roster is 11 names + 11 numbers', () => {
 ok('teamById falls back safely', () => { assert.ok(teamById('nonexistent').id); });
 
 console.log('\nMatch flow:');
-ok('match ends when time expires', () => {
-  const e = new Engine({ ...basicSetup(), minutes: 1, halves: false, goalsToWin: 0 });
-  e.clock = 60;
-  for (let i = 0; i < 200 && e.phase !== 'over'; i++) e.step(STEP);
-  assert.strictEqual(e.phase, 'over', `phase=${e.phase}`);
+ok('clock advances in every phase (aim included)', () => {
+  const e = new Engine({ ...basicSetup(), minutes: 5 });
+  for (let i = 0; i < 60; i++) e.step(STEP);
+  assert.ok(e.clock > 0.9, `clock stuck at ${e.clock} while phase=${e.phase}`);
+});
+ok('match ends when time expires, driven only by stepping', () => {
+  // no manual clock write: the loop itself must be able to end the match
+  const e = new Engine({ ...basicSetup(), minutes: 1, halves: false, goalsToWin: 0, turnLimit: 0 });
+  for (let i = 0; i < 60 * 70 && e.phase !== 'over'; i++) e.step(STEP);
+  assert.strictEqual(e.phase, 'over', `phase=${e.phase} clock=${e.clock.toFixed(1)}`);
 });
 ok('goalsToWin ends match', () => {
   const e = new Engine({ ...basicSetup(), goalsToWin: 1, minutes: 0 });
