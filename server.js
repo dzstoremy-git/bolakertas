@@ -219,8 +219,8 @@ async function onUpdate(u) {
   }
   const text = m.text || '';
   if (text.startsWith('/start')) return bot('sendMessage', { chat_id: m.chat.id, parse_mode: 'HTML',
-    text: '<b>Bola Kertas</b>\nBola sepak kertas 3D. Tepuk, bidik, gol.\n\nPilih pasukan dari Liga Malaysia, EPL, La Liga, Bundesliga atau negara. Lawan CPU, cabar kawan, kumpul kertas dan padang.',
-    reply_markup: { inline_keyboard: [[{ text: 'Main Sekarang', web_app: { url: WEBAPP_URL } }]] } });
+    text: '<b>⚽ Selamat datang ke Bola Kertas!</b>\n\nBola sepak kertas 3D, terus dalam Telegram.\n\n<b>Cara main:</b> sentuh dekat bola, tarik ke belakang, lepas. Lagi jauh tarik, lagi padu tepukan.\n\n🏆 Pilih pasukan Liga Malaysia, EPL, La Liga, Bundesliga atau negara\n🤖 Menang lawan CPU untuk kumpul coins\n📄 Tukar coins atau Stars kepada kertas, padang dan venue baru\n\nSedia? Tekan butang di bawah.',
+    reply_markup: { inline_keyboard: [[{ text: '⚽ MULA MAIN', web_app: { url: WEBAPP_URL } }]] } });
   if (text.startsWith('/paysupport')) return bot('sendMessage', { chat_id: m.chat.id, text: 'Masalah pembelian? Hantar ID resit (telegram_payment_charge_id) dan item yang dibeli dalam chat ini. Kami semak dalam 48 jam.' });
   if (text.startsWith('/terms')) return bot('sendMessage', { chat_id: m.chat.id, text: 'Semua item adalah kosmetik atau peningkatan dalam permainan sahaja. Tiada nilai tunai dan tidak boleh ditukar kepada wang.' });
 }
@@ -356,9 +356,10 @@ if (process.env.NODE_ENV !== 'test') {
   server.listen(PORT, () => console.log('Bola Kertas on :' + PORT));
   if (BOT_TOKEN && WEBAPP_URL) {
     bot('setWebhook', { url: WEBAPP_URL + '/bot/webhook', secret_token: WH_SECRET, allowed_updates: ['message', 'pre_checkout_query'] }).then(r => console.log('webhook', r.ok, r.description || ''));
-    bot('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Main', web_app: { url: WEBAPP_URL } } });
-    bot('setMyCommands', { commands: [{ command: 'start', description: 'Main Bola Kertas' }, { command: 'paysupport', description: 'Bantuan pembelian' }, { command: 'terms', description: 'Terma' }] });
-    bot('setMyDescription', { description: 'Bola sepak kertas 3D. Tepuk, bidik, gol. Lawan CPU atau cabar kawan.' });
-    bot('setMyShortDescription', { short_description: 'Bola sepak kertas 3D dalam Telegram.' });
+    bot('setChatMenuButton', { menu_button: { type: 'web_app', text: 'MULA', web_app: { url: WEBAPP_URL } } });
+    bot('setMyCommands', { commands: [{ command: 'start', description: 'Mula main Bola Kertas' }, { command: 'paysupport', description: 'Bantuan pembelian Stars' }, { command: 'terms', description: 'Terma dan syarat' }] });
+    bot('setMyName', { name: 'Bola Kertas' });
+    bot('setMyDescription', { description: '⚽ Bola Kertas: bola sepak kertas 3D terus dalam Telegram.\n\nTarik, bidik, tepuk. Lambung melepasi pertahanan, cungkil ke penjuru, atau lepaskan Rembatan Padu terus ke gol.\n\n🏆 70 pasukan: Liga Malaysia, EPL, La Liga, Bundesliga dan negara\n🤖 Lawan CPU 3 tahap, 2 pemain satu telefon, online cabar kawan\n📄 Kumpul kertas, padang dan venue. Ada yang padu, ada yang untuk bergaya\n\nPercuma dimain. Tekan MULA sekarang.' });
+    bot('setMyShortDescription', { short_description: 'Bola sepak kertas 3D dalam Telegram. Tarik, bidik, GOL! Lawan CPU atau cabar kawan. Percuma.' });
   }
 }
