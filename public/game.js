@@ -59,7 +59,8 @@ const SFX = {
 
 // Paper squash when tapped: press 0.08s, hold to 0.2s, damped wobble out to 0.9s.
 const squash = (t, p) => { if (t < 0 || t > 0.9) return 0; const u = 0.3 + 0.7 * Math.max(0, Math.min(1, p)); if (t < 0.08) return u * Math.sin(t / 0.08 * Math.PI / 2); if (t < 0.2) return u; const s = (t - 0.2) / 0.7; return u * Math.exp(-4 * s) * Math.cos(8.5 * s) * (1 - s); };
-const TAP_DELAY = 0.1, CHARGE_S = 1.2;
+const TAP_DELAY = 0.1, CHARGE_S = 1.2, MIN_P = 0.35;
+const holdPower = p => MIN_P + (1 - MIN_P) * p;
 
 // ── world ──────────────────────────────────────────────────
 const world = new World($('#scene'));
@@ -99,7 +100,7 @@ function startMatch({ setup, mode, seat = 0, mid = null, paperIds, names }) {
   world.pieces.forEach(p => { p.x = p.data.x; p.z = p.data.z; });
   $('#menu').hidden = true; $('#hud').hidden = false; document.body.classList.add('playing');
   buildHud(); onTurnStart(); SFX.whistle(false);
-  setTimeout(() => { if (M && S.hints) toast('Tekan dan tahan kertas pemain, lepas untuk tepuk. Lagi lama tahan, lagi padu.', 5200); }, 600);
+  setTimeout(() => { if (M && S.hints) toast('Tekan di mana-mana, lepas untuk tepuk. Lagi lama tahan, lagi padu.', 5200); }, 600);
 }
 const humanTurn = () => M && !M.over && !M.queued && M.e.phase === 'aim' && (M.mode === 'local' || (M.mode === 'cpu' && M.e.turnTeam === 0) || (M.mode === 'online' && M.e.turnTeam === M.seat && !M.pending && !M.sent));
 const myTeam = () => M.mode === 'online' ? M.seat : M.mode === 'local' ? M.e.turnTeam : 0;
@@ -184,7 +185,7 @@ function syncVisuals(dt, t) {
   }
   const b = e.ball; world.ballMesh.position.set(b.x, b.y + 0.16, b.z);
   const cue = humanTurn() && !M.aim; world.ballRing.position.set(b.x, 0.015, b.z);
-  if (M.hold && humanTurn()) { M.hold.p = Math.min(1, (performance.now() - M.hold.t0) / 1000 / CHARGE_S); if (!M.hold.dragged) M.aim = { ...goalDir(), power: Math.max(0.05, M.hold.p) }; }
+  if (M.hold && humanTurn()) { M.hold.p = Math.min(1, (performance.now() - M.hold.t0) / 1000 / CHARGE_S); if (!M.hold.dragged) M.aim = { ...goalDir(), power: holdPower(M.hold.p) }; }
   world.ballRing.material.opacity += ((cue ? 0.9 : 0) - world.ballRing.material.opacity) * k; world.ballRing.scale.setScalar(1 + Math.sin(t * 6) * 0.15);
   const sp = Math.hypot(b.vx, b.vz); if (sp > 0.01) { world.ballMesh.rotation.x += b.vz * dt / 0.16; world.ballMesh.rotation.z -= b.vx * dt / 0.16; }
   if (world.trailLine) {
@@ -241,9 +242,7 @@ function goalDir() { const e = M.e, b = e.ball, s = e.attackSign(e.kicker.team),
 canvas.addEventListener('pointerdown', ev => {
   audio(); if (!M || M.paused) return;
   canvas.setPointerCapture(ev.pointerId);
-  const k = M.e.kicker, r = Math.max(64, Math.min(innerWidth, innerHeight) * 0.14);
-  const hit = humanTurn() && !M.ps && k && [screenOf(M.e.ball.x, M.e.ball.z), screenOf(k.x, k.z)].some(p => Math.hypot(ev.clientX - p.x, ev.clientY - p.y) < r);
-  if (hit) { drag = { kind: 'aim', id: ev.pointerId, x: ev.clientX, y: ev.clientY, g: groundAt(ev.clientX, ev.clientY) }; M.hold = { t0: performance.now(), p: 0, dragged: false }; M.aim = { ...goalDir(), power: 0.05 }; haptic('light'); }
+  if (humanTurn() && !M.ps && M.e.kicker) { drag = { kind: 'aim', id: ev.pointerId, x: ev.clientX, y: ev.clientY, g: groundAt(ev.clientX, ev.clientY) }; M.hold = { t0: performance.now(), p: 0, dragged: false }; M.aim = { ...goalDir(), power: MIN_P }; haptic('light'); }
   else drag = { kind: 'look', id: ev.pointerId, x: ev.clientX, yaw: M.camYaw };
 });
 canvas.addEventListener('pointermove', ev => {
@@ -252,11 +251,11 @@ canvas.addEventListener('pointermove', ev => {
   if (!M.hold || Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) < 18) return; // small wobble stays a straight tap
   const g = groundAt(ev.clientX, ev.clientY); if (!g || !drag.g) return;
   const dx = drag.g.x - g.x, dz = drag.g.z - g.z, d = Math.hypot(dx, dz); if (d < 0.05) return;
-  M.hold.dragged = true; M.aim = { dx: dx / d, dz: dz / d, power: Math.max(0.05, M.hold.p) };
+  M.hold.dragged = true; M.aim = { dx: dx / d, dz: dz / d, power: holdPower(M.hold.p) };
 });
 const endDrag = ev => {
   if (!drag || ev.pointerId !== drag.id) return;
-  if (drag.kind === 'aim' && M?.hold && humanTurn() && ev.type === 'pointerup') act({ t: 'aim', dx: M.aim.dx, dz: M.aim.dz, power: Math.max(0.05, M.hold.p), shot: M.shot });
+  if (drag.kind === 'aim' && M?.hold && humanTurn()) act({ t: 'aim', dx: M.aim.dx, dz: M.aim.dz, power: holdPower(M.hold.p), shot: M.shot });
   if (M) { M.hold = null; M.aim = null; }
   drag = null;
 };
@@ -591,13 +590,13 @@ function showShop(slot = 'paper') {
 function showHelp() {
   const m = screen(`${header(true)}<main class="help"><h2 class="ttl">CARA MAIN</h2>
     <ol class="rules">
-      <li><b>Tepuk kertas.</b> Tekan dan tahan kertas pemain yang bercincin, lepas untuk tepuk. Lagi lama tahan, lagi padu. Bola terus ke arah gol.</li><li><b>Nak ubah arah?</b> Sambil tahan, seret jari ke belakang macam lastik. Titik putih tunjuk laluan bola.</li>
+      <li><b>Tepuk kertas.</b> Bila giliran anda, tekan di mana-mana pada padang, lepas untuk tepuk. Lagi lama tahan, lagi padu. Bola terus ke arah gol.</li><li><b>Nak ubah arah?</b> Sambil tahan, seret jari ke belakang macam lastik. Titik putih tunjuk laluan bola.</li>
       <li><b>Pilih jenis sepakan.</b> BUMI bergolek. CUNGKIL naik sikit melepasi seorang pemain. LAMBUNG tinggi melepasi barisan.</li>
       <li><b>${MAX_TAPS} tepukan.</b> Pemain paling dekat dengan bola akan tepuk. Satu pasukan boleh tepuk ${MAX_TAPS} kali berturut, kemudian giliran bertukar.</li>
       <li><b>Rembatan Padu.</b> Setiap kali pemain dapat giliran, cas naik. Penuh ${POWER_CHARGE} kali, tekan REMBATAN PADU dan bola meluncur terus ke gol.</li>
       <li><b>Penjaga gol</b> bergerak sendiri di garisan gol. Bidik ke sudut.</li>
       <li><b>Bola keluar</b> jadi bola lawan. Keluar di garisan gol: sepakan sudut atau sepakan gol.</li>
-      <li><b>Kamera.</b> Kamera ikut pemain dan bola sendiri. Seret di tempat kosong untuk pusing, butang kamera tukar ke pandangan atas.</li>
+      <li><b>Kamera.</b> Kamera ikut pemain dan bola sendiri. Seret ketika giliran lawan untuk pusing, butang kamera tukar ke pandangan atas.</li>
       <li><b>Kertas.</b> Kertas lain beri stat lain. Kertas mahal tidak semestinya kuat: sesetengahnya untuk gaya sahaja.</li>
     </ol></main>`);
   bindHeader(m);
@@ -644,7 +643,7 @@ function lockSwipe() {
   const pad = 100, b = document.body;
   Object.assign(b.style, { overflowY: 'hidden', marginTop: pad + 'px', height: innerHeight + pad + 'px', paddingBottom: pad + 'px' });
   const keep = () => { if (scrollY < pad) scrollTo(0, pad); };
-  keep(); addEventListener('scroll', keep, { passive: true }); addEventListener('touchstart', keep, { passive: true });
+  keep(); addEventListener('scroll', keep, { passive: true });
   addEventListener('resize', () => { b.style.height = innerHeight + pad + 'px'; keep(); });
   document.addEventListener('touchmove', ev => { if (!ev.target.closest('#menu, .ov .sheet')) ev.preventDefault(); }, { passive: false });
 }
