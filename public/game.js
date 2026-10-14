@@ -637,8 +637,20 @@ window.__bk = {
   ballScreen, beginCpu, beginLocal, showShop, showHome,
 };
 
+// Stop Telegram's swipe-down-to-close while aiming.
+// 1) disableVerticalSwipes (Telegram 7.7+). 2) Older clients: keep the document scrolled 100px down so a
+// downward drag scrolls nothing instead of collapsing the app. 3) Never let the browser treat a game drag as a scroll.
+function lockSwipe() {
+  const pad = 100, b = document.body;
+  Object.assign(b.style, { overflowY: 'hidden', marginTop: pad + 'px', height: innerHeight + pad + 'px', paddingBottom: pad + 'px' });
+  const keep = () => { if (scrollY < pad) scrollTo(0, pad); };
+  keep(); addEventListener('scroll', keep, { passive: true }); addEventListener('touchstart', keep, { passive: true });
+  addEventListener('resize', () => { b.style.height = innerHeight + pad + 'px'; keep(); });
+  document.addEventListener('touchmove', ev => { if (!ev.target.closest('#menu, .ov .sheet')) ev.preventDefault(); }, { passive: false });
+}
 async function boot() {
   try { tg?.ready(); tg?.expand(); tg?.disableVerticalSwipes?.(); tg?.setHeaderColor?.('#070b16'); tg?.setBackgroundColor?.('#070b16'); } catch {}
+  lockSwipe();
   await document.fonts?.ready;
   await loadProfile();
   stageMenuScene(); requestAnimationFrame(loop);
