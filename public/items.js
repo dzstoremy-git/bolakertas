@@ -25,8 +25,8 @@ export const ITEMS = [
     stats: { power: 100, weight: 100, control: 100 }, look: { kind: 'gold', base: '#e8b84a', rough: 0.22, metal: 1 } },
 
   // PITCH: cosmetic only.
-  { id: 'f_stripes', slot: 'pitch', name: 'Jalur Klasik', desc: 'Rumput dipotong lurus.', free: true, look: { a: '#3fae49', b: '#37a041', line: '#ffffff', style: 'stripes' } },
-  { id: 'f_checker', slot: 'pitch', name: 'Petak Catur', desc: 'Corak petak stadium Eropah.', free: true, look: { a: '#43b04c', b: '#389f42', line: '#ffffff', style: 'checker' } },
+  { id: 'f_stripes', slot: 'pitch', name: 'Jalur Klasik', desc: 'Rumput dipotong lurus.', free: true, look: { a: '#1f8a34', b: '#17772b', line: '#ffffff', style: 'stripes' } },
+  { id: 'f_checker', slot: 'pitch', name: 'Petak Catur', desc: 'Corak petak stadium Eropah.', free: true, look: { a: '#228d37', b: '#187a2c', line: '#ffffff', style: 'checker' } },
   { id: 'f_kampung', slot: 'pitch', name: 'Tanah Merah Kampung', desc: 'Rumput botak, tanah merah, semangat petang.', coins: 600, look: { a: '#7a9a3c', b: '#6f8f35', line: '#fff6dc', style: 'worn' } },
   { id: 'f_snow', slot: 'pitch', name: 'Salji Putih', desc: 'Main bola dalam musim sejuk.', stars: 25, look: { a: '#e9f1f7', b: '#dde8f1', line: '#e0453a', style: 'snow' } },
   { id: 'f_neon', slot: 'pitch', name: 'Neon Grid', desc: 'Garisan menyala dalam gelap.', stars: 39, look: { a: '#0d1530', b: '#111b3d', line: '#39f6ff', style: 'neon' } },

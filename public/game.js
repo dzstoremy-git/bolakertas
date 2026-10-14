@@ -1,10 +1,10 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=15';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor } from './teams.js?v=15';
-import { ITEMS, itemById, DEFAULT_EQUIP } from './items.js?v=15';
-import { World, Q } from './scene.js?v=15';
-import { paperThumb, paperSurface, pitchTexture, ballTexture, crest, ink } from './art.js?v=15';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=16';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor } from './teams.js?v=16';
+import { ITEMS, itemById, DEFAULT_EQUIP } from './items.js?v=16';
+import { World, Q } from './scene.js?v=16';
+import { paperThumb, paperSurface, pitchTexture, ballTexture, crest, ink } from './art.js?v=16';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 15, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };

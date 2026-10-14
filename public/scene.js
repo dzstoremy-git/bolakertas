@@ -1,8 +1,8 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=15';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=15';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade } from './art.js?v=15';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=16';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=16';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade } from './art.js?v=16';
 
 export const Q = (() => { // quality tier. Telegram WebView on mobile gets the lean tier.
   const touch = matchMedia('(pointer:coarse)').matches, low = touch && (navigator.hardwareConcurrency || 4) <= 4;
@@ -59,13 +59,13 @@ export class World {
   constructor(canvas) {
     this.r = new THREE.WebGLRenderer({ canvas, antialias: Q.aa, powerPreference: 'high-performance' });
     this.r.setPixelRatio(Q.dpr); this.r.outputColorSpace = THREE.SRGBColorSpace;
-    this.r.toneMapping = THREE.ACESFilmicToneMapping; this.r.toneMappingExposure = 1.05;
+    this.r.toneMapping = THREE.ACESFilmicToneMapping; this.r.toneMappingExposure = 0.82;
     this.r.shadowMap.enabled = true; this.r.shadowMap.type = THREE.PCFShadowMap;
     this.scene = new THREE.Scene();
     this.cam = new THREE.PerspectiveCamera(46, 1, 0.05, 220);
-    const pm = new THREE.PMREMGenerator(this.r); this.envMap = pm.fromScene(new RoomEnvironment(), 0.04).texture; this.scene.environment = this.envMap;
-    this.hemi = new THREE.HemisphereLight(0xdfefff, 0x4a5a3a, 0.55); this.scene.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xffffff, 2.4); this.sun.castShadow = true;
+    const pm = new THREE.PMREMGenerator(this.r); this.envMap = pm.fromScene(new RoomEnvironment(), 0.04).texture; this.scene.environment = this.envMap; this.scene.environmentIntensity = 0.45;
+    this.hemi = new THREE.HemisphereLight(0xdfefff, 0x2f4a2a, 0.35); this.scene.add(this.hemi);
+    this.sun = new THREE.DirectionalLight(0xfff4e2, 2.1); this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(Q.shadow, Q.shadow); this.sun.shadow.bias = -0.0004; this.sun.shadow.normalBias = 0.02; this.sun.shadow.radius = 4;
     Object.assign(this.sun.shadow.camera, { left: -11, right: 11, top: 15, bottom: -15, near: 1, far: 70 });
     this.sun.position.set(7, 22, 9); this.scene.add(this.sun, this.sun.target);
@@ -82,7 +82,7 @@ export class World {
   setPitch(look) {
     if (this.pitch) { this.static.remove(this.pitch); this.pitch.geometry.dispose(); this.pitch.material.map.dispose(); this.pitch.material.dispose(); }
     const t = tex(pitchTexture(look, Q.ppu), true, this.r.capabilities.getMaxAnisotropy());
-    const m = new THREE.MeshStandardMaterial({ map: t, roughness: look.style === 'neon' ? 0.5 : 0.92, metalness: 0 });
+    const m = new THREE.MeshStandardMaterial({ map: t, roughness: look.style === 'neon' ? 0.5 : 0.95, metalness: 0, envMapIntensity: 0.3 });
     if (look.style === 'neon') { m.emissive = new THREE.Color(0xffffff); m.emissiveMap = t; m.emissiveIntensity = 0.35; }
     this.pitch = new THREE.Mesh(new THREE.PlaneGeometry(FIELD.W + APRON * 2, FIELD.L + APRON * 2), m);
     this.pitch.rotation.x = -Math.PI / 2; this.pitch.receiveShadow = true; this.static.add(this.pitch);
@@ -144,11 +144,11 @@ export class World {
       this.crowd = mesh; this.crowdBase = []; for (let j = 0; j < count; j++) { mesh.getMatrixAt(j, m); this.crowdBase.push(new THREE.Vector3().setFromMatrixPosition(m)); }
       V.add(mesh);
     };
-    this.crowd = null; this.scene.fog = null; this.sun.color.set(0xffffff); this.sun.intensity = 2.4; this.hemi.intensity = 0.55; this.r.toneMappingExposure = 1.05;
+    this.crowd = null; this.scene.fog = null; this.sun.color.set(0xfff4e2); this.sun.intensity = 2.1; this.hemi.intensity = 0.35; this.r.toneMappingExposure = 0.82;
     this.spot = [];
     if (id === 'v_desk' || !id) {
-      sky('#9fc4e8', '#f1e7d6'); table('#ffcf2e', '#5b4a3a', '#e0a400'); floor('#9a7b5a', 0.7);
-      const wall = add(new THREE.PlaneGeometry(80, 26), std('#f1ebe0', 0.95), 0, 2, -24); 
+      sky('#4f86c6', '#c9b79a'); table('#e8a917', '#4a3a2c', '#b77f00'); floor('#7a5b3e', 0.7);
+      const wall = add(new THREE.PlaneGeometry(80, 26), std('#b9ab95', 0.95), 0, 2, -24); 
       const board = add(new THREE.BoxGeometry(18, 7, 0.2), std('#1f3b2c', 0.9), 0, 6, -23.8);
       const ct = document.createElement('canvas'); ct.width = 1024; ct.height = 400; const g = ct.getContext('2d'); g.fillStyle = '#1f3b2c'; g.fillRect(0, 0, 1024, 400);
       g.fillStyle = 'rgba(255,255,255,0.85)'; g.font = '700 64px "Barlow Condensed", Arial'; g.fillText('4-4-2  ->  TEPUK!', 70, 140); g.font = '600 44px "Barlow Condensed", Arial'; g.fillText('Rehat: 10.30 pagi', 70, 260);
@@ -167,7 +167,7 @@ export class World {
       const cup = add(new THREE.CylinderGeometry(0.45, 0.35, 0.9, 20), std('#ffffff', 0.2), 8.4, 0.45, -12.4); add(new THREE.CylinderGeometry(0.4, 0.4, 0.05, 20), std('#4a2a12', 0.3), 8.4, 0.88, -12.4);
     } else if (id === 'v_night' || id === 'v_final') {
       const fin = id === 'v_final';
-      sky(fin ? '#0b0a1f' : '#050a18', fin ? '#2a1d4a' : '#14203d'); this.sun.intensity = 1.3; this.hemi.intensity = 0.25; this.r.toneMappingExposure = 1.15;
+      sky(fin ? '#0b0a1f' : '#050a18', fin ? '#2a1d4a' : '#14203d'); this.sun.intensity = 1.3; this.hemi.intensity = 0.25; this.r.toneMappingExposure = 0.95;
       floor(fin ? '#1b1530' : '#10182b', 1); boards(fin ? 'FINAL  BOLA KERTAS' : 'BOLA KERTAS  LIGA MALAM', fin ? '#2a1d4a' : '#0b2a6f', fin ? '#ffd45a' : '#ffffff');
       add(new THREE.BoxGeometry(TW + 3, 0.6, TL + 3), std('#2b2f3a', 0.7), 0, -0.31, 0, true);
       crowd(Q.low ? 500 : 1100, 20, fin ? ['#ffd45a', '#ffffff', '#e8483c', '#2a1d4a', '#8f6bff'] : ['#d71920', '#1b3f94', '#ffffff', '#ffd400', '#111111'], -2);
@@ -238,12 +238,15 @@ export class World {
 
   buildAim() {
     this.aimGroup = new THREE.Group(); this.scene.add(this.aimGroup);
-    const dotGeo = new THREE.SphereGeometry(0.06, 8, 6), dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false });
-    this.dots = []; for (let i = 0; i < 40; i++) { const d = new THREE.Mesh(dotGeo, dotMat.clone()); d.visible = false; this.aimGroup.add(d); this.dots.push(d); }
-    this.landRing = new THREE.Mesh(new THREE.RingGeometry(0.24, 0.36, 32), new THREE.MeshBasicMaterial({ color: 0xd4ff2a, transparent: true, opacity: 0.95, depthWrite: false, depthTest: false })); this.landRing.renderOrder = 6;
+    const dotGeo = new THREE.SphereGeometry(0.07, 10, 8), dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1, depthWrite: false, depthTest: false });
+    this.dots = []; const rim = new THREE.MeshBasicMaterial({ color: 0x06100a, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false, side: THREE.BackSide });
+    for (let i = 0; i < 40; i++) { const d = new THREE.Mesh(dotGeo, dotMat.clone()); d.renderOrder = 8; const o = new THREE.Mesh(dotGeo, rim); o.scale.setScalar(1.35); o.renderOrder = 7; d.add(o); d.visible = false; this.aimGroup.add(d); this.dots.push(d); }
+    this.landRing = new THREE.Mesh(new THREE.RingGeometry(0.26, 0.42, 32), new THREE.MeshBasicMaterial({ color: 0xd4ff2a, transparent: true, opacity: 0.95, depthWrite: false, depthTest: false })); this.landRing.renderOrder = 6;
     this.landRing.rotation.x = -Math.PI / 2; this.landRing.visible = false; this.aimGroup.add(this.landRing);
     const shape = new THREE.Shape(); shape.moveTo(-0.07, 0); shape.lineTo(0.07, 0); shape.lineTo(0.07, 0.8); shape.lineTo(0.18, 0.8); shape.lineTo(0, 1.1); shape.lineTo(-0.18, 0.8); shape.lineTo(-0.07, 0.8);
-    this.arrow = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: 0xd4ff2a, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+    this.arrow = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: 0xd4ff2a, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+    this.arrow.renderOrder = 8; const outline = new THREE.Mesh(this.arrow.geometry, new THREE.MeshBasicMaterial({ color: 0x06100a, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+    outline.scale.set(1.35, 1.12, 1); outline.position.set(0, -0.04, -0.001); outline.renderOrder = 7; this.arrow.add(outline);
     this.arrow.rotation.x = -Math.PI / 2; this.arrow.visible = false; this.aimGroup.add(this.arrow);
   }
   showAim(ball, dx, dz, power, path, ps) {
@@ -257,9 +260,9 @@ export class World {
     // ShapeGeometry points +y; after -90deg about x that is -z, so yaw by atan2(-dx,-dz) to point along (dx,dz).
     this.arrow.position.set(ball.x + dx * 0.3, 0.03, ball.z + dz * 0.3);
     this.arrow.rotation.set(0, Math.atan2(-dx, -dz), 0, 'YXZ'); this.arrow.rotateX(-Math.PI / 2);
-    this.arrow.scale.set(1, 0.6 + power * 1.6, 1);
+    this.arrow.scale.set(1.5, 0.8 + power * 1.8, 1);
     const pts = path.pts, step = Math.max(1, Math.floor(pts.length / this.dots.length));
-    for (let i = 0, j = 0; i < pts.length && j < this.dots.length; i += step, j++) { const d = this.dots[j], p = pts[i]; d.visible = true; d.position.set(p.x, p.y + 0.05, p.z); d.material.opacity = 0.95 - j / this.dots.length * 0.7; d.material.color.set(col); }
+    for (let i = 0, j = 0; i < pts.length && j < this.dots.length; i += step, j++) { const d = this.dots[j], p = pts[i]; d.visible = true; d.position.set(p.x, p.y + 0.05, p.z); d.material.opacity = 1 - j / this.dots.length * 0.45; d.material.color.set(col); }
     if (target) this.landRing.position.set(target.x, 0.02, target.z);
   }
 
