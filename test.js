@@ -49,12 +49,18 @@ ok('invoice payload is <=128 bytes, signed, bound to user and item', () => {
 });
 ok('stars fulfilment is exactly once and checks amount', () => {
   assert.equal(S.fulfill('ch1', 5, 'p_gold', 1).ok, false);
-  assert.equal(S.fulfill('ch1', 5, 'p_gold', 299).ok, true);
-  assert.equal(S.fulfill('ch1', 5, 'p_gold', 299).dup, true);
-  assert.equal(S.fulfill('ch1', 6, 'p_gold', 299).ok, false);
+  assert.equal(S.fulfill('ch1', 5, 'p_gold', 249).ok, true);
+  assert.equal(S.fulfill('ch1', 5, 'p_gold', 249).dup, true);
+  assert.equal(S.fulfill('ch1', 6, 'p_gold', 249).ok, false);
   assert.equal(S.db.prepare('SELECT COUNT(*) c FROM owned WHERE uid=5').get().c, 1);
   S.fulfill('ch2', 5, 'pass_week', 30); S.fulfill('ch3', 5, 'pass_week', 30);
   const until = S.db.prepare('SELECT pass_until FROM users WHERE uid=5').get().pass_until; assert.ok(until > Date.now() + 13 * 86400e3);
+});
+ok('set bundle grants every piece once, then counts as owned', () => {
+  assert.equal(S.fulfill('ch9', 11, 'set_night', 129).ok, true);
+  const got = S.db.prepare('SELECT item FROM owned WHERE uid=11 ORDER BY item').all().map(r => r.item);
+  assert.deepEqual(got, ['f_neon', 'p_carbon', 'v_rooftop']);
+  assert.equal(S.fulfill('ch9', 11, 'set_night', 129).dup, true);
 });
 ok('coin purchase needs enough coins and never goes negative', () => {
   S.db.prepare('INSERT OR IGNORE INTO users (uid,coins,equip) VALUES (8,300,\'{}\')').run();

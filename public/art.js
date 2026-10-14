@@ -1,6 +1,6 @@
 // art.js : procedural 2D art drawn on canvas. Jerseys, crests, pitch, ball, net, paper surfaces.
 // Used for 3D textures and for menu thumbnails, so the menu and the match always look the same.
-import { FIELD } from './engine.js?v=16';
+import { FIELD } from './engine.js?v=17';
 
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; };
 export const shade = (hex, k) => { // k<0 darker, k>0 lighter
@@ -25,6 +25,10 @@ function pattern(g, w, h, k) {
     case 'sash': g.beginPath(); g.moveTo(-w * 0.1, h * 0.05); g.lineTo(w * 0.2, -h * 0.05); g.lineTo(w * 1.1, h * 0.95); g.lineTo(w * 0.8, h * 1.05); g.fill(); break;
     case 'chevron': for (const y of [0.38, 0.56]) { g.beginPath(); g.moveTo(0, h * y); g.lineTo(w / 2, h * (y + 0.16)); g.lineTo(w, h * y); g.lineTo(w, h * (y + 0.08)); g.lineTo(w / 2, h * (y + 0.24)); g.lineTo(0, h * (y + 0.08)); g.fill(); } break;
     case 'gradient': { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, k.base); gr.addColorStop(1, k.accent); g.fillStyle = gr; g.fillRect(0, 0, w, h); break; }
+    case 'holo': { const cols = ['#d61a8f', '#7a22e0', '#1560d6', '#0aa6c4', '#22b04a', '#e0a400', '#e0441a'], bw = (w + h) / 14;
+      for (let i = 0, x = -h; x < w; i++, x += bw) { g.fillStyle = cols[i % cols.length]; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + bw + 1, 0); g.lineTo(x + bw + 1 + h * 0.6, h); g.lineTo(x + h * 0.6, h); g.fill(); }
+      const r = rng(5); g.fillStyle = '#ffffff'; for (let i = 0; i < 70; i++) { const x = r() * w, y = r() * h, s = 1 + r() * 2.5; g.globalAlpha = 0.5 + r() * 0.5; g.fillRect(x - s, y - 0.5, s * 2, 1); g.fillRect(x - 0.5, y - s, 1, s * 2); }
+      g.globalAlpha = 1; break; }
     case 'checkers': { const s = w / 6; for (let y = 0; y < h; y += s) for (let x = 0; x < w; x += s) if (((x + y) / s) % 2 < 1) g.fillRect(x, y, s, s); break; }
     default: break;
   }

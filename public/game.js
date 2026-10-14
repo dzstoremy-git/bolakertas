@@ -1,10 +1,11 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=16';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor } from './teams.js?v=16';
-import { ITEMS, itemById, DEFAULT_EQUIP } from './items.js?v=16';
-import { World, Q } from './scene.js?v=16';
-import { paperThumb, paperSurface, pitchTexture, ballTexture, crest, ink } from './art.js?v=16';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=17';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor } from './teams.js?v=17';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet } from './items.js?v=17';
+import { World, Q } from './scene.js?v=17';
+import { crest, ink } from './art.js?v=17';
+import * as L3 from './locker3d.js?v=17';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 15, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -57,6 +58,8 @@ const SFX = {
   whistle: (long) => { tone(2300, long ? 0.9 : 0.35, 'square', 0.05, 1.02); tone(2340, long ? 0.9 : 0.35, 'square', 0.05, 0.99); },
   goal: () => { noise(2.2, 0.35, 900, 0.3); [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone(f, 0.35, 'triangle', 0.12), i * 110)); },
   ui: () => tone(660, 0.05, 'sine', 0.08), buy: () => [784, 988, 1318].forEach((f, i) => setTimeout(() => tone(f, 0.18, 'triangle', 0.12), i * 90)),
+  tapLegend: (r) => { tone(r >= 4 ? 1320 : 990, 0.18, 'triangle', 0.09, 1.6); setTimeout(() => tone(r >= 4 ? 1760 : 1320, 0.14, 'sine', 0.06), 60); },
+  goalMyth: () => [523, 659, 784, 1046, 1318].forEach((f, i) => setTimeout(() => tone(f, 0.35, 'triangle', 0.08), 380 + i * 90)),
   ignite: () => { noise(0.6, 0.2, 400, 0.4); tone(110, 0.6, 'sawtooth', 0.08, 2.2); },
 };
 
@@ -71,7 +74,7 @@ const ray = new THREE.Raycaster(), ground = new THREE.Plane(new THREE.Vector3(0,
 let M = null; // current match
 let menuSpin = 0;
 
-function looksFor(paperIds) { return paperIds.map(id => ({ ...(itemById(id)?.look || itemById('p_a4').look) })); }
+function looksFor(paperIds) { return paperIds.map(id => { const it = itemById(id) || itemById('p_a4'); return { ...it.look, rarity: it.rarity }; }); }
 function pickKits(t0, t1, k0 = 0) {
   const kit0 = t0.jerseys[k0] || t0.jerseys[0];
   const dist = (a, b) => { const p = x => parseInt(x.slice(1), 16), A = p(a), B = p(b); return Math.hypot((A >> 16) - (B >> 16), ((A >> 8) & 255) - ((B >> 8) & 255), (A & 255) - (B & 255)); };
@@ -100,7 +103,7 @@ function startMatch({ setup, mode, seat = 0, mid = null, paperIds, names }) {
   M = { e, setup, mode, seat, mid, art, names: names || [art.teams[0].short, art.teams[1].short], actions: [], shot: 0, ps: false,
     aim: null, cpuWait: 0, turnLeft: null, turnDeadline: 0, halfWait: 0, lastMsg: 0, shake: 0, pending: null, over: false, paused: false,
     camYaw: 0, camMode: S.cam, goalCam: 0, slow: 1, kickoffHint: true };
-  world.pieces.forEach(p => { p.x = p.data.x; p.z = p.data.z; });
+  world.pieces.forEach(p => { p.x = p.data.x; p.z = p.data.z; p.drop = p.rank >= 4 ? 1.2 + p.data.id * 0.05 : 0; });
   $('#menu').hidden = true; $('#hud').hidden = false; document.body.classList.add('playing');
   buildHud(); onTurnStart(); SFX.whistle(false);
   setTimeout(() => { if (M && S.hints) toast('Tekan di mana-mana, lepas untuk tepuk. Lagi lama tahan, lagi padu.', 5200); }, 600);
@@ -118,7 +121,7 @@ function onTurnStart() {
 function startTap(a) {
   const k = M.e.kicker; if (a.t !== 'aim' || !k) return;
   const vp = world.pieces[k.id]; vp.flipT = 0; vp.tapPower = a.ps ? 1 : a.power;
-  world.ripple?.(k.x - a.dx * 0.35, k.z - a.dz * 0.35); SFX.tap(a.power); haptic(a.ps ? 'heavy' : 'medium');
+  world.tapFx(k.x - a.dx * 0.35, k.z - a.dz * 0.35, vp.rank, vp.color); SFX.tap(a.power); if (vp.rank >= 3) SFX.tapLegend(vp.rank); haptic(a.ps ? 'heavy' : 'medium');
 }
 function act(a) {
   if (!M || M.queued) return;
@@ -138,7 +141,8 @@ function drainEvents() {
     else if (ev.type === 'whistle') SFX.whistle(ev.long);
     else if (ev.type === 'goal') {
       SFX.goal(); notify('success'); M.shake = 0.7; world.cheer = 3; M.goalCam = 2.2;
-      const k = M.art.kits[ev.team]; world.goalFx(P.equip.fx, e.ball.x, e.ball.z, [k.base, k.accent]);
+      const k = M.art.kits[ev.team], mine = ev.team === myTeam() && M.mode !== 'local', set = mine ? completeSet(P.equip) : null, rank = mine ? (RARITY[itemById(P.equip.paper)?.rarity]?.rank || 0) : 0;
+      world.goalFx(mine ? P.equip.fx : 'x_basic', e.ball.x, e.ball.z, [k.base, k.accent], set?.setFx, rank); if (rank >= 4) SFX.goalMyth();
     }
     else if (ev.type === 'turn') M.turnFlag = true;
   }
@@ -179,7 +183,8 @@ function syncVisuals(dt, t) {
     const lift = Math.sin(Math.min(1, vp.hop) * Math.PI) * 0.25; vp.hop = Math.max(0, vp.hop - dt * 3);
     vp.flipT = (vp.flipT ?? 9) + dt; const sq = squash(vp.flipT, vp.tapPower ?? 0.5);
     vp.body.scale.set(1 + sq * 0.12, Math.max(0.2, 1 - sq * 0.7), 1 + sq * 0.9);
-    vp.root.position.set(vp.x, lift, vp.z);
+    let dropY = 0; if (vp.drop > 0) { vp.drop = Math.max(0, vp.drop - dt); const u = Math.min(1, vp.drop / 0.9); dropY = u * u * 6; if (vp.drop === 0) { world.ripple(vp.x, vp.z, vp.color); world.burst(vp.x, 0.3, vp.z, [vp.color, '#ffffff'], 6, 2.5, 8, 0.06, true); } }
+    vp.root.position.set(vp.x, lift + dropY, vp.z);
     vp.root.rotation.set(Math.sin(t * 30 + p.id) * p.wobble * 0.18, (e.attackSign(p.team) > 0 ? 0 : Math.PI), Math.sin(t * 26 + p.id) * p.wobble * 0.12);
     const active = p === e.kicker && e.phase === 'aim';
     vp.ring.material.opacity += ((active ? 0.95 : 0) - vp.ring.material.opacity) * k;
@@ -297,6 +302,8 @@ function buildHud() {
     <button class="power" id="power-btn" hidden>REMBATAN PADU</button>
   </div>
   <div class="banner" id="banner"><b></b><small></small></div>`;
+  const myRank = M.mode === 'local' ? 0 : RARITY[itemById(P.equip.paper)?.rarity]?.rank || 0, myCol = rarityOf(itemById(P.equip.paper)).color;
+  hud.style.setProperty('--rc', myCol); hud.dataset.rank = myRank; M.myRank = myRank;
   hud.querySelector('.sb-c0').append(crestCanvas(t0)); hud.querySelector('.sb-c1').append(crestCanvas(t1));
   hud.querySelectorAll('.shot').forEach(b => b.onclick = () => setShot(+b.dataset.i));
   $('#cam-btn').onclick = toggleCam; $('#pause-btn').onclick = pause; $('#power-btn').onclick = firePower;
@@ -312,7 +319,7 @@ function updatePlayerCard() {
   const kit = k.isGK ? M.art.keepers[k.team] : M.art.kits[k.team];
   $('#pcard').style.setProperty('--c', kit.base); $('#pcard').style.setProperty('--i', ink(kit.base));
   $('#pcard .pc-badge').textContent = k.number;
-  $('#pc-name').textContent = `${k.name.toUpperCase()}`;
+  $('#pc-name').textContent = `${k.name.toUpperCase()}`; $('#pc-name').classList.toggle('rar', k.team === myTeam() && M.myRank >= 1);
   $('#charge').querySelectorAll('i').forEach((el, i) => el.classList.toggle('on', i < k.charge));
   $('#charge').classList.toggle('full', k.charge >= POWER_CHARGE);
   const who = M.mode === 'cpu' ? (e.turnTeam === 0 ? 'GILIRAN ANDA' : 'GILIRAN CPU') : M.mode === 'online' ? (e.turnTeam === M.seat ? 'GILIRAN ANDA' : 'GILIRAN LAWAN') : `GILIRAN ${M.names[e.turnTeam]}`;
@@ -445,43 +452,45 @@ async function createRoom() {
 }
 
 // ── menus ──────────────────────────────────────────────────
-const ICON = {
-  cpu: '<path d="M7 7h10v10H7z M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4" />',
-  two: '<circle cx="8" cy="8" r="3.2"/><circle cx="16" cy="8" r="3.2"/><path d="M2.5 19c.8-3.4 3-5 5.5-5s4.7 1.6 5.5 5M10.5 19c.8-3.4 3-5 5.5-5s4.7 1.6 5.5 5"/>',
-  web: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.3 3 14.7 0 18M12 3c-3 3.3-3 14.7 0 18"/>',
-  shop: '<path d="M4 8h16l-1.5 11h-13z M8.5 8V6a3.5 3.5 0 0 1 7 0v2"/>',
-  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.6 2.6 0 1 1 3.6 2.4c-.8.4-1.1 1-1.1 1.9M12 17h.01"/>',
-  cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
-};
-const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>`;
-function header(back) {
+const svgI = { cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>' };
+const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${svgI[k]}</svg>`;
+function header(back, title = '') {
   return `<header class="top">${back ? `<button class="chip ghost sq" id="back" aria-label="Kembali"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button>` : ''}
-  <div class="logo"><i></i><b>BOLA</b><em>KERTAS</em></div><div class="sp"></div>
+  ${title ? `<h2 class="hd">${title}</h2>` : `<div class="logo"><i></i><b>BOLA</b><em>KERTAS</em></div>`}<div class="sp"></div>
   <button class="chip coins" id="coins-btn"><span class="coin"></span><b data-coins></b></button>
   ${back ? '' : `<button class="chip ghost sq" id="cog" aria-label="Tetapan">${svg('cog')}</button>`}</header>`;
 }
 function bindHeader(root, back) { root.querySelector('#back')?.addEventListener('click', () => { SFX.ui(); (back || showHome)(); }); root.querySelector('#coins-btn').onclick = () => showShop('paper'); root.querySelector('#cog')?.addEventListener('click', showSettings); updateCoins(); }
-function screen(html) { const m = $('#menu'); m.hidden = false; m.innerHTML = html; m.scrollTop = 0; return m; }
+function screen(html, cls = '') { const m = $('#menu'); m.hidden = false; m.className = cls; m.innerHTML = html; m.scrollTop = 0; return m; }
+
+// Context for 3D art: your team, your kit, your equipped items.
+function artCtx() {
+  const t0 = teamById(S.team), t1 = teamById(S.opp === S.team ? ALL_TEAMS.find(t => t.id !== S.team).id : S.opp), kk = pickKits(t0, t1, S.kit);
+  return { team: t0, kit: kk.kits[0], opp: t1, oppKit: kk.kits[1], equip: { ...P.equip } };
+}
+const paint = (el, url) => { if (el && url) { el.style.backgroundImage = `url(${url})`; el.classList.add('in'); } };
 
 function showHome() {
-  const t0 = teamById(S.team), t1 = teamById(S.opp), kk = pickKits(t0, t1, S.kit), paper = itemById(P.equip.paper);
+  const ctx = artCtx(), paper = itemById(P.equip.paper), r = rarityOf(paper), owned = new Set(P.owned);
+  const sellable = ITEMS.filter(i => i.slot !== 'pass' && i.slot !== 'bundle'), have = sellable.filter(i => owned.has(i.id)).length;
   const m = screen(`${header(false)}
   <main class="home">
-    <section class="hero" style="--c0:${kk.kits[0].base};--c1:${kk.kits[1].base}">
-      <div class="hero-art"><div class="th th0"></div><div class="vs">VS</div><div class="th th1"></div></div>
-      <div class="hero-txt"><h1>SEPAK MULA</h1><p>${esc(t0.short)} lawan ${esc(t1.short)}  ·  CPU ${['Mudah', 'Biasa', 'Pakar'][[0.25, 0.5, 0.8].indexOf(S.skill)] || 'Biasa'}  ·  ${S.minutes} minit</p>
-      <p class="paper-tag">Kertas: <b>${esc(paper.name)}</b></p></div>
-      <button class="play" id="kick" aria-label="Main"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor"/></svg></button>
+    <section class="hero" style="--c0:${ctx.kit.base};--c1:${ctx.oppKit.base};--rc:${r.color}">
+      <div class="hero-img" id="hero-img"></div>
+      <div class="hero-txt"><small class="kick">PERLAWANAN SETERUSNYA</small><h1>${esc(ctx.team.short)} <i>VS</i> ${esc(ctx.opp.short)}</h1>
+        <p>CPU ${['Mudah', 'Biasa', 'Pakar'][[0.25, 0.5, 0.8].indexOf(S.skill)] || 'Biasa'}  ·  ${S.minutes} minit  ·  ${esc(S.formation)}</p>
+        <p class="ptag"><span class="rdot"></span>Kertas ${esc(paper.name)}${paper.rarity !== 'common' ? ` <em>${r.label}</em>` : ''}</p></div>
+      <button class="play" id="kick"><b>MAIN</b><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor"/></svg></button>
     </section>
     <section class="modes">
-      ${[['cpu', 'LAWAN CPU', 'Pilih pasukan dan tahap'], ['two', '2 PEMAIN', 'Satu peranti, bergilir'], ['web', 'ONLINE', 'Cari lawan atau jemput kawan', 'BETA'], ['shop', 'LOKER', 'Kertas, padang, venue, bola'], ['help', 'CARA MAIN', 'Peraturan dan kawalan']]
-        .map(([k, t, s, tag]) => `<button class="mode" data-k="${k}"><span class="wm">${svg(k)}</span><b>${t}</b><small>${s}</small>${tag ? `<em>${tag}</em>` : ''}</button>`).join('')}
+      ${[['cpu', 'LAWAN CPU', 'Pilih pasukan dan tahap'], ['two', '2 PEMAIN', 'Satu telefon, bergilir'], ['web', 'ONLINE', 'Cari lawan atau jemput kawan', 'BETA'], ['shop', 'LOKER', `Koleksi ${have}/${sellable.length}`, 'BARU'], ['help', 'CARA MAIN', 'Tepuk, bidik, gol']]
+        .map(([k, t, s, tag]) => `<button class="mode m-${k}" data-k="${k}"><span class="mi" data-icon="${k}"></span><b>${t}</b><small>${s}</small>${tag ? `<em>${tag}</em>` : ''}</button>`).join('')}
     </section>
-  </main><footer class="foot">Bola Kertas  ·  Semua item tiada nilai tunai</footer>`);
+  </main><footer class="foot">Bola Kertas  ·  Item kosmetik tiada nilai tunai</footer>`, 'm-home');
   bindHeader(m);
-  m.querySelector('.th0').append(paperThumb(t0, kk.kits[0], 10, 170, paper.look)); m.querySelector('.th1').append(paperThumb(t1, kk.kits[1], 10, 170));
   m.querySelector('#kick').onclick = () => { SFX.ui(); beginCpu(); };
   m.querySelectorAll('.mode').forEach(b => b.onclick = () => { SFX.ui(); haptic(); ({ cpu: () => showSetup('cpu'), two: () => showSetup('local'), web: showOnline, shop: () => showShop('paper'), help: showHelp })[b.dataset.k](); });
+  (async () => { for (const k of ['hero', 'cpu', 'two', 'web', 'shop', 'help']) { const url = await L3.icon(k, ctx); if (!m.isConnected) return; paint(k === 'hero' ? m.querySelector('#hero-img') : m.querySelector(`[data-icon="${k}"]`), url); } })();
 }
 
 function teamGrid(selected, league, onPick) {
@@ -516,79 +525,97 @@ function showSetup(mode) {
 function showOnline() {
   const m = screen(`${header(true)}<main class="online"><h2 class="ttl">ONLINE <em>BETA</em></h2>
     <p class="muted">Anda bermain sebagai <b>${esc(teamById(S.team).name)}</b>. Kertas mahal aktif dalam online casual.</p>
-    <button class="mode wide" id="find"><span class="wm">${svg('web')}</span><b>CARI LAWAN</b><small>Padankan dengan pemain lain</small></button>
-    <button class="mode wide" id="make"><span class="wm">${svg('two')}</span><b>CIPTA BILIK</b><small>Dapat kod, kongsi dengan kawan</small></button>
+    <button class="mode wide" id="find"><span class="mi" data-icon="web"></span><b>CARI LAWAN</b><small>Padankan dengan pemain lain</small></button>
+    <button class="mode wide" id="make"><span class="mi" data-icon="two"></span><b>CIPTA BILIK</b><small>Dapat kod, kongsi dengan kawan</small></button>
     <div class="join"><input id="code" maxlength="8" placeholder="KOD BILIK" autocomplete="off"><button class="btn lime" id="join">Masuk</button></div>
   </main>`);
   bindHeader(m);
   m.querySelector('#find').onclick = findMatch; m.querySelector('#make').onclick = createRoom;
+  (async () => { const ctx = artCtx(); for (const k of ['web', 'two']) { const url = await L3.icon(k, ctx); if (m.isConnected) m.querySelectorAll(`[data-icon="${k}"]`).forEach(el => paint(el, url)); } })();
   const inp = m.querySelector('#code'); inp.oninput = () => inp.value = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
   m.querySelector('#join').onclick = () => inp.value.length >= 4 ? joinRoom(inp.value) : toast('Masukkan kod 5 aksara.');
 }
 
-const SLOT_TABS = [['paper', 'KERTAS'], ['pitch', 'PADANG'], ['venue', 'VENUE'], ['ball', 'BOLA'], ['fx', 'EFEK GOL'], ['pass', 'PAS']];
-const VENUE_ART = { v_desk: ['#9fc4e8', '#ffcf2e'], v_field: ['#ff9e5e', '#5f8f3a'], v_kopitiam: ['#3b2a20', '#f2efe9'], v_night: ['#050a18', '#1b3f94'], v_beach: ['#ff7a59', '#e9cf9b'], v_rooftop: ['#060914', '#ffd98a'], v_final: ['#0b0a1f', '#ffd45a'] };
-function itemThumb(it) {
-  const c = document.createElement('canvas'); c.width = c.height = 160; const g = c.getContext('2d');
-  if (it.slot === 'paper') { const t = teamById(S.team); g.drawImage(paperSurface(it.look, 160, 160), 0, 0); g.fillStyle = 'rgba(8,12,24,0.35)'; g.fillRect(0, 0, 160, 160); g.drawImage(paperThumb(t, t.jerseys[S.kit] || t.jerseys[0], 10, 150, it.look), 5, 6); }
-  else if (it.slot === 'pitch') { const p = pitchTexture(it.look, 9); g.drawImage(p, 0, 0, p.width, p.height, 30, 0, 100, 160); }
-  else if (it.slot === 'ball') { const b = ballTexture(it.look, 256, 128); g.save(); g.beginPath(); g.arc(80, 80, 56, 0, 7); g.clip(); g.drawImage(b, 0, 0, 256, 128, 0, 24, 220, 112); const gr = g.createRadialGradient(60, 58, 4, 80, 80, 60); gr.addColorStop(0, 'rgba(255,255,255,0.55)'); gr.addColorStop(0.5, 'rgba(255,255,255,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.45)'); g.fillStyle = gr; g.fillRect(0, 0, 160, 160); g.restore(); }
-  else { const [a, b] = VENUE_ART[it.id] || ['#1b2a4a', it.slot === 'fx' ? '#ff4f7a' : '#d4ff2a']; const gr = g.createLinearGradient(0, 0, 0, 160); gr.addColorStop(0, a); gr.addColorStop(1, b); g.fillStyle = gr; g.fillRect(0, 0, 160, 160);
-    g.fillStyle = 'rgba(255,255,255,0.9)'; g.font = '800 italic 30px "Barlow Condensed", Arial'; g.textAlign = 'center'; g.fillText(it.slot === 'venue' ? 'VENUE' : it.slot === 'fx' ? 'GOL!' : 'PAS', 80, 92); }
-  return c;
-}
+const SLOT_TABS = [['paper', 'KERTAS'], ['bundle', 'SET'], ['pitch', 'PADANG'], ['venue', 'VENUE'], ['ball', 'BOLA'], ['fx', 'EFEK GOL'], ['pass', 'PAS']];
 function statBars(st) {
-  return `<div class="stats">${[['KUASA', 'power'], ['BERAT', 'weight'], ['KAWALAN', 'control']].map(([l, k]) => { const v = st[k], p = (v - 85) / 30 * 100; return `<div><span>${l}</span><i><b style="width:${p}%" class="${v > 100 ? 'up' : v < 100 ? 'down' : ''}"></b></i><em>${v > 100 ? '+' : ''}${v - 100}%</em></div>`; }).join('')}</div>`;
+  return `<div class="stats">${[['KUASA', 'power'], ['BERAT', 'weight'], ['KAWALAN', 'control']].map(([l, k]) => { const v = st[k], p = (v - 85) / 30 * 100; return `<div><span>${l}</span><i><b style="width:${p}%" class="${v > 100 ? 'up' : v < 100 ? 'down' : ''}"></b></i><em>${v === 100 ? 'ASAS' : `${v > 100 ? '+' : ''}${v - 100}%`}</em></div>`; }).join('')}</div>`;
 }
+const priceHtml = it => it.free ? 'PERCUMA' : it.coins ? `<span class="coin"></span>${it.coins.toLocaleString('ms-MY')}` : `<span class="star"></span>${it.stars}`;
+const itemState = (it, owned) => { const have = !it.consumable && isOwned(owned, it), eq = it.grants ? it.grants.every(g => Object.values(P.equip).includes(g)) : P.equip[it.slot] === it.id; return { have, eq }; };
+
 function showShop(slot = 'paper') {
-  const items = ITEMS.filter(i => i.slot === slot), owned = new Set(P.owned);
-  const m = screen(`${header(true)}<main class="shop">
+  const owned = new Set(P.owned), items = ITEMS.filter(i => i.slot === slot).sort((a, b) => (RARITY[a.rarity]?.rank || 0) - (RARITY[b.rarity]?.rank || 0));
+  const m = screen(`${header(true, 'LOKER')}<main class="shop">
     <div class="tabs">${SLOT_TABS.map(([k, l]) => `<button class="tab ${k === slot ? 'on' : ''}" data-s="${k}">${l}</button>`).join('')}</div>
-    ${slot === 'paper' ? '<p class="muted">Kuasa = laju tepukan. Berat = bola tak mudah terpantul dari pemain anda. Kawalan = bidikan lebih tepat. Maksimum +15%: kemahiran tetap penentu. Mod ranked guna stat standard.</p>' : ''}
+    ${slot === 'paper' ? '<p class="muted">Gambar di sini dirender oleh enjin perlawanan. Apa yang anda nampak, itulah yang masuk padang. Stat maksimum +15%. Kertas Mitos menang gaya, bukan kuasa.</p>' : slot === 'bundle' ? '<p class="muted">Satu set = kertas, padang dan venue. Pakai ketiga-tiga untuk sambutan gol set yang tiada di tempat lain.</p>' : ''}
     ${P.guest ? '<p class="warn">Buka dalam Telegram untuk simpan coins dan beli item.</p>' : ''}
     <div class="items">${items.map(it => {
-      const have = owned.has(it.id) && !it.consumable, eq = P.equip[it.slot] === it.id;
-      const price = it.free ? 'PERCUMA' : it.coins ? `<span class="coin"></span>${it.coins.toLocaleString('ms-MY')}` : `<span class="star"></span>${it.stars}`;
-      return `<article class="item ${eq ? 'eq' : ''}" data-id="${it.id}"><div class="ith"></div>${it.tag ? `<em class="tag t-${it.tag.toLowerCase()}">${it.tag}</em>` : ''}
-        <h3>${esc(it.name)}</h3><p>${esc(it.desc)}</p>${it.stats ? statBars(it.stats) : ''}
-        <button class="btn ${eq ? 'ghost' : have ? '' : 'lime'}" data-act="${eq ? 'none' : have ? 'equip' : 'buy'}">${eq ? 'DIPAKAI' : have ? 'PAKAI' : price}</button></article>`;
+      const r = rarityOf(it), { have, eq } = itemState(it, owned);
+      return `<article class="item r-${it.rarity || 'common'} ${eq ? 'eq' : ''}" data-id="${it.id}" style="--rc:${r.color}">
+        <div class="ith"><span class="rb">${r.label}</span>${it.tag ? `<em class="tag">${it.tag}</em>` : ''}${eq ? '<span class="eqb">DIPAKAI</span>' : have ? '<span class="eqb own">DIMILIKI</span>' : ''}</div>
+        <h3>${esc(it.name)}</h3>
+        <div class="pr">${eq ? '<b class="ok">DIPAKAI</b>' : have ? '<b class="ok">PAKAI</b>' : `<b>${priceHtml(it)}</b>`}</div></article>`;
     }).join('')}</div>
     ${slot === 'pass' && P.passUntil > Date.now() ? `<p class="muted">Pas aktif sehingga ${new Date(P.passUntil).toLocaleDateString('ms-MY')}.</p>` : ''}
-  </main>`);
+  </main>`, 'm-shop');
   bindHeader(m);
   m.querySelectorAll('.tab').forEach(b => b.onclick = () => { SFX.ui(); showShop(b.dataset.s); });
-  m.querySelectorAll('.item').forEach(card => {
-    const it = itemById(card.dataset.id); card.querySelector('.ith').append(itemThumb(it));
-    const btn = card.querySelector('button');
-    btn.onclick = async () => {
-      const a = btn.dataset.act; if (a === 'none') return; SFX.ui();
-      if (a === 'equip') {
-        if (P.guest) { if (!it.free) return; P.equip[it.slot] = it.id; localStorage.setItem('bk/equip', JSON.stringify(P.equip)); return showShop(slot); }
-        try { P = { ...(await api('/api/equip', { item: it.id })), guest: false }; haptic(); showShop(slot); } catch { toast('Gagal pakai item.'); }
-        return;
-      }
-      if (P.guest) return toast('Buka Bola Kertas dalam Telegram untuk membeli.');
-      if (it.coins) {
-        if (P.coins < it.coins) return toast(`Coins tak cukup. Perlu ${it.coins - P.coins} lagi. Menang lawan CPU untuk kumpul.`);
-        try { P = { ...(await api('/api/shop/buy', { item: it.id })), guest: false }; SFX.buy(); notify(); toast(`${it.name} dibeli!`); showShop(slot); } catch (e) { toast(e.code === 'coins' ? 'Coins tak cukup.' : 'Pembelian gagal.'); }
-        return;
-      }
-      btn.disabled = true; btn.textContent = 'Membuka...';
-      try {
-        const { url } = await api('/api/shop/invoice', { item: it.id });
-        tg.openInvoice(url, async status => {
-          btn.disabled = false;
-          if (status === 'paid' || status === 'pending') {
-            toast(status === 'paid' ? 'Bayaran diterima. Memasukkan item...' : 'Bayaran sedang diproses.');
-            for (let i = 0; i < 8; i++) { await new Promise(r => setTimeout(r, 1200)); await loadProfile(); if (P.owned.includes(it.id) || it.consumable) break; }
-            if (P.owned.includes(it.id) || it.consumable) { SFX.buy(); notify(); toast(`${it.name} dah masuk loker!`); }
-            showShop(slot);
-          } else if (status === 'failed') { toast('Bayaran gagal. Stars anda tidak ditolak.'); showShop(slot); }
-          else showShop(slot);
-        });
-      } catch (e) { btn.disabled = false; toast(e.code === 'owned' ? 'Anda sudah memiliki item ini.' : 'Tak dapat buka invois. Cuba lagi.'); showShop(slot); }
-    };
-  });
+  m.querySelectorAll('.item').forEach(card => card.onclick = () => { SFX.ui(); haptic(); itemSheet(itemById(card.dataset.id), slot); });
+  L3.thumbs(items, artCtx(), (id, url) => { if (m.isConnected) paint(m.querySelector(`.item[data-id="${id}"] .ith`), url); });
+}
+
+function itemSheet(it, slot) {
+  const owned = new Set(P.owned), r = rarityOf(it), { have, eq } = itemState(it, owned), ctx = artCtx();
+  const perks = it.slot === 'paper' || it.slot === 'bundle' ? perksUpTo(it.rarity) : [];
+  const parts = it.grants ? it.grants.map(itemById) : [];
+  const full = parts.reduce((s, p) => s + (p.stars || 0), 0);
+  const act = eq ? 'none' : have ? 'equip' : 'buy';
+  const o = overlay(`<div class="isheet r-${it.rarity || 'common'}" style="--rc:${r.color}">
+    <div class="ipv" id="ipv"><span class="rb">${r.label}</span><small class="hint">Seret untuk pusing</small><button class="x" id="cl" aria-label="Tutup">&times;</button></div>
+    <h2>${esc(it.name)}</h2><p class="muted">${esc(it.desc)}</p>
+    ${it.stats ? statBars(it.stats) : ''}
+    ${parts.length ? `<ul class="parts">${parts.map(p => `<li><span style="color:${rarityOf(p).color}">${rarityOf(p).label}</span> ${esc(p.name)} <s>${p.stars}</s></li>`).join('')}</ul><p class="save">Harga asing <s><span class="star"></span>${full}</s>  Set <b><span class="star"></span>${it.stars}</b></p>` : ''}
+    ${perks.length ? `<div class="perks"><small>KELEBIHAN ${r.label}</small>${perks.map(p => `<span>${esc(p)}</span>`).join('')}</div>` : ''}
+    <div class="row"><button class="btn" id="try">${it.slot === 'fx' ? 'Cuba gol' : 'Cuba tepuk'}</button>
+    <button class="btn ${act === 'buy' ? 'lime' : act === 'equip' ? 'lime' : 'ghost'}" id="go">${eq ? 'DIPAKAI' : have ? 'PAKAI' : priceHtml(it)}</button></div>
+    </div>`);
+  o.classList.add('ov-item');
+  const pv = L3.preview(o.querySelector('#ipv'), it, ctx);
+  const close = () => { pv.close(); closeAllOverlays(); };
+  o.querySelector('#cl').onclick = close; o.onclick = ev => { if (ev.target === o) close(); };
+  o.querySelector('#try').onclick = () => { SFX.tap(0.8); if (it.rarity && RARITY[it.rarity].rank >= 3) SFX.tapLegend(RARITY[it.rarity].rank); haptic('medium'); it.slot === 'fx' || it.slot === 'bundle' ? (pv.tap(), pv.goal()) : pv.tap(); };
+  o.querySelector('#go').onclick = async () => { if (act === 'none') return; const btn = o.querySelector('#go'); await buyOrEquip(it, act, btn, () => { pv.close(); showShop(slot); }); };
+}
+
+async function buyOrEquip(it, act, btn, done) {
+  SFX.ui();
+  if (act === 'equip') {
+    const ids = it.grants || [it.id];
+    if (P.guest) { if (!it.free) return; P.equip[it.slot] = it.id; localStorage.setItem('bk/equip', JSON.stringify(P.equip)); return done(); }
+    try { for (const id of ids) P = { ...(await api('/api/equip', { item: id })), guest: false }; haptic(); toast(`${it.name} dipakai.`); done(); } catch { toast('Gagal pakai item.'); }
+    return;
+  }
+  if (P.guest) return toast('Buka Bola Kertas dalam Telegram untuk membeli.');
+  if (it.coins) {
+    if (P.coins < it.coins) return toast(`Coins tak cukup. Perlu ${it.coins - P.coins} lagi. Menang lawan CPU untuk kumpul.`);
+    try { P = { ...(await api('/api/shop/buy', { item: it.id })), guest: false }; SFX.buy(); notify(); toast(`${it.name} dibeli!`); done(); } catch (e) { toast(e.code === 'coins' ? 'Coins tak cukup.' : 'Pembelian gagal.'); }
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Membuka...';
+  const got = () => it.consumable || isOwned(new Set(P.owned), it);
+  try {
+    const { url } = await api('/api/shop/invoice', { item: it.id });
+    tg.openInvoice(url, async status => {
+      btn.disabled = false;
+      if (status === 'paid' || status === 'pending') {
+        toast(status === 'paid' ? 'Bayaran diterima. Memasukkan item...' : 'Bayaran sedang diproses.');
+        for (let i = 0; i < 8; i++) { await new Promise(r => setTimeout(r, 1200)); await loadProfile(); if (got()) break; }
+        if (got()) { SFX.buy(); notify(); toast(`${it.name} dah masuk loker!`); }
+        done();
+      } else if (status === 'failed') { toast('Bayaran gagal. Stars anda tidak ditolak.'); done(); }
+      else done();
+    });
+  } catch (e) { btn.disabled = false; toast(e.code === 'owned' ? 'Anda sudah memiliki item ini.' : 'Tak dapat buka invois. Cuba lagi.'); done(); }
 }
 
 function showHelp() {

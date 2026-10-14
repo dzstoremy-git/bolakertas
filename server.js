@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { WebSocketServer } from 'ws';
 import { Engine, runToRest, isRest, makeCode, BASE_STATS, FORMATIONS } from './public/engine.js';
 import { teamById, rosterFor } from './public/teams.js';
-import { ITEMS, itemById, DEFAULT_EQUIP, SLOTS, matchReward, DAILY_COIN_CAP } from './public/items.js';
+import { ITEMS, itemById, DEFAULT_EQUIP, SLOTS, matchReward, DAILY_COIN_CAP, isOwned } from './public/items.js';
 
 const PORT = +(process.env.PORT || 3000);
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
@@ -82,7 +82,7 @@ export function fulfill(chargeId, uid, itemId, stars) {
     if (item.slot === 'pass') {
       const u = q('SELECT pass_until FROM users WHERE uid=?').get(uid);
       q('UPDATE users SET pass_until=? WHERE uid=?').run(Math.max(Date.now(), u.pass_until) + item.days * 86400e3, uid);
-    } else q('INSERT OR IGNORE INTO owned (uid,item,src,at) VALUES (?,?,?,?)').run(uid, itemId, 'stars', Date.now());
+    } else for (const id of item.grants || [itemId]) q('INSERT OR IGNORE INTO owned (uid,item,src,at) VALUES (?,?,?,?)').run(uid, id, 'stars', Date.now());
     return { ok: true };
   });
 }
@@ -172,7 +172,7 @@ async function api(req, res, path) {
   if (path === '/api/shop/invoice') {
     const item = itemById(body.item);
     if (!item?.stars) return json(res, 400, { err: 'not_for_stars' });
-    if (!item.consumable && ownedSet(auth.uid).has(item.id)) return json(res, 400, { err: 'owned' });
+    if (!item.consumable && isOwned(ownedSet(auth.uid), item)) return json(res, 400, { err: 'owned' });
     if (limited('inv:' + auth.uid, 10, 60e3)) return json(res, 429, { err: 'slow_down' });
     const r = await bot('createInvoiceLink', { title: item.name, description: item.desc.slice(0, 255), payload: makePayload(item.id, auth.uid),
       provider_token: '', currency: 'XTR', prices: [{ label: item.name, amount: item.stars }] });
@@ -207,7 +207,7 @@ async function onUpdate(u) {
   if (u.pre_checkout_query) {
     const pq = u.pre_checkout_query, p = readPayload(pq.invoice_payload);
     const ok = !!p && p.uid === pq.from.id && pq.currency === 'XTR' && pq.total_amount === p.item.stars &&
-      (p.item.consumable || !ownedSet(p.uid).has(p.item.id));
+      (p.item.consumable || !isOwned(ownedSet(p.uid), p.item));
     return bot('answerPreCheckoutQuery', ok ? { pre_checkout_query_id: pq.id, ok: true } : { pre_checkout_query_id: pq.id, ok: false, error_message: 'Item ini tidak boleh dibeli sekarang.' });
   }
   const m = u.message; if (!m) return;

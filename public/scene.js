@@ -1,8 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=16';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=16';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade } from './art.js?v=16';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=17';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=17';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade } from './art.js?v=17';
+import { RARITY } from './items.js?v=17';
 
 export const Q = (() => { // quality tier. Telegram WebView on mobile gets the lean tier.
   const touch = matchMedia('(pointer:coarse)').matches, low = touch && (navigator.hardwareConcurrency || 4) <= 4;
@@ -45,20 +46,69 @@ function tentGeometry() {
   return g;
 }
 const TENT = tentGeometry();
+const GLOW = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 18, 64, 64, 64);
+  gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.55, 'rgba(255,255,255,1)'); gr.addColorStop(0.7, 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128); return tex(c, false, 1); })();
 
-function paperMaterial(map, look, printed) {
+// One paper player, exactly as it appears in a match. The Locker renders through this same function.
+export function makePlayer({ team, kit, number, name, look }, cache) {
+  const key = `${team.id}|${kit.id}|${number}|${name}|${look.kind}|${look.base}|${look.rarity}`;
+  let mats = cache?.get(key);
+  if (!mats) {
+    const grain = tex(paperSurface(look), false);
+    if (look.kind === 'holo') kit = { ...kit, base: '#c9b8ff', accent: '#7fe9ff', trim: '#ffffff', number: '#ffffff', numberOutline: 'rgba(40,0,80,0.6)', pattern: 'holo' };
+    if (look.kind === 'gold') kit = { ...kit, base: '#e9a91c', accent: '#c9850a', trim: '#5a3600', number: '#4a2a00', numberOutline: 'rgba(255,236,170,0.7)' };
+    const surf = tex(paperSurface(look)), front = tex(jerseyFront(team, kit, number)), back = tex(jerseyBack(team, kit, number, name));
+    mats = [paperMaterial(front, look, true, grain), paperMaterial(back, look, true, grain), paperMaterial(surf, look, false, grain), new THREE.MeshStandardMaterial({ color: shade(look.base, -0.1), roughness: 0.9 })];
+    cache?.set(key, mats);
+  }
+  const root = new THREE.Group(), body = new THREE.Mesh(TENT, mats);
+  body.castShadow = true; body.receiveShadow = true; root.add(body);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.64, 48), new THREE.MeshBasicMaterial({ color: 0xd4ff2a, transparent: true, opacity: 0, depthWrite: false, depthTest: false }));
+  ring.renderOrder = 5; ring.rotation.x = -Math.PI / 2; ring.position.y = 0.012; root.add(ring);
+  const rank = rankOf(look); let aura = null;
+  if (rank >= 2) { // epic+: glowing ring at the feet
+    aura = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({ map: GLOW, color: look.kind === 'gold' ? '#ffc23a' : rcolOf(look), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }));
+    aura.rotation.x = -Math.PI / 2; aura.position.y = 0.008; root.add(aura);
+  }
+  return { root, body, ring, aura, rank, color: look.kind === 'gold' ? '#ffc23a' : rcolOf(look) };
+}
+export function makeBall(look) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 32, 20), new THREE.MeshPhysicalMaterial({ map: tex(ballTexture(look)), roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.2,
+    emissive: look.kind === 'fire' ? '#ff5a10' : look.kind === 'galaxy' ? '#4a2aff' : '#000', emissiveIntensity: look.kind === 'fire' || look.kind === 'galaxy' ? 0.35 : 0 }));
+  m.castShadow = true; return m;
+}
+export function pitchMaterial(look, ppu, aniso) {
+  const t = tex(pitchTexture(look, ppu), true, aniso);
+  const m = new THREE.MeshStandardMaterial({ map: t, roughness: look.style === 'neon' ? 0.5 : 0.95, metalness: 0, envMapIntensity: 0.3 });
+  if (look.style === 'neon' || look.style === 'gold') { m.emissive = new THREE.Color(0xffffff); m.emissiveMap = t; m.emissiveIntensity = look.style === 'neon' ? 0.35 : 0.12; }
+  return m;
+}
+
+const rankOf = look => RARITY[look?.rarity]?.rank ?? 0;
+const rcolOf = look => RARITY[look?.rarity]?.color ?? '#ffffff';
+export const SHIMMER = new Set(); // myth paper materials, animated in update()
+function paperMaterial(map, look, printed, grain) {
   const m = new THREE.MeshPhysicalMaterial({ map, roughness: look.rough ?? 0.85, metalness: printed ? (look.metal ?? 0) * 0.5 : look.metal ?? 0,
     clearcoat: look.clearcoat ?? 0, clearcoatRoughness: 0.15, side: THREE.FrontSide });
-  if (look.iri) { m.iridescence = 1; m.iridescenceIOR = 1.6; m.iridescenceThicknessRange = [200, 900]; }
-  if (look.kind === 'gold') { m.color.set(0xffd27a); m.metalness = 0.85; m.roughness = 0.28; m.clearcoat = 0.6; }
-  if (look.kind === 'holo' && printed) m.color.set(0xf2e9ff);
+  const rank = rankOf(look);
+  if (rank >= 1 && grain) { m.bumpMap = grain; m.bumpScale = rank >= 3 ? 2.2 : 1.4; }
+  if (rank >= 4) { m.emissive = new THREE.Color(look.kind === 'gold' ? 0xffc04a : 0xff7ad8); m.emissiveIntensity = 0.18; m.userData.shimmer = look.kind; SHIMMER.add(m); }
+  if (look.iri) { m.iridescence = 1; m.iridescenceIOR = 2.0; m.iridescenceThicknessRange = [100, 1400]; m.envMapIntensity = 2.2; }
+  if (look.kind === 'gold') { m.color.set(printed ? 0xffffff : 0xf0b43a); m.metalness = 1; m.roughness = 0.32; m.clearcoat = 0.5; m.clearcoatRoughness = 0.1; m.envMapIntensity = 3.2; }
+  else if (m.metalness > 0.2) m.envMapIntensity = 1.8;
+  if (look.kind === 'laminate') { m.roughness = 0.35; m.clearcoat = 1; m.clearcoatRoughness = 0.04; m.envMapIntensity = 0.9; }
+  if (look.kind === 'carbon' && !printed) { m.color.set(0x8a93a6); m.roughness = 0.22; m.metalness = 0.4; m.envMapIntensity = 1.8; }
+  if (look.kind === 'holo') { m.color.set(0xffffff); m.metalness = 0; m.roughness = 0.5; m.clearcoat = 0.3; m.envMapIntensity = 0.5; m.iridescence = 0; }
   return m;
 }
 
 export class World {
-  constructor(canvas) {
-    this.r = new THREE.WebGLRenderer({ canvas, antialias: Q.aa, powerPreference: 'high-performance' });
-    this.r.setPixelRatio(Q.dpr); this.r.outputColorSpace = THREE.SRGBColorSpace;
+  // size = [w, h] gives a fixed-size studio World (Locker previews) that renders with the exact match pipeline.
+  constructor(canvas, size = null) {
+    this.size = size;
+    this.r = new THREE.WebGLRenderer({ canvas, antialias: size ? true : Q.aa, powerPreference: 'high-performance', alpha: false });
+    this.r.setPixelRatio(size ? 1 : Q.dpr); this.r.outputColorSpace = THREE.SRGBColorSpace;
     this.r.toneMapping = THREE.ACESFilmicToneMapping; this.r.toneMappingExposure = 0.82;
     this.r.shadowMap.enabled = true; this.r.shadowMap.type = THREE.PCFShadowMap;
     this.scene = new THREE.Scene();
@@ -73,17 +123,16 @@ export class World {
     this.scene.add(this.static, this.venue, this.dyn, this.fx);
     this.pieces = []; this.particles = []; this.camPos = new THREE.Vector3(0, 14, 16); this.camLook = new THREE.Vector3();
     this.buildGoals(); this.buildAim();
-    this.resize(); addEventListener('resize', () => this.resize());
+    this.resize(); if (!size) addEventListener('resize', () => this.resize());
   }
-  resize() { const w = innerWidth, h = innerHeight; this.r.setSize(w, h, false); this.cam.aspect = w / h; this.cam.updateProjectionMatrix(); }
+  resize() { const [w, h] = this.size || [innerWidth, innerHeight]; this.r.setSize(w, h, false); this.cam.aspect = w / h; this.cam.updateProjectionMatrix(); }
 
-  disposeGroup(g) { g.traverse(o => { o.geometry && o.geometry !== TENT && o.geometry.dispose(); const m = o.material; (Array.isArray(m) ? m : m ? [m] : []).forEach(x => { x.map?.dispose(); x.dispose(); }); }); g.clear(); }
+  disposeGroup(g) { g.traverse(o => { o.geometry && o.geometry !== TENT && o.geometry.dispose(); const m = o.material; (Array.isArray(m) ? m : m ? [m] : []).forEach(x => { SHIMMER.delete(x); x.map?.dispose(); x.bumpMap?.dispose(); x.dispose(); }); }); g.clear(); }
 
-  setPitch(look) {
+  setPitch(look, ppu = Q.ppu) {
     if (this.pitch) { this.static.remove(this.pitch); this.pitch.geometry.dispose(); this.pitch.material.map.dispose(); this.pitch.material.dispose(); }
-    const t = tex(pitchTexture(look, Q.ppu), true, this.r.capabilities.getMaxAnisotropy());
-    const m = new THREE.MeshStandardMaterial({ map: t, roughness: look.style === 'neon' ? 0.5 : 0.95, metalness: 0, envMapIntensity: 0.3 });
-    if (look.style === 'neon') { m.emissive = new THREE.Color(0xffffff); m.emissiveMap = t; m.emissiveIntensity = 0.35; }
+    this.pitchLook = look;
+    const m = pitchMaterial(look, ppu, this.r.capabilities.getMaxAnisotropy());
     this.pitch = new THREE.Mesh(new THREE.PlaneGeometry(FIELD.W + APRON * 2, FIELD.L + APRON * 2), m);
     this.pitch.rotation.x = -Math.PI / 2; this.pitch.receiveShadow = true; this.static.add(this.pitch);
   }
@@ -202,30 +251,18 @@ export class World {
   // Team of paper players. look = paper item look.
   setTeams(engine, teams, kits, looks, keeperKits) {
     this.disposeGroup(this.dyn); this.pieces = [];
-    const cache = new Map();
+    SHIMMER.clear(); const cache = new Map();
     for (const p of engine.pieces) {
       const team = teams[p.team], kit = p.isGK ? keeperKits[p.team] : kits[p.team], look = looks[p.team];
-      const key = `${team.id}|${kit.id}|${p.number}|${p.name}|${look.kind}|${look.base}`;
-      let mats = cache.get(key);
-      if (!mats) {
-        const surf = tex(paperSurface(look)), front = tex(jerseyFront(team, kit, p.number)), back = tex(jerseyBack(team, kit, p.number, p.name));
-        mats = [paperMaterial(front, look, true), paperMaterial(back, look, true), paperMaterial(surf, look, false), new THREE.MeshStandardMaterial({ color: shade(look.base, -0.1), roughness: 0.9 })];
-        cache.set(key, mats);
-      }
-      const root = new THREE.Group(), body = new THREE.Mesh(TENT, mats);
-      body.castShadow = true; body.receiveShadow = true; root.add(body);
-      const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.64, 48), new THREE.MeshBasicMaterial({ color: 0xd4ff2a, transparent: true, opacity: 0, depthWrite: false, depthTest: false }));
-      ring.renderOrder = 5;
-      ring.rotation.x = -Math.PI / 2; ring.position.y = 0.012; root.add(ring);
-      this.dyn.add(root); this.pieces.push({ root, body, ring, data: p, x: p.x, z: p.z, hop: 0, ry: 0 });
+      const pl = makePlayer({ team, kit, number: p.number, name: p.name, look }, cache);
+      this.dyn.add(pl.root); this.pieces.push({ ...pl, data: p, x: p.x, z: p.z, hop: 0, ry: 0 });
     }
+    this.studioDirty = true;
   }
   setBall(look) {
     if (this.ballMesh) { this.scene.remove(this.ballMesh); this.ballMesh.geometry.dispose(); this.ballMesh.material.map.dispose(); this.ballMesh.material.dispose(); }
         this.ballLook = look;
-    this.ballMesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 32, 20), new THREE.MeshPhysicalMaterial({ map: tex(ballTexture(look)), roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.2,
-      emissive: look.kind === 'fire' ? '#ff5a10' : look.kind === 'galaxy' ? '#4a2aff' : '#000', emissiveIntensity: look.kind === 'fire' || look.kind === 'galaxy' ? 0.35 : 0 }));
-    this.ballMesh.castShadow = true; this.scene.add(this.ballMesh);
+    this.ballMesh = makeBall(look); this.scene.add(this.ballMesh);
     if (!this.ballRing) {
       this.ballRing = new THREE.Mesh(new THREE.RingGeometry(0.26, 0.33, 40), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, depthTest: false }));
       this.ballRing.rotation.x = -Math.PI / 2; this.ballRing.renderOrder = 6; this.scene.add(this.ballRing);
@@ -266,18 +303,26 @@ export class World {
     if (target) this.landRing.position.set(target.x, 0.02, target.z);
   }
 
-  ripple(x, z) {
+  ripple(x, z, color = 0xffffff) {
     if (!this.rip) { this.rip = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.26, 40), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false })); this.rip.rotation.x = -Math.PI / 2; this.scene.add(this.rip); }
-    this.rip.position.set(x, 0.02, z); this.ripT = 0;
+    this.rip.material.color.set(color); this.rip.position.set(x, 0.02, z); this.ripT = 0;
   }
-  burst(x, y, z, colors, n = 80, speed = 6, gravity = 9, size = 0.08) {
+  // Tap feedback grows with paper rarity: white ripple, coloured ripple (epic), sparks (legend), rainbow sparks (myth).
+  tapFx(x, z, rank, color) {
+    this.ripple(x, z, rank >= 2 ? color : 0xffffff);
+    if (rank >= 3) this.burst(x, 0.35, z, rank >= 4 && color !== '#ffc23a' ? ['#ff5fd2', '#39f6ff', '#ffd45a', '#ffffff'] : [color, '#ffe9a0', '#ffffff'], rank >= 4 ? 40 : 26, 4.2, 7, 0.07, true);
+  }
+  burst(x, y, z, colors, n = 80, speed = 6, gravity = 9, size = 0.08, glow = false) {
     for (let i = 0; i < n; i++) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size * 1.4), new THREE.MeshBasicMaterial({ color: colors[i % colors.length], side: THREE.DoubleSide, transparent: true }));
+      const m = new THREE.Mesh(glow ? new THREE.PlaneGeometry(size * 0.5, size * 2.4) : new THREE.PlaneGeometry(size, size * 1.4), new THREE.MeshBasicMaterial({ color: colors[i % colors.length], side: THREE.DoubleSide, transparent: true, ...(glow ? { blending: THREE.AdditiveBlending, depthWrite: false } : {}) }));
       m.position.set(x, y, z); const a = Math.random() * Math.PI * 2, u = Math.random();
       this.fx.add(m); this.particles.push({ m, v: new THREE.Vector3(Math.cos(a) * speed * u, speed * (0.6 + Math.random()), Math.sin(a) * speed * u), spin: new THREE.Vector3(Math.random() * 9, Math.random() * 9, 0), life: 2 + Math.random(), g: gravity });
     }
   }
-  goalFx(kind, x, z, teamColors) {
+  // setFx: colours of a completed set (extra shower on top of the chosen effect). rank 4 paper: gold/rainbow column.
+  goalFx(kind, x, z, teamColors, setFx, rank = 0) {
+    if (setFx) { this.burst(x, 6, z, setFx, 140, 3, 2.5, 0.13); for (let k = 1; k <= 3; k++) setTimeout(() => this.burst(x + (k - 2) * 2.4, 4.5, z, setFx, 60, 4.5, 3, 0.09), k * 220); }
+    if (rank >= 4) this.burst(x, 0.2, z, ['#ff5fd2', '#39f6ff', '#ffd45a', '#7cff6b', '#ffffff'], 90, 9, 6, 0.07);
     if (kind === 'x_fireworks') { for (let k = 0; k < 5; k++) setTimeout(() => this.burst(x + (Math.random() - 0.5) * 6, 5 + Math.random() * 3, z, ['#ff3a3a', '#ffd45a', '#39f6ff', '#ffffff', '#b36bff'], 70, 5, 3, 0.1), k * 280); }
     else if (kind === 'x_confetti') this.burst(x, 3, z, ['#ff4f7a', '#ffd400', '#2ad4ff', '#7cff6b', '#b36bff', '#ffffff'], 160, 5, 4, 0.12);
     else this.burst(x, 0.8, z, ['#ffffff', '#f1ece0', ...teamColors], 90, 6, 9, 0.1);
@@ -292,6 +337,8 @@ export class World {
       if (p.life <= 0) { this.fx.remove(p.m); p.m.geometry.dispose(); p.m.material.dispose(); this.particles.splice(i, 1); }
     }
     if (this.rip && this.ripT < 0.5) { this.ripT += dt; const s = 1 + 9 * this.ripT; this.rip.scale.set(s, s, s); this.rip.material.opacity = 0.8 * (1 - this.ripT / 0.5); }
+    for (const vp of this.pieces) if (vp.aura) { vp.aura.material.opacity = 0.6 + Math.sin(t * 3 + vp.data.id) * 0.25; vp.aura.rotation.z += dt * 0.6; }
+    for (const m of SHIMMER) { if (m.userData.shimmer === 'gold') m.emissiveIntensity = 0.14 + Math.max(0, Math.sin(t * 2.2)) * 0.3; else { m.emissive.setHSL((t * 0.18) % 1, 1, 0.55); m.emissiveIntensity = 0.06; } }
     if (this.fan) this.fan.rotation.y += dt * 2.5;
     if (this.blink) this.blink.visible = Math.sin(t * 4) > 0;
     if (this.crowd && this.cheer > 0) {
