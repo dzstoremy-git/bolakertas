@@ -1,8 +1,8 @@
 // locker3d.js : Locker and menu art rendered by the match renderer itself.
 // Every thumbnail is a real World (scene.js) with the item applied, so what the shop shows is what the match shows.
 import * as THREE from 'three';
-import { World, makePlayer, makeBall } from './scene.js?v=17';
-import { itemById, DEFAULT_EQUIP } from './items.js?v=17';
+import { World, makePlayer, makeBall } from './scene.js?v=18';
+import { itemById, DEFAULT_EQUIP } from './items.js?v=18';
 
 const SIZE = 320;
 let W = null, previewOpen = false;
