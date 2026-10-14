@@ -335,6 +335,10 @@ export const server = createServer(async (req, res) => {
       try { await onUpdate(JSON.parse(body)); } catch (e) { console.error('update', e.message); }
       return;
     }
+    if (path === '/api/log' && req.method === 'POST') { // client error beacon, capped
+      if (!limited('log:' + (req.headers['x-forwarded-for'] || ''), 30, 60e3)) console.log('client', (await readBody(req, 2048)).replace(/[\r\n]+/g, ' ').slice(0, 600));
+      res.writeHead(204); return res.end();
+    }
     if (path.startsWith('/api/')) return await api(req, res, path);
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
     serveStatic(req, res);

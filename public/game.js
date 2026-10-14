@@ -1,12 +1,15 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor } from './teams.js';
-import { ITEMS, itemById, DEFAULT_EQUIP } from './items.js';
-import { World, Q } from './scene.js';
-import { paperThumb, paperSurface, pitchTexture, ballTexture, crest, ink } from './art.js';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=15';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor } from './teams.js?v=15';
+import { ITEMS, itemById, DEFAULT_EQUIP } from './items.js?v=15';
+import { World, Q } from './scene.js?v=15';
+import { paperThumb, paperSurface, pitchTexture, ballTexture, crest, ink } from './art.js?v=15';
 
 const tg = window.Telegram?.WebApp;
+const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 15, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
+addEventListener('error', e => beacon({ err: e.message, at: `${e.filename?.split('/').pop()}:${e.lineno}` }));
+addEventListener('unhandledrejection', e => beacon({ err: String(e.reason?.stack || e.reason).slice(0, 300) }));
 const initData = tg?.initData || '';
 const $ = s => document.querySelector(s);
 const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
@@ -115,7 +118,7 @@ function onTurnStart() {
 function startTap(a) {
   const k = M.e.kicker; if (a.t !== 'aim' || !k) return;
   const vp = world.pieces[k.id]; vp.flipT = 0; vp.tapPower = a.ps ? 1 : a.power;
-  world.ripple(k.x - a.dx * 0.35, k.z - a.dz * 0.35); SFX.tap(a.power); haptic(a.ps ? 'heavy' : 'medium');
+  world.ripple?.(k.x - a.dx * 0.35, k.z - a.dz * 0.35); SFX.tap(a.power); haptic(a.ps ? 'heavy' : 'medium');
 }
 function act(a) {
   if (!M || M.queued) return;
@@ -153,9 +156,9 @@ function tick(dt) {
       if (M.cpuWait <= 0.6 && !M.cpuPlan) M.cpuPlan = e.cpuAction(); // same RNG draw the server replay makes
       if (M.cpuPlan && M.cpuWait <= 0) act(M.cpuPlan);
     }
-    else if (M.mode !== 'online' && M.turnLeft !== null) { M.turnLeft -= dt; if (M.turnLeft <= 0) { act({ t: 'skip' }); } }
+    else if (M.mode !== 'online' && M.turnLeft !== null) { M.turnLeft -= dt; if (M.turnLeft <= 0) { beacon({ timeout: true, downs: M.downs || 0, held: !!M.hold, q: !!M.queued, phase: e.phase, w: innerWidth, h: innerHeight }); act({ t: 'skip' }); } }
   }
-  if (M.queued && (M.queued.t -= dt) <= 0) { const a = M.queued.a; M.queued = null; if (e._applyAction(a)) M.actions.push(a); }
+  if (M.queued && (M.queued.t -= dt) <= 0) { const a = M.queued.a; M.queued = null; if (e._applyAction(a)) M.actions.push(a); else beacon({ rejected: a, phase: e.phase, kicker: e.kicker?.id }); }
   if (e.phase === 'halftime' && M.mode !== 'online') { M.halfWait += dt; if (M.halfWait > 2.6) { M.halfWait = 0; act({ t: 'half' }); } }
   e.acc += sim;
   let n = 0; while (e.acc >= STEP && n++ < 8) { e.step(STEP); e.acc -= STEP; }
@@ -241,6 +244,7 @@ function screenOf(x, z) { const p = new THREE.Vector3(x, 0.2, z).project(world.c
 function goalDir() { const e = M.e, b = e.ball, s = e.attackSign(e.kicker.team), gx = -b.x * 0.85, gz = s * FIELD.L / 2 - b.z, l = Math.hypot(gx, gz) || 1; return { dx: gx / l, dz: gz / l }; }
 canvas.addEventListener('pointerdown', ev => {
   audio(); if (!M || M.paused) return;
+  M.downs = (M.downs || 0) + 1;
   canvas.setPointerCapture(ev.pointerId);
   if (humanTurn() && !M.ps && M.e.kicker) { drag = { kind: 'aim', id: ev.pointerId, x: ev.clientX, y: ev.clientY, g: groundAt(ev.clientX, ev.clientY) }; M.hold = { t0: performance.now(), p: 0, dragged: false }; M.aim = { ...goalDir(), power: MIN_P }; haptic('light'); }
   else drag = { kind: 'look', id: ev.pointerId, x: ev.clientX, yaw: M.camYaw };
