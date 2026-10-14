@@ -1,0 +1,11 @@
+services:
+  bolakertas:
+    build: .
+    container_name: bolakertas
+    restart: unless-stopped
+    env_file: .env
+    networks: [edge]
+networks:
+  edge:
+    external: true
+    name: boostdeck_default
