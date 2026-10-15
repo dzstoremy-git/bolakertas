@@ -14,6 +14,7 @@ const D = {
   post: ['TIANG!', 'POST!', 'ШТАНГА!'], pull_more: ['Tarik lebih jauh, kemudian lepas.', 'Pull back further, then let go.', 'Оттяни дальше и отпусти.'],
   half1: ['BABAK 1', '1ST HALF', '1-Й ТАЙМ'], half2: ['BABAK 2', '2ND HALF', '2-Й ТАЙМ'], pause: ['Jeda', 'Pause', 'Пауза'],
   shot0: ['BUMI', 'GROUND', 'НИЗОМ'], shot1: ['CUNGKIL', 'CHIP', 'ПОДСЕЧКА'], shot2: ['LAMBUNG', 'LOB', 'НАВЕС'],
+  shot0_s: ['Golek di rumput', 'Rolls on the grass', 'Катится по траве'], shot1_s: ['Lepasi 1 pemain', 'Over 1 player', 'Через 1 игрока'], shot2_s: ['Terbang tinggi', 'Flies high', 'Летит высоко'],
   power_shot: ['REMBATAN PADU', 'POWER SHOT', 'МОЩНЫЙ УДАР'], power_n: ['KUASA {n}%', 'POWER {n}%', 'СИЛА {n}%'], power: ['KUASA', 'POWER', 'СИЛА'], pull_back: ['TARIK KE BELAKANG', 'PULL BACK', 'ОТТЯНИ НАЗАД'],
   turn_you: ['GILIRAN ANDA', 'YOUR TURN', 'ВАШ ХОД'], turn_ai: ['GILIRAN AI', "AI'S TURN", 'ХОД ИИ'], turn_opp: ['GILIRAN LAWAN', "OPPONENT'S TURN", 'ХОД СОПЕРНИКА'], turn_of: ['GILIRAN {name}', "{name}'S TURN", 'ХОД: {name}'],
   sp_kickoff: ['SEPAK MULA', 'KICK-OFF', 'НАЧАЛО'], sp_corner: ['SEPAKAN SUDUT', 'CORNER', 'УГЛОВОЙ'], sp_goalkick: ['SEPAKAN GOL', 'GOAL KICK', 'ОТ ВОРОТ'], sp_throw: ['BOLA KELUAR', 'OUT OF PLAY', 'АУТ'], sp_live: ['BOLA HIDUP', 'IN PLAY', 'В ИГРЕ'],

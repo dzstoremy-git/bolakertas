@@ -243,9 +243,14 @@ body.playing #toast{bottom:auto;top:calc(62px + var(--sat))}
 .tr{position:absolute;z-index:2;top:calc(10px + var(--sat));right:10px;display:flex;gap:8px}
 #cam-btn{padding:0 12px 0 8px;font-size:14px}
 .bottom{position:absolute;left:0;right:0;bottom:calc(10px + var(--sab));display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 10px}
-.shots{display:flex;gap:8px;transition:opacity .2s}.shots.dim{opacity:.4}.shots.dim .shot{pointer-events:none}
-.shot{display:flex;align-items:center;gap:7px;height:42px;padding:0 13px;border-radius:14px;background:var(--paper);border:2.5px solid var(--ink);color:var(--ink);font:400 15px/1 var(--disp);box-shadow:0 3px 0 var(--ink);pointer-events:auto}
-.shot kbd{font:900 10px var(--sans);padding:2px 5px;border-radius:5px;background:#eae3d2}
+.shots{display:flex;justify-content:center;gap:8px;width:min(440px,100%);transition:opacity .2s}.shots.dim{opacity:.4}.shots.dim .shot{pointer-events:none}
+.shot{position:relative;flex:1 1 0;min-width:0;max-width:136px;display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 6px 7px;border-radius:14px;background:var(--paper);border:2.5px solid var(--ink);color:var(--ink);font:400 15px/1 var(--disp);box-shadow:0 3px 0 var(--ink);pointer-events:auto}
+.shot kbd{position:absolute;top:4px;right:5px;font:900 10px var(--sans);padding:2px 5px;border-radius:5px;background:#eae3d2}
+.shot svg{width:56px;height:26px;overflow:visible}.shot .gl{stroke:var(--ink);stroke-width:1.5;opacity:.3}
+.shot .tr{fill:none;stroke:#2f8fe0;stroke-width:2.4;stroke-linecap:round;stroke-dasharray:3.5 3.5}.shot .pl{fill:none;stroke:var(--ink);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round}
+.shot .bl{fill:#fff;stroke:var(--ink);stroke-width:1.6}.shot .gh{fill:none;stroke:var(--ink);stroke-width:1.4;stroke-dasharray:2 2;opacity:.55}
+.shot small{max-width:100%;font:900 10px/1.15 var(--sans);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shot.on .tr{stroke:var(--ink);animation:shotDash .9s linear infinite}.shot.on small{color:var(--ink)}@keyframes shotDash{to{stroke-dashoffset:-14}}
 .shot.on{background:var(--yel)}
 .shot:active{transform:translateY(3px);box-shadow:none}
 .pcard{display:flex;align-items:center;gap:10px;width:min(440px,100%);padding:8px 10px;border-radius:20px;transition:opacity .2s}
@@ -308,7 +313,7 @@ body.playing #menu{display:none}
 @media (max-width:480px){
   .sb{height:38px;max-width:calc(100vw - 116px)}.sb-team b{display:none}.sb-team{padding:0 6px}.sb-clock{min-width:50px;padding:0 6px}.sb-score{padding:0 8px}
   #cam-btn{width:42px;padding:0;justify-content:center}#cam-btn span{display:none}
-  .shot{height:38px;padding:0 11px;font-size:13px}.shot kbd{display:none}
+  .shot{font-size:14px}.shot kbd{display:none}
 }
 @media (max-width:360px){.mode b{font-size:21px}.m-cpu b{font-size:28px}.mode small{font-size:11px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

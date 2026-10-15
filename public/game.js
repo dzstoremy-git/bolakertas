@@ -1,12 +1,12 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=25';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=25';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=25';
-import { World, Q } from './scene.js?v=25';
-import { crest, ink } from './art.js?v=25';
-import * as L3 from './locker3d.js?v=25';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=25';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=26';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=26';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=26';
+import { World, Q } from './scene.js?v=26';
+import { crest, ink } from './art.js?v=26';
+import * as L3 from './locker3d.js?v=26';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=26';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -321,6 +321,9 @@ function toggleCam() { M.camMode = CAMS[(CAMS.indexOf(M.camMode) + 1) % CAMS.len
 
 // ── HUD ────────────────────────────────────────────────────
 function crestCanvas(team, size = 34) { const c = document.createElement('canvas'); c.width = c.height = size * 2; crest(c.getContext('2d'), size, size * 0.95, size * 1.5, team); c.className = 'crest'; return c; }
+// Kick type icons: ball, dashed flight path, landing spot, and the folded paper players it clears.
+const SHOT_ICON = ['<path class="tr" d="M11 20H45"/>', '<path class="pl" d="M25 23L28 14L31 23"/><path class="tr" d="M10 18Q28 2 46 19"/>',
+  '<path class="pl" d="M19 23L22 14L25 23M31 23L34 14L37 23"/><path class="tr" d="M10 17Q28 -12 46 18"/>'];
 function buildHud() {
   const hud = $('#hud'), [t0, t1] = M.art.teams, [k0, k1] = M.art.kits;
   hud.innerHTML = `
@@ -335,7 +338,7 @@ function buildHud() {
     <button class="chip ghost sq" id="pause-btn" aria-label="${T('pause')}"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg></button>
   </div>
   <div class="bottom">
-    <div class="shots" id="shots">${SHOT_TYPES.map((s, i) => `<button class="shot" data-i="${i}"><b>${T('shot' + i)}</b><kbd>${i + 1}</kbd></button>`).join('')}</div>
+    <div class="shots" id="shots">${SHOT_TYPES.map((s, i) => `<button class="shot" data-i="${i}" aria-label="${T('shot' + i)}: ${T('shot' + i + '_s')}"><svg viewBox="0 0 56 26" aria-hidden="true"><path class="gl" d="M2 23.5H54"/>${SHOT_ICON[i]}<circle class="gh" cx="49" cy="20" r="3.2"/><circle class="bl" cx="7" cy="20" r="3.4"/></svg><b>${T('shot' + i)}</b><small>${T('shot' + i + '_s')}</small><kbd>${i + 1}</kbd></button>`).join('')}</div>
     <div class="pcard" id="pcard"><div class="pc-badge"></div><div class="pc-main"><b id="pc-name"></b><div class="charge" id="charge">${'<i></i>'.repeat(POWER_CHARGE)}</div><small id="pc-state"></small></div><div class="pc-timer" id="pc-timer"><svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="17" class="trk"/><circle cx="20" cy="20" r="17" class="arc" id="arc"/></svg><b id="tl">15</b></div></div>
     <div class="meter" id="meter"><i id="meter-fill"></i><b id="meter-txt">${T('power')}</b></div>
     <button class="power" id="power-btn" hidden>${T('power_shot')}</button>
