@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { Engine, runToRest, BASE_STATS, checksum, predictPath, FIELD } from './public/engine.js';
 const S = await import('./server.js');
+const I = await import('./public/i18n.js');
 let n = 0; const ok = (name, fn) => { fn(); n++; console.log('ok', name); };
 
 const setup = (seed, paper) => S.buildSetup({ team0: 'jdt', team1: 'sel', seed, minutes: 1, skill: 0.5, cpu: [true, true], paper0: paper });
@@ -69,17 +70,28 @@ ok('coin packs: Stars buy coins once per charge, repeatable, outside the daily p
   assert.equal(S.db.prepare('SELECT COUNT(*) c FROM owned WHERE uid=9031').get().c, 0);
   assert.ok(S.readPayload(S.makePayload('c_pack4', 9031)));
 });
-ok('bot rich text: balanced HTML, escaped user input, no em dash, AI not CPU', () => {
-  const snap = { name: '<b>Ali & Abu</b>', coins: 1234, owned: 3, items: 60, equip: { paper: 'p_a4', ball: 'b_classic' }, pass: '' };
-  const pages = [S.botText('start', snap), S.botText('coins', snap), S.botText('profile', snap), S.botText('help'), S.botText('support'), S.botText('terms'),
-    S.botText('paid', { ok: true, item: S.catalog.itemById('c_pack2'), charge: 'stxt<1>', coins: 2634 }), S.botText('paid', { ok: true, item: S.catalog.itemById('p_gold'), charge: 'x' }), S.botText('paid', { ok: false, charge: 'y' })];
+ok('bot rich text in ms/en/ru: balanced HTML, escaped user input, no em dash, AI not CPU', () => {
+  for (const lang of ['ms', 'en', 'ru']) {
+  const snap = { lang, name: '<b>Ali & Abu</b>', coins: 1234, owned: 3, items: 60, equip: { paper: 'p_a4', ball: 'b_classic' }, pass: '' };
+  const pages = [S.botText('start', snap), S.botText('coins', snap), S.botText('profile', snap), S.botText('help', { lang }), S.botText('support', { lang }), S.botText('terms', { lang }),
+    S.botText('paid', { lang, ok: true, item: S.catalog.itemById('c_pack2'), charge: 'stxt<1>', coins: 2634 }), S.botText('paid', { lang, ok: true, item: S.catalog.itemById('p_gold'), charge: 'x' }), S.botText('paid', { lang, ok: false, charge: 'y' }), S.botText('owns', { lang, item: S.catalog.itemById('p_gold') })];
+  if (lang === 'ru') for (const t of pages) assert.ok(/[а-я]/i.test(t), 'russian ' + t.slice(0, 40));
+  if (lang !== 'ms') for (const t of pages) assert.ok(!/\b(anda|untuk|dalam|Bayaran)\b/.test(t), lang + ' leaks malay: ' + t.slice(0, 60));
   for (const t of pages) {
     assert.ok(t.length > 20 && t.length < 4096);
     assert.ok(!t.includes('—') && !/CPU/.test(t), t.slice(0, 60));
     const stack = []; for (const [, close, tag] of t.matchAll(/<(\/?)(b|i|code|blockquote)(?: expandable)?>/g)) { if (close) assert.equal(stack.pop(), tag); else stack.push(tag); } assert.equal(stack.length, 0);
     assert.ok(!/<(?!\/?(b|i|code|blockquote)( expandable)?>)/.test(t), 'only allowed tags');
   }
-  assert.ok(pages[0].includes('&lt;b&gt;Ali &amp; Abu&lt;/b&gt;')); assert.ok(pages[6].includes('stxt&lt;1&gt;')); assert.ok(pages[6].includes('+1,400'));
+  assert.ok(pages[0].includes('&lt;b&gt;Ali &amp; Abu&lt;/b&gt;')); assert.ok(pages[6].includes('stxt&lt;1&gt;')); assert.ok(/\+1[,\s\u00a0]400/.test(pages[6]), pages[6]);
+  }
+});
+ok('i18n: every key and every item has ms/en/ru, no em dash, no developer words', () => {
+  for (const k of I.KEYS) for (const l of I.LANGS) { const s = I.tr(l, k); assert.ok(s && s !== k, k + ' ' + l); assert.ok(!s.includes('—'), k); assert.ok(!/\b(HUD|render|enjin|stat|CPU|invois|ralat)\b/i.test(s), k + ': ' + s); }
+  for (const it of S.catalog.ITEMS) { assert.ok(I.ITEM_IDS.includes(it.id), 'missing translation ' + it.id); assert.ok(I.itemDesc(it, 'en') !== it.desc || it.slot === 'coins', 'en desc ' + it.id); }
+  for (const it of S.catalog.ITEMS) assert.ok(/[а-я]/i.test(I.itemName(it, 'ru')) || /^[A-Z0-9 ]+$/.test(I.itemName(it, 'ru')), it.id);
+  assert.equal(I.langFrom('ru'), 'ru'); assert.equal(I.langFrom('uk'), 'ru'); assert.equal(I.langFrom('ms'), 'ms'); assert.equal(I.langFrom('id'), 'ms'); assert.equal(I.langFrom('en'), 'en'); assert.equal(I.langFrom('de'), 'en'); assert.equal(I.langFrom(''), 'ms');
+  assert.equal(I.trMs('en', '3 TENDANGAN HABIS'), '3 KICKS USED'); assert.equal(I.trMs('ru', 'GOL!'), 'ГОЛ!'); assert.equal(I.trMs('ms', 'GOL!'), 'GOL!');
 });
 ok('cheap catalog: every new item is priced low and drawable', () => {
   const { ITEMS: L } = S.catalog, cheap = L.filter(i => (i.coins && i.coins <= 900) || (i.stars && i.stars <= 8 && i.slot !== 'coins'));

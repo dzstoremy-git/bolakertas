@@ -6,13 +6,17 @@
 @font-face{font-family:"Nunito";font-weight:700;src:url(/fonts/Nunito-700.woff2) format("woff2");font-display:swap}
 @font-face{font-family:"Nunito";font-weight:800;src:url(/fonts/Nunito-800.woff2) format("woff2");font-display:swap}
 @font-face{font-family:"Nunito";font-weight:900;src:url(/fonts/Nunito-900.woff2) format("woff2");font-display:swap}
+@font-face{font-family:"Rubik Cyr";font-weight:400 900;src:url(/fonts/Rubik-cyr-800.woff2) format("woff2");unicode-range:U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;font-display:swap}
+@font-face{font-family:"Nunito";font-weight:700;src:url(/fonts/Nunito-cyr-700.woff2) format("woff2");unicode-range:U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;font-display:swap}
+@font-face{font-family:"Nunito";font-weight:800;src:url(/fonts/Nunito-cyr-800.woff2) format("woff2");unicode-range:U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;font-display:swap}
+@font-face{font-family:"Nunito";font-weight:900;src:url(/fonts/Nunito-cyr-900.woff2) format("woff2");unicode-range:U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;font-display:swap}
 :root{
   --ink:#2a1f5c;--ink2:#5b5391;--mut:#6a6399;--paper:#fffaf0;--paper2:#fff3dc;--rule:rgba(79,179,255,.22);--line:rgba(42,31,92,.14);
   --sky1:#4aa8ff;--sky2:#dff4ff;
   --yel:#ffc93c;--yel-d:#e59a00;--blu:#4fb3ff;--blu-d:#1e7fd0;--org:#ff9f66;--org-d:#e0662a;--vio:#9d85ff;--vio-d:#6a4fe0;
   --pink:#ff7fb6;--pink-d:#d8488a;--mint:#3fd1a2;--mint-d:#1f9c75;--red:#ff5d73;--red-d:#c9304a;--gold:#ffc93c;
   --lime:var(--mint);--hot:var(--red);--txt:var(--ink);
-  --disp:"Lilita One","Nunito",system-ui,sans-serif;--sans:"Nunito",system-ui,sans-serif;--cond:var(--disp);--logo:var(--disp);
+  --disp:"Lilita One","Rubik Cyr","Nunito",system-ui,sans-serif;--sans:"Nunito",system-ui,sans-serif;--cond:var(--disp);--logo:var(--disp);
   --st:3px;--lift:0 4px 0 var(--ink);--sat:env(safe-area-inset-top);--sab:env(safe-area-inset-bottom);--nav:74px}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;overflow:hidden;background:var(--sky1);color:var(--ink);font:800 15px/1.4 var(--sans);overscroll-behavior:none;user-select:none;-webkit-user-select:none;-webkit-font-smoothing:antialiased}

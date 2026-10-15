@@ -8,6 +8,7 @@ import { WebSocketServer } from 'ws';
 import { Engine, runToRest, isRest, makeCode, BASE_STATS, FORMATIONS } from './public/engine.js';
 import { teamById, rosterFor, cleanRoster, cleanKit } from './public/teams.js';
 import { ITEMS, itemById, DEFAULT_EQUIP, SLOTS, matchReward, DAILY_COIN_CAP, isOwned, aiEquip, tossResult } from './public/items.js';
+import { langFrom, itemName, itemDesc, trMs, LANGS } from './public/i18n.js';
 export const catalog = { ITEMS, itemById };
 
 const PORT = +(process.env.PORT || 3000);
@@ -187,8 +188,7 @@ async function api(req, res, path) {
     if (!item?.stars) return json(res, 400, { err: 'not_for_stars' });
     if (!item.consumable && isOwned(ownedSet(auth.uid), item)) return json(res, 400, { err: 'owned' });
     if (limited('inv:' + auth.uid, 10, 60e3)) return json(res, 429, { err: 'slow_down' });
-    const r = await bot('createInvoiceLink', { title: item.name, description: item.desc.slice(0, 255), payload: makePayload(item.id, auth.uid),
-      provider_token: '', currency: 'XTR', prices: [{ label: item.name, amount: item.stars }] });
+    const r = await bot('createInvoiceLink', invoiceFields(item, auth.uid, LANGS.includes(body.lang) ? body.lang : 'ms'));
     return r.ok ? json(res, 200, { url: r.result }) : json(res, 502, { err: 'invoice' });
   }
   if (path === '/api/match/start') {
@@ -222,45 +222,100 @@ const h = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>
 const fmt = n => Number(n).toLocaleString('ms-MY');
 const PACKS = ITEMS.filter(i => i.slot === 'coins');
 const kb = rows => ({ inline_keyboard: rows });
-const playBtn = (t = '⚽ MULA MAIN') => ({ text: t, web_app: { url: WEBAPP_URL } });
+const playBtn = (lang = 'ms', t = L(lang).b_play) => ({ text: t, web_app: { url: WEBAPP_URL } });
 const say = (chat_id, text, reply_markup) => bot('sendMessage', { chat_id, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...(reply_markup ? { reply_markup } : {}) });
-const packsKb = () => kb([...PACKS.map(p => [{ text: `${fmt(p.grantCoins)} coins · ${p.stars} ⭐${p.tag ? '  ' + p.tag : ''}`, callback_data: 'buy:' + p.id }]), [playBtn('🎒 Buka Loker dalam game')]]);
+const packsKb = lang => kb([...PACKS.map(p => [{ text: `${fmtL(p.grantCoins, lang)} ${L(lang).coins_w} · ${p.stars} ⭐${p.tag ? '  ' + trMs(lang, p.tag) : ''}`, callback_data: 'buy:' + p.id }]), [playBtn(lang, L(lang).b_locker)]]);
+// Bot copy in three languages. d.lang picks one; Malay is the fallback.
+const BT = {
+  ms: {
+    tagline: 'Bola sepak kertas 3D, terus dalam Telegram.', howto: 'Tarik ke belakang, bidik, lepas. Tarik jauh untuk sepakan lebih kuat.',
+    hi: n => `👋 Hai <b>${n}</b>`, coins: 'Coins', items: 'Item', in_locker: 'dalam loker', whats: 'Apa yang ada',
+    feats: n => `🏆 70 pasukan: Liga Malaysia, EPL, La Liga, Bundesliga, pasukan negara\n🤖 Lawan AI 3 tahap, 2 pemain satu telefon, atau online\n🪙 Lambung syiling: pemenang mula dulu di venue sendiri\n📄 ${n}+ item: kertas, bola, padang, venue, efek gol`,
+    shop: 'Kedai Coins', bal: 'Baki anda', for: 'untuk', shop_note: 'Item paling murah bermula 150 coins. Coins yang dibeli tiada had harian.', tap_pack: 'Pilih pek di bawah untuk bayar dengan Stars.',
+    profile: 'Profil', owned: 'Item dimiliki', pass: d => `🎟 Pas Mingguan aktif sehingga <b>${d}</b>`, wearing: 'Sedang dipakai',
+    slots: { paper: '📄 Kertas', pitch: '🟩 Padang', venue: '🏟 Venue', ball: '⚽ Bola', fx: '🎆 Efek gol' },
+    help: 'Cara Main', rules: '<b>1. Lastik.</b> Tarik ke belakang dan lepas untuk tendang. Tarik jauh, sepakan lebih kuat.\n<b>2. Jenis sepakan.</b> BUMI bergolek, CUNGKIL naik sikit, LAMBUNG terbang tinggi.\n<b>3. Tiga tendangan.</b> Setiap pasukan boleh tendang 3 kali berturut-turut, kemudian giliran lawan.\n<b>4. Lambung syiling.</b> Pemenang mula dulu dan main di venue sendiri.\n<b>5. Coins.</b> Menang lawan AI untuk kumpul coins, sehingga 1,500 sehari.',
+    cmds: '<b>Arahan</b>\n/start  menu utama\n/coins  beli coins\n/profil  coins dan item anda\n/paysupport  bantuan pembelian\n/terms  terma',
+    paid: 'Bayaran berjaya', added: 'masuk ke akaun anda', newbal: 'Baki terkini', in_locker2: 'dah masuk loker', receipt: 'ID resit (tekan untuk salin):',
+    paid_bad: 'Bayaran diterima, tetapi item belum masuk', paid_bad2: 'Jangan risau, Stars anda selamat. Hantar ID resit ini melalui /paysupport dan kami akan uruskan:',
+    support: 'Bantuan Pembelian', support_b: 'Hantar dalam chat ini:\n1. <b>ID resit</b> dari mesej bayaran (bermula dengan <code>stxt</code>)\n2. Nama item atau pek coins yang anda beli', support_n: 'Kami akan balas dalam masa 48 jam. Bayaran berganda akan dipulangkan.',
+    terms: 'Terma', terms_b: '• Semua item hanya untuk gaya dalam permainan. Kertas mahal tidak menjadikan anda lebih kuat.\n• Coins dan item tidak boleh ditukar kepada wang tunai atau dipindahkan.\n• Pembelian dengan Stars adalah muktamad, kecuali jika item tidak diterima. Hubungi /paysupport.\n• Coins dari permainan terhad 1,500 sehari. Coins yang dibeli tiada had.',
+    owns: n => `Anda dah ada <b>${n}</b>.`, cant_buy: 'Item ini tidak boleh dibeli sekarang.',
+    b_play: '⚽ MAIN SEKARANG', b_coins: '🪙 Beli Coins', b_profile: '👤 Profil', b_help: '📖 Cara Main', b_locker: '🎒 Buka Loker', b_more: '🪙 Beli lagi', coins_w: 'coins',
+  },
+  en: {
+    tagline: '3D paper football, right inside Telegram.', howto: 'Pull back, aim, let go. The further you pull, the harder the kick.',
+    hi: n => `👋 Hi <b>${n}</b>`, coins: 'Coins', items: 'Items', in_locker: 'in your locker', whats: "What's inside",
+    feats: n => `🏆 70 teams: Malaysia League, EPL, La Liga, Bundesliga, national teams\n🤖 Play the AI on 3 levels, 2 players on one phone, or online\n🪙 Coin toss: the winner kicks off at their own venue\n📄 ${n}+ items: paper, balls, pitches, venues, goal effects`,
+    shop: 'Coin Shop', bal: 'Your balance', for: 'for', shop_note: 'Items start from just 150 coins. Bought coins have no daily limit.', tap_pack: 'Pick a pack below to pay with Stars.',
+    profile: 'Profile', owned: 'Items owned', pass: d => `🎟 Weekly Pass active until <b>${d}</b>`, wearing: 'Currently using',
+    slots: { paper: '📄 Paper', pitch: '🟩 Pitch', venue: '🏟 Venue', ball: '⚽ Ball', fx: '🎆 Goal effect' },
+    help: 'How to Play', rules: '<b>1. Slingshot.</b> Pull back and let go to kick. Pull further for a harder kick.\n<b>2. Kick types.</b> GROUND rolls, CHIP lifts a little, LOB flies high.\n<b>3. Three kicks.</b> Each team gets 3 kicks in a row, then it is the other side\'s turn.\n<b>4. Coin toss.</b> The winner kicks off and plays at their own venue.\n<b>5. Coins.</b> Beat the AI to earn coins, up to 1,500 a day.',
+    cmds: '<b>Commands</b>\n/start  main menu\n/coins  buy coins\n/profil  your coins and items\n/paysupport  purchase help\n/terms  terms',
+    paid: 'Payment successful', added: 'added to your account', newbal: 'New balance', in_locker2: 'is now in your locker', receipt: 'Receipt ID (tap to copy):',
+    paid_bad: "Payment received, but your item hasn't arrived yet", paid_bad2: "Don't worry, your Stars are safe. Send this receipt ID via /paysupport and we'll sort it out:",
+    support: 'Purchase Help', support_b: 'Send us in this chat:\n1. The <b>receipt ID</b> from your payment message (it starts with <code>stxt</code>)\n2. The item or coin pack you bought', support_n: "We'll reply within 48 hours. Double payments are refunded.",
+    terms: 'Terms', terms_b: "• All items are cosmetic. Expensive paper doesn't make you stronger.\n• Coins and items can't be exchanged for cash or transferred.\n• Stars purchases are final unless the item doesn't arrive. Contact /paysupport.\n• Coins from playing are capped at 1,500 a day. Bought coins have no limit.",
+    owns: n => `You already own <b>${n}</b>.`, cant_buy: "This item can't be bought right now.",
+    b_play: '⚽ PLAY NOW', b_coins: '🪙 Buy Coins', b_profile: '👤 Profile', b_help: '📖 How to Play', b_locker: '🎒 Open Locker', b_more: '🪙 Buy more', coins_w: 'coins',
+  },
+  ru: {
+    tagline: 'Бумажный 3D-футбол прямо в Telegram.', howto: 'Оттяни, прицелься, отпусти. Чем дальше тянешь, тем сильнее удар.',
+    hi: n => `👋 Привет, <b>${n}</b>`, coins: 'Монеты', items: 'Предметы', in_locker: 'в шкафу', whats: 'Что внутри',
+    feats: n => `🏆 70 команд: Лига Малайзии, АПЛ, Ла Лига, Бундеслига, сборные\n🤖 Игра против ИИ на 3 уровнях, вдвоём на одном телефоне или онлайн\n🪙 Жребий: победитель начинает на своём стадионе\n📄 ${n}+ предметов: бумага, мячи, поля, стадионы, эффекты гола`,
+    shop: 'Магазин монет', bal: 'Твой баланс', for: 'за', shop_note: 'Предметы от 150 монет. У купленных монет нет дневного лимита.', tap_pack: 'Выбери набор ниже, чтобы оплатить звёздами.',
+    profile: 'Профиль', owned: 'Предметов', pass: d => `🎟 Недельный пропуск активен до <b>${d}</b>`, wearing: 'Сейчас надето',
+    slots: { paper: '📄 Бумага', pitch: '🟩 Поле', venue: '🏟 Стадион', ball: '⚽ Мяч', fx: '🎆 Эффект гола' },
+    help: 'Как играть', rules: '<b>1. Рогатка.</b> Оттяни назад и отпусти для удара. Чем дальше, тем сильнее.\n<b>2. Виды ударов.</b> НИЗОМ катится, ПОДСЕЧКА чуть поднимается, НАВЕС летит высоко.\n<b>3. Три удара.</b> Команда бьёт 3 раза подряд, затем ход переходит к сопернику.\n<b>4. Жребий.</b> Победитель начинает и играет на своём стадионе.\n<b>5. Монеты.</b> Побеждай ИИ и получай монеты, до 1 500 в день.',
+    cmds: '<b>Команды</b>\n/start  главное меню\n/coins  купить монеты\n/profil  твои монеты и предметы\n/paysupport  помощь с покупкой\n/terms  условия',
+    paid: 'Оплата прошла', added: 'зачислено на счёт', newbal: 'Новый баланс', in_locker2: 'теперь в шкафу', receipt: 'ID чека (нажми, чтобы скопировать):',
+    paid_bad: 'Оплата получена, но предмет ещё не зачислен', paid_bad2: 'Не волнуйся, твои звёзды в безопасности. Отправь этот ID чека через /paysupport, и мы всё решим:',
+    support: 'Помощь с покупкой', support_b: 'Отправь в этот чат:\n1. <b>ID чека</b> из сообщения об оплате (начинается с <code>stxt</code>)\n2. Название предмета или набора монет', support_n: 'Ответим в течение 48 часов. Двойные платежи возвращаем.',
+    terms: 'Условия', terms_b: '• Все предметы только для внешнего вида. Дорогая бумага не делает тебя сильнее.\n• Монеты и предметы нельзя обменять на деньги или передать.\n• Покупки за звёзды окончательны, если предмет получен. Пиши в /paysupport.\n• Монеты за игру ограничены 1 500 в день. У купленных монет лимита нет.',
+    owns: n => `У тебя уже есть <b>${n}</b>.`, cant_buy: 'Этот предмет сейчас нельзя купить.',
+    b_play: '⚽ ИГРАТЬ', b_coins: '🪙 Купить монеты', b_profile: '👤 Профиль', b_help: '📖 Как играть', b_locker: '🎒 Открыть шкаф', b_more: '🪙 Купить ещё', coins_w: 'монет',
+  },
+};
+const L = lang => BT[lang] || BT.ms;
+const fmtL = (n, lang) => Number(n).toLocaleString(lang === 'ru' ? 'ru-RU' : lang === 'en' ? 'en-US' : 'ms-MY');
+const tagL = (tag, lang) => trMs(lang, tag);
 export function botText(kind, d = {}) {
-  if (kind === 'start') return `<b>⚽ Bola Kertas</b>\n<i>Bola sepak kertas 3D, terus dalam Telegram.</i>\n\n`
-    + `<blockquote>Seret dari bola, tarik ke belakang, lepas. Lagi jauh tarik, lagi padu tepukan.</blockquote>\n\n`
-    + `👋 Hai <b>${h(d.name || 'pemain')}</b>\n🪙 Coins: <b>${fmt(d.coins)}</b>\n🎒 Item: <b>${d.owned}</b> dalam loker\n\n`
-    + `<blockquote expandable><b>Apa ada dalam game</b>\n🏆 70 pasukan: Liga Malaysia, EPL, La Liga, Bundesliga, negara\n🤖 Lawan AI 3 tahap, 2 pemain satu telefon, online\n🪙 Lambung syiling: pemenang jadi HOME, guna venue dan bola sendiri\n📄 ${d.items}+ item: kertas, bola, padang, venue, efek gol</blockquote>`;
-  if (kind === 'coins') return `<b>🪙 Kedai Coins</b>\nBaki anda: <b>${fmt(d.coins)} coins</b>\n\n`
-    + `<blockquote>${PACKS.map(p => `${p.tag ? '🔥' : '•'} <b>${fmt(p.grantCoins)} coins</b> untuk ${p.stars} ⭐${p.tag ? `  <i>${h(p.tag)}</i>` : ''}`).join('\n')}</blockquote>\n\n`
-    + `<i>Item termurah dari 150 coins. Coins yang dibeli tidak dikira dalam had harian 1,500.</i>\nTekan pek di bawah untuk bayar dengan Stars.`;
-  if (kind === 'profile') return `<b>👤 Profil ${h(d.name || '')}</b>\n\n🪙 Coins: <b>${fmt(d.coins)}</b>\n🎒 Item dimiliki: <b>${d.owned}</b>/${d.items}\n${d.pass ? `🎟 Pas Mingguan aktif sehingga <b>${h(d.pass)}</b>\n` : ''}\n`
-    + `<blockquote expandable><b>Sedang dipakai</b>\n${Object.entries(d.equip).map(([k, v]) => `${{ paper: '📄 Kertas', pitch: '🟩 Padang', venue: '🏟 Venue', ball: '⚽ Bola', fx: '🎆 Efek gol' }[k] || k}: <b>${h(itemById(v)?.name || v)}</b>`).join('\n')}</blockquote>`;
-  if (kind === 'help') return `<b>📖 Cara Main</b>\n\n<blockquote expandable><b>1. Lastik.</b> Seret dari bola ke belakang, lepas untuk tepuk. Tarik jauh = padu.\n<b>2. Jenis sepakan.</b> BUMI bergolek, CUNGKIL naik sikit, LAMBUNG tinggi.\n<b>3. Tiga tepukan.</b> Satu pasukan boleh tepuk 3 kali berturut, kemudian giliran bertukar.\n<b>4. Lambung syiling.</b> Pemenang mula dulu dan jadi HOME.\n<b>5. Coins.</b> Menang lawan AI untuk kumpul coins, maksimum 1,500 sehari.</blockquote>\n\n`
-    + `<b>Arahan</b>\n/start  menu utama\n/coins  beli coins dengan Stars\n/profil  baki dan item anda\n/paysupport  masalah pembelian\n/terms  terma`;
-  if (kind === 'paid') return d.ok ? `<b>✅ Bayaran diterima</b>\n\n${d.item.grantCoins ? `🪙 <b>+${fmt(d.item.grantCoins)} coins</b> masuk akaun\nBaki baru: <b>${fmt(d.coins)} coins</b>` : `🎁 <b>${h(d.item.name)}</b> dah masuk loker`}\n\n<i>ID resit (tekan untuk salin):</i>\n<code>${h(d.charge)}</code>`
-    : `<b>⚠️ Bayaran diterima tetapi gagal diproses</b>\n\nJangan risau, Stars anda selamat. Hantar ID resit ini melalui /paysupport:\n<code>${h(d.charge)}</code>`;
-  if (kind === 'support') return `<b>🛟 Bantuan Pembelian</b>\n\n<blockquote>Hantar dalam chat ini:\n1. <b>ID resit</b> dari mesej bayaran (bermula dengan <code>stxt</code>)\n2. Nama item atau pek coins yang dibeli</blockquote>\n\n<i>Kami semak dalam 48 jam. Bayaran berganda akan dipulangkan.</i>`;
-  if (kind === 'terms') return `<b>📜 Terma</b>\n\n<blockquote expandable>• Semua item adalah kosmetik dalam permainan. Kertas mahal tidak lebih kuat dari A4.\n• Coins dan item tiada nilai tunai, tidak boleh ditukar kepada wang dan tidak boleh dipindah.\n• Pembelian Stars adalah muktamad kecuali item gagal diterima. Hubungi /paysupport.\n• Coins dari bermain dihadkan 1,500 sehari. Coins yang dibeli tiada had.</blockquote>`;
+  const lang = d.lang || 'ms', x = L(lang), f = n => fmtL(n, lang), nm = it => h(itemName(it, lang));
+  if (kind === 'start') return `<b>⚽ Bola Kertas</b>\n<i>${x.tagline}</i>\n\n<blockquote>${x.howto}</blockquote>\n\n`
+    + `${x.hi(h(d.name || 'Bola Kertas'))}\n🪙 ${x.coins}: <b>${f(d.coins)}</b>\n🎒 ${x.items}: <b>${d.owned}</b> ${x.in_locker}\n\n`
+    + `<blockquote expandable><b>${x.whats}</b>\n${x.feats(d.items)}</blockquote>`;
+  if (kind === 'coins') return `<b>🪙 ${x.shop}</b>\n${x.bal}: <b>${f(d.coins)} ${x.coins_w}</b>\n\n`
+    + `<blockquote>${PACKS.map(p => `${p.tag ? '🔥' : '•'} <b>${f(p.grantCoins)} ${x.coins_w}</b> ${x.for} ${p.stars} ⭐${p.tag ? `  <i>${h(tagL(p.tag, lang))}</i>` : ''}`).join('\n')}</blockquote>\n\n`
+    + `<i>${x.shop_note}</i>\n${x.tap_pack}`;
+  if (kind === 'profile') return `<b>👤 ${x.profile}: ${h(d.name || '')}</b>\n\n🪙 ${x.coins}: <b>${f(d.coins)}</b>\n🎒 ${x.owned}: <b>${d.owned}</b>/${d.items}\n${d.pass ? x.pass(h(d.pass)) + '\n' : ''}\n`
+    + `<blockquote expandable><b>${x.wearing}</b>\n${Object.entries(d.equip).map(([k, v]) => `${x.slots[k] || k}: <b>${itemById(v) ? nm(itemById(v)) : h(v)}</b>`).join('\n')}</blockquote>`;
+  if (kind === 'help') return `<b>📖 ${x.help}</b>\n\n<blockquote expandable>${x.rules}</blockquote>\n\n${x.cmds}`;
+  if (kind === 'paid') return d.ok ? `<b>✅ ${x.paid}</b>\n\n${d.item.grantCoins ? `🪙 <b>+${f(d.item.grantCoins)} ${x.coins_w}</b> ${x.added}\n${x.newbal}: <b>${f(d.coins)} ${x.coins_w}</b>` : `🎁 <b>${nm(d.item)}</b> ${x.in_locker2}`}\n\n<i>${x.receipt}</i>\n<code>${h(d.charge)}</code>`
+    : `<b>⚠️ ${x.paid_bad}</b>\n\n${x.paid_bad2}\n<code>${h(d.charge)}</code>`;
+  if (kind === 'support') return `<b>🛟 ${x.support}</b>\n\n<blockquote>${x.support_b}</blockquote>\n\n<i>${x.support_n}</i>`;
+  if (kind === 'terms') return `<b>📜 ${x.terms}</b>\n\n<blockquote expandable>${x.terms_b}</blockquote>`;
+  if (kind === 'owns') return x.owns(nm(d.item));
   return '';
 }
-function userSnap(uid, name) { getUser(uid, name); const p = profile(uid); return { name: name || p.name, coins: p.coins, owned: p.owned.length, items: ITEMS.filter(i => !['coins', 'pass', 'bundle'].includes(i.slot)).length, equip: p.equip, pass: p.passUntil > Date.now() ? new Date(p.passUntil).toLocaleDateString('ms-MY') : '' }; }
-async function sendInvoiceFor(chat_id, uid, item) {
+function userSnap(uid, name, lang = 'ms') { getUser(uid, name); const p = profile(uid); return { lang, name: name || p.name, coins: p.coins, owned: p.owned.length, items: ITEMS.filter(i => !['coins', 'pass', 'bundle'].includes(i.slot)).length, equip: p.equip, pass: p.passUntil > Date.now() ? new Date(p.passUntil).toLocaleDateString(lang === 'ru' ? 'ru-RU' : lang === 'en' ? 'en-GB' : 'ms-MY') : '' }; }
+const invoiceFields = (item, uid, lang) => ({ title: itemName(item, lang).slice(0, 32), description: itemDesc(item, lang).slice(0, 255), payload: makePayload(item.id, uid), provider_token: '', currency: 'XTR', prices: [{ label: itemName(item, lang).slice(0, 32), amount: item.stars }] });
+async function sendInvoiceFor(chat_id, uid, item, lang = 'ms') {
   if (!item?.stars) return;
-  if (!item.consumable && isOwned(ownedSet(uid), item)) return say(chat_id, `Anda sudah memiliki <b>${h(item.name)}</b>.`);
+  if (!item.consumable && isOwned(ownedSet(uid), item)) return say(chat_id, botText('owns', { lang, item }));
   if (limited('inv:' + uid, 10, 60e3)) return;
-  return bot('sendInvoice', { chat_id, title: item.name, description: item.desc.slice(0, 255), payload: makePayload(item.id, uid), provider_token: '', currency: 'XTR', prices: [{ label: item.name, amount: item.stars }] });
+  return bot('sendInvoice', { chat_id, ...invoiceFields(item, uid, lang) });
 }
 export async function onUpdate(u) {
   if (u.pre_checkout_query) {
     const pq = u.pre_checkout_query, p = readPayload(pq.invoice_payload);
     const ok = !!p && p.uid === pq.from.id && pq.currency === 'XTR' && pq.total_amount === p.item.stars &&
       (p.item.consumable || !isOwned(ownedSet(p.uid), p.item));
-    return bot('answerPreCheckoutQuery', ok ? { pre_checkout_query_id: pq.id, ok: true } : { pre_checkout_query_id: pq.id, ok: false, error_message: 'Item ini tidak boleh dibeli sekarang.' });
+    return bot('answerPreCheckoutQuery', ok ? { pre_checkout_query_id: pq.id, ok: true } : { pre_checkout_query_id: pq.id, ok: false, error_message: L(langFrom(pq.from.language_code)).cant_buy });
   }
   if (u.callback_query) {
     const cq = u.callback_query, [act, id] = String(cq.data || '').split(':');
     bot('answerCallbackQuery', { callback_query_id: cq.id });
-    if (act === 'buy' && cq.message) return sendInvoiceFor(cq.message.chat.id, cq.from.id, PACKS.find(p => p.id === id));
+    if (act === 'buy' && cq.message) return sendInvoiceFor(cq.message.chat.id, cq.from.id, PACKS.find(p => p.id === id), langFrom(cq.from.language_code));
     if (act === 'menu' && cq.message && ['coins', 'profil', 'help'].includes(id)) return onUpdate({ message: { chat: cq.message.chat, from: cq.from, text: '/' + id } });
     return;
   }
@@ -269,17 +324,18 @@ export async function onUpdate(u) {
     const sp = m.successful_payment, p = readPayload(sp.invoice_payload);
     // Already charged: no expiry check here, only identity, item and amount.
     const r = p && p.uid === m.from.id && sp.currency === 'XTR' ? fulfill(sp.telegram_payment_charge_id, p.uid, p.item.id, sp.total_amount) : { ok: false };
-    return say(m.chat.id, botText('paid', { ok: r.ok, item: p?.item, charge: sp.telegram_payment_charge_id, coins: r.ok ? profile(p.uid).coins : 0 }),
-      r.ok ? kb([[playBtn('⚽ MAIN SEKARANG')], ...(p.item.grantCoins ? [[{ text: '🪙 Beli lagi', callback_data: 'menu:coins' }]] : [])]) : undefined);
+    const lang = langFrom(m.from.language_code);
+    return say(m.chat.id, botText('paid', { lang, ok: r.ok, item: p?.item, charge: sp.telegram_payment_charge_id, coins: r.ok ? profile(p.uid).coins : 0 }),
+      r.ok ? kb([[playBtn(lang)], ...(p.item.grantCoins ? [[{ text: L(lang).b_more, callback_data: 'menu:coins' }]] : [])]) : undefined);
   }
   if (m.chat.type !== 'private') return;
-  const text = (m.text || '').trim().toLowerCase(), uid = m.from.id, name = (m.from.first_name || '').slice(0, 40);
-  if (text.startsWith('/start')) return say(m.chat.id, botText('start', userSnap(uid, name)), kb([[playBtn()], [{ text: '🪙 Beli Coins', callback_data: 'menu:coins' }, { text: '👤 Profil', callback_data: 'menu:profil' }], [{ text: '📖 Cara Main', callback_data: 'menu:help' }]]));
-  if (text.startsWith('/coins')) return say(m.chat.id, botText('coins', userSnap(uid, name)), packsKb());
-  if (text.startsWith('/profil')) return say(m.chat.id, botText('profile', userSnap(uid, name)), kb([[playBtn()], [{ text: '🪙 Beli Coins', callback_data: 'menu:coins' }]]));
-  if (text.startsWith('/bantuan') || text.startsWith('/help')) return say(m.chat.id, botText('help'), kb([[playBtn()]]));
-  if (text.startsWith('/paysupport')) return say(m.chat.id, botText('support'));
-  if (text.startsWith('/terms')) return say(m.chat.id, botText('terms'));
+  const text = (m.text || '').trim().toLowerCase(), uid = m.from.id, name = (m.from.first_name || '').slice(0, 40), lang = langFrom(m.from.language_code), x = L(lang);
+  if (text.startsWith('/start')) return say(m.chat.id, botText('start', userSnap(uid, name, lang)), kb([[playBtn(lang)], [{ text: x.b_coins, callback_data: 'menu:coins' }, { text: x.b_profile, callback_data: 'menu:profil' }], [{ text: x.b_help, callback_data: 'menu:help' }]]));
+  if (text.startsWith('/coins')) return say(m.chat.id, botText('coins', userSnap(uid, name, lang)), packsKb(lang));
+  if (text.startsWith('/profil')) return say(m.chat.id, botText('profile', userSnap(uid, name, lang)), kb([[playBtn(lang)], [{ text: x.b_coins, callback_data: 'menu:coins' }]]));
+  if (text.startsWith('/bantuan') || text.startsWith('/help')) return say(m.chat.id, botText('help', { lang }), kb([[playBtn(lang)]]));
+  if (text.startsWith('/paysupport')) return say(m.chat.id, botText('support', { lang }));
+  if (text.startsWith('/terms')) return say(m.chat.id, botText('terms', { lang }));
 }
 // ── online rooms (server authoritative) ────────────────────
 const rooms = new Map(), queue = [];
@@ -428,10 +484,16 @@ if (process.env.NODE_ENV !== 'test') {
   server.listen(PORT, () => console.log('Bola Kertas on :' + PORT));
   if (BOT_TOKEN && WEBAPP_URL) {
     bot('setWebhook', { url: WEBAPP_URL + '/bot/webhook', secret_token: WH_SECRET, allowed_updates: ['message', 'pre_checkout_query', 'callback_query'] }).then(r => console.log('webhook', r.ok, r.description || ''));
-    bot('setChatMenuButton', { menu_button: { type: 'web_app', text: 'MULA', web_app: { url: WEBAPP_URL } } });
-    bot('setMyCommands', { commands: [{ command: 'start', description: 'Menu utama' }, { command: 'coins', description: 'Beli coins dengan Stars' }, { command: 'profil', description: 'Baki coins dan item anda' }, { command: 'bantuan', description: 'Cara main' }, { command: 'paysupport', description: 'Bantuan pembelian Stars' }, { command: 'terms', description: 'Terma dan syarat' }] });
+    bot('setChatMenuButton', { menu_button: { type: 'web_app', text: 'MAIN', web_app: { url: WEBAPP_URL } } });
+    bot('setMyCommands', { commands: [{ command: 'start', description: 'Menu utama' }, { command: 'coins', description: 'Beli coins dengan Stars' }, { command: 'profil', description: 'Baki coins dan item anda' }, { command: 'bantuan', description: 'Cara main' }, { command: 'paysupport', description: 'Bantuan pembelian' }, { command: 'terms', description: 'Terma dan syarat' }] });
+    bot('setMyCommands', { language_code: 'en', commands: [{ command: 'start', description: 'Main menu' }, { command: 'coins', description: 'Buy coins with Stars' }, { command: 'profil', description: 'Your coins and items' }, { command: 'bantuan', description: 'How to play' }, { command: 'paysupport', description: 'Help with a purchase' }, { command: 'terms', description: 'Terms' }] });
+    bot('setMyCommands', { language_code: 'ru', commands: [{ command: 'start', description: 'Главное меню' }, { command: 'coins', description: 'Купить монеты за звёзды' }, { command: 'profil', description: 'Твои монеты и предметы' }, { command: 'bantuan', description: 'Как играть' }, { command: 'paysupport', description: 'Помощь с покупкой' }, { command: 'terms', description: 'Условия' }] });
+    bot('setMyDescription', { language_code: 'en', description: '⚽ Bola Kertas: 3D paper football right inside Telegram.\n\nPull back, aim, kick. Lob over the defence, chip into the corner, or unleash a Power Shot straight at goal.\n\n🏆 70 teams: Malaysia League, EPL, La Liga, Bundesliga and national teams\n🤖 Play the AI on 3 levels, 2 players on one phone, or challenge friends online\n📄 Collect paper, balls, pitches and venues\n\nFree to play. Tap PLAY to start.' });
+    bot('setMyDescription', { language_code: 'ru', description: '⚽ Bola Kertas: бумажный 3D-футбол прямо в Telegram.\n\nОттяни, прицелься, бей. Перекинь мяч через защиту, подсеки в угол или запусти мощный удар прямо в ворота.\n\n🏆 70 команд: Лига Малайзии, АПЛ, Ла Лига, Бундеслига и сборные\n🤖 Играй против ИИ на 3 уровнях, вдвоём на одном телефоне или с друзьями онлайн\n📄 Собирай бумагу, мячи, поля и стадионы\n\nИграй бесплатно. Нажми ИГРАТЬ.' });
+    bot('setMyShortDescription', { language_code: 'en', short_description: '3D paper football in Telegram. Pull, aim, GOAL! Play the AI or challenge friends. Free.' });
+    bot('setMyShortDescription', { language_code: 'ru', short_description: 'Бумажный 3D-футбол в Telegram. Тяни, целься, ГОЛ! Играй с ИИ или друзьями. Бесплатно.' });
     bot('setMyName', { name: 'Bola Kertas' });
-    bot('setMyDescription', { description: '⚽ Bola Kertas: bola sepak kertas 3D terus dalam Telegram.\n\nTarik, bidik, tepuk. Lambung melepasi pertahanan, cungkil ke penjuru, atau lepaskan Rembatan Padu terus ke gol.\n\n🏆 70 pasukan: Liga Malaysia, EPL, La Liga, Bundesliga dan negara\n🤖 Lawan AI 3 tahap, 2 pemain satu telefon, online cabar kawan\n📄 Kumpul kertas, padang dan venue. Ada yang padu, ada yang untuk bergaya\n\nPercuma dimain. Tekan MULA sekarang.' });
+    bot('setMyDescription', { description: '⚽ Bola Kertas: bola sepak kertas 3D terus dalam Telegram.\n\nTarik, bidik, tepuk. Lambung melepasi pertahanan, cungkil ke penjuru, atau lepaskan Rembatan Padu terus ke gol.\n\n🏆 70 pasukan: Liga Malaysia, EPL, La Liga, Bundesliga dan negara\n🤖 Lawan AI 3 tahap, 2 pemain satu telefon, online cabar kawan\n📄 Kumpul kertas, bola, padang dan venue\n\nMain percuma. Tekan MAIN untuk mula.' });
     bot('setMyShortDescription', { short_description: 'Bola sepak kertas 3D dalam Telegram. Tarik, bidik, GOL! Lawan AI atau cabar kawan. Percuma.' });
   }
 }

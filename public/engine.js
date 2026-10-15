@@ -368,7 +368,7 @@ export class Engine {
     if (near.team === this.lastTapTeam && this.tapsInRow >= MAX_TAPS) {
       const other = 1 - near.team;
       this.lastTapTeam = null; this.tapsInRow = 0;
-      return this.giveTurn(other, `${MAX_TAPS} TEPUKAN HABIS`, 'Giliran bertukar', this.nearest(other));
+      return this.giveTurn(other, `${MAX_TAPS} TENDANGAN HABIS`, 'Giliran bertukar', this.nearest(other));
     }
     this.giveTurn(near.team, null, null, near);
   }

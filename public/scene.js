@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=24';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=24';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=24';
-import { RARITY } from './items.js?v=24';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=25';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=25';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=25';
+import { RARITY } from './items.js?v=25';
 // [colours, start height, count, speed, gravity, size, glow, life]
 const FX_SIMPLE = {
   x_team: ['team', 0.8, 110, 6.5, 8, 0.11, false, 2.4],
