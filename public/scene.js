@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=22';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=22';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=22';
-import { RARITY } from './items.js?v=22';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=23';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=23';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=23';
+import { RARITY } from './items.js?v=23';
 
 export const Q = (() => { // quality tier. Telegram WebView on mobile gets the lean tier.
   const touch = matchMedia('(pointer:coarse)').matches, low = touch && (navigator.hardwareConcurrency || 4) <= 4;

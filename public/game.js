@@ -1,11 +1,11 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=22';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=22';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=22';
-import { World, Q } from './scene.js?v=22';
-import { crest, ink } from './art.js?v=22';
-import * as L3 from './locker3d.js?v=22';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=23';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=23';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=23';
+import { World, Q } from './scene.js?v=23';
+import { crest, ink } from './art.js?v=23';
+import * as L3 from './locker3d.js?v=23';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -656,7 +656,7 @@ function itemSheet(it, slot) {
   const close = () => { pv.close(); closeAllOverlays(); };
   o.querySelector('#cl').onclick = close; o.onclick = ev => { if (ev.target === o) close(); };
   o.querySelector('#try').onclick = () => { SFX.tap(0.8); if (it.rarity && RARITY[it.rarity].rank >= 3) SFX.tapLegend(RARITY[it.rarity].rank); haptic('medium'); it.slot === 'fx' || it.slot === 'bundle' ? (pv.tap(), pv.goal()) : pv.tap(); };
-  o.querySelector('#go').onclick = async () => { if (act === 'none') return; const btn = o.querySelector('#go'); await buyOrEquip(it, act, btn, () => { pv.close(); showShop(slot); }); };
+  o.querySelector('#go').onclick = async () => { if (act === 'none') return; const btn = o.querySelector('#go'); await buyOrEquip(it, act, btn, () => { pv.close(); showShop(slot); itemSheet(it, slot); }); }; // reopen so the preview stays and the button shows the new state
 }
 
 async function buyOrEquip(it, act, btn, done) {

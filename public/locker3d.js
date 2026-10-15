@@ -1,8 +1,8 @@
 // locker3d.js : Locker and menu art rendered by the match renderer itself.
 // Every thumbnail is a real World (scene.js) with the item applied, so what the shop shows is what the match shows.
 import * as THREE from 'three';
-import { World, makePlayer, makeBall } from './scene.js?v=22';
-import { itemById, DEFAULT_EQUIP } from './items.js?v=22';
+import { World, makePlayer, makeBall } from './scene.js?v=23';
+import { itemById, DEFAULT_EQUIP } from './items.js?v=23';
 
 // HD: thumbnails render at 2x their on-screen size (min 512), live preview at device pixel ratio up to 1024px.
 const DPR = Math.min(2, Math.max(1, devicePixelRatio || 1));
@@ -18,7 +18,8 @@ const lookOf = (id, fb) => { const it = itemById(id) || itemById(fb); return { .
 function stage(o) {
   const w = studio(), e = { ...DEFAULT_EQUIP, ...o.equip };
   if (w._pitchId !== e.pitch) { w.setPitch(lookOf(e.pitch, 'f_stripes'), 128); w._pitchId = e.pitch; }
-  if (w.venueId !== e.venue) w.setVenue(e.venue);
+  if (w.venueId !== e.venue || !w._base) { w.setVenue(e.venue); w._base = [w.hemi.intensity, w.r.toneMappingExposure]; }
+  const lift = o.lift ?? 1; w.hemi.intensity = w._base[0] + 0.6 * lift; w.r.toneMappingExposure = w._base[1] * (1 + 0.12 * lift); // product-shot fill; venue shots keep their mood
   w.setBall(lookOf(e.ball, 'b_classic'));
   w.disposeGroup(w.dyn); w.pieces = [];
   w.particles.forEach(p => { w.fx.remove(p.m); const g = p.m.geometry; if (!p.sprite && --g.userData.refs <= 0) g.dispose(); p.m.material.dispose(); }); w.particles = []; w.queue = [];
@@ -44,7 +45,7 @@ function shotFor(it, ctx) {
   if (s === 'bundle') { const [p, f, v] = it.grants; return { ...base, equip: { ...base.equip, paper: p, pitch: f, venue: v }, players: [[0, 0, 0.35]], ball: [-0.62, 0.42], cam: [[1.6, 1.1, 2.3], [0, 0.35, 0], 42], tap: true }; }
   if (s === 'paper') return { ...base, equip: { ...base.equip, paper: it.id }, players: [[0, 0, 0.35]], ball: [-0.62, 0.42], cam: HERO, tap: it.rarity !== 'common' };
   if (s === 'pitch') return { ...base, equip: { ...base.equip, pitch: it.id }, players: [[-1.4, -0.6, 0], [1.3, 0.8, Math.PI, 1], [0.2, -2.6, 0]], ball: [0.1, 0.1], cam: [[0, 6.2, 6.2], [0, 0, -0.4], 44] };
-  if (s === 'venue') return { ...base, equip: { ...base.equip, venue: it.id }, players: [[0, 6, 0], [-2, 8, 0, 0, 7], [1.6, 4.2, Math.PI, 1]], ball: [0.2, 6.6], cam: [[0, 6.5, 19], [0, 0.5, -1], 52] };
+  if (s === 'venue') return { ...base, lift: 0, equip: { ...base.equip, venue: it.id }, players: [[0, 6, 0], [-2, 8, 0, 0, 7], [1.6, 4.2, Math.PI, 1]], ball: [0.2, 6.6], cam: [[0, 6.5, 19], [0, 0.5, -1], 52] };
   if (s === 'ball') return { ...base, equip: { ...base.equip, ball: it.id }, players: [[-0.55, -0.55, 0.5]], ball: [0.15, 0.2], cam: [[0.75, 0.42, 0.95], [0.12, 0.17, 0.18], 34] };
   if (s === 'fx') return { ...base, players: [[0, 0, 0]], ball: [0.6, -0.4], cam: [[0, 1.2, 10.5], [0, 4.6, 0], 62], fx: { kind: it.id, colors: [ctx.kit.base, ctx.kit.accent], steps: it.id === 'x_fireworks' ? 40 : it.id === 'x_confetti' ? 22 : 10 } };
   if (s === 'studio') return { ...base, kit: { ...ctx.kit, id: 'k_studio', pattern: 'batik', base: '#7a1f2b', accent: '#e8b84a', trim: '#ffd45a', number: '#ffffff', collar: 'polo' }, players: [[-0.5, 0, 0.7], [0.5, 0, -0.7]], ball: [0, 0.9], cam: [[0, 0.95, 2.4], [0, 0.34, 0], 40] };

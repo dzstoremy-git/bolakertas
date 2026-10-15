@@ -23,7 +23,7 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;touch-
 .stroke,.logo,.hd,.ttl,.sheet h2,.hero h1,.mode b,.play b,.banner b,.res h2,.final b,.code,.coin3d .cf b{paint-order:stroke fill}
 /* logo */
 .logo{display:flex;align-items:center;gap:6px;font:400 26px/1 var(--disp);color:#fff;-webkit-text-stroke:2.5px var(--ink);text-shadow:0 3px 0 var(--ink)}
-.logo i{width:34px;height:34px;background:url(/logo.png?v=22) center/contain no-repeat;filter:drop-shadow(0 3px 0 var(--ink))}
+.logo i{width:34px;height:34px;background:url(/logo.png?v=23) center/contain no-repeat;filter:drop-shadow(0 3px 0 var(--ink))}
 .logo em{font-style:normal;color:var(--yel)}
 .logo.big{font-size:52px;-webkit-text-stroke:4px var(--ink);text-shadow:0 6px 0 var(--ink)}.logo.big i{width:76px;height:76px}
 #boot{position:fixed;inset:0;z-index:50;display:grid;place-content:center;gap:24px;background:linear-gradient(180deg,var(--sky1),var(--sky2) 75%);transition:opacity .5s}
