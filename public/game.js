@@ -1,11 +1,11 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=21';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=21';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=21';
-import { World, Q } from './scene.js?v=21';
-import { crest, ink } from './art.js?v=21';
-import * as L3 from './locker3d.js?v=21';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=22';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=22';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=22';
+import { World, Q } from './scene.js?v=22';
+import { crest, ink } from './art.js?v=22';
+import * as L3 from './locker3d.js?v=22';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -545,17 +545,19 @@ function showHome() {
   const m = screen(`${header(false)}
   <main class="home">
     <section class="hero" style="--c0:${ctx.kit.base};--c1:${ctx.oppKit.base};--rc:${r.color}">
-      <div class="hero-img" id="hero-img"></div>
-      <div class="hero-txt"><small class="kick">PERLAWANAN SETERUSNYA</small><h1>${esc(ctx.team.short)} <i>VS</i> ${esc(ctx.opp.short)}</h1>
+      <div class="hero-img" id="hero-img"></div><small class="kick">PERLAWANAN SETERUSNYA</small>
+      <div class="hero-txt"><h1>${esc(ctx.team.short)} <i>VS</i> ${esc(ctx.opp.short)}</h1>
         <p>AI ${['Mudah', 'Biasa', 'Pakar'][[0.25, 0.5, 0.8].indexOf(S.skill)] || 'Biasa'}  ·  ${S.minutes} minit  ·  ${esc(S.formation)}</p>
         <p class="ptag"><span class="rdot"></span>Kertas ${esc(paper.name)}${paper.rarity !== 'common' ? ` <em>${r.label}</em>` : ''}</p></div>
-      <button class="play" id="kick"><b>MAIN</b><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor"/></svg></button>
     </section>
+    <button class="play" id="kick"><b>MAIN</b><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke-linejoin="round"/></svg></button>
     <section class="modes">
       ${[['cpu', 'LAWAN AI', 'Pilih pasukan dan tahap AI'], ['two', '2 PEMAIN', 'Satu telefon, bergilir'], ['web', 'ONLINE', 'Cari lawan, jemput kawan', 'BETA'], ['shop', 'LOKER', `Koleksi ${have}/${sellable.length}`], ['studio', 'STUDIO JERSI', 'Corak, warna, nombor', 'BARU'], ['help', 'CARA MAIN', 'Lastik, bidik, gol']]
         .map(([k, t, s, tag], i) => `<button class="mode m-${k}" data-k="${k}" style="--i:${i}"><span class="mi" data-icon="${k}"></span><span class="mt"><b>${t}</b><small>${s}</small></span>${tag ? `<em>${tag}</em>` : ''}<span class="go"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span></button>`).join('')}
     </section>
-  </main><footer class="foot">Bola Kertas  ·  Item kosmetik tiada nilai tunai</footer>`, 'm-home');
+  </main><footer class="foot">Bola Kertas  ·  Item kosmetik tiada nilai tunai</footer>
+  <nav class="nav"><button data-n="home" class="on"><i><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z" fill="currentColor" stroke="#2a1f5c" stroke-width="1.6" stroke-linejoin="round"/></svg></i>Utama</button><button data-n="shop" class=""><i><svg viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6zM9 8V6a3 3 0 0 1 6 0v2" fill="currentColor" stroke="#2a1f5c" stroke-width="1.6" stroke-linejoin="round"/></svg></i>Loker</button><button data-n="play" class="mid"><i><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="#fff" stroke="#2a1f5c" stroke-width="2" stroke-linejoin="round"/></svg></i>Main</button><button data-n="studio" class=""><i><svg viewBox="0 0 24 24"><path d="M8 3l4 2 4-2 5 4-3 3-2-1v12H8V9l-2 1-3-3z" fill="currentColor" stroke="#2a1f5c" stroke-width="1.6" stroke-linejoin="round"/></svg></i>Studio</button><button data-n="cog" class=""><i><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="currentColor" stroke="#2a1f5c" stroke-width="1.6"/><circle cx="12" cy="12" r="2.6" fill="#fffaf0" stroke="#2a1f5c" stroke-width="1.6"/></svg></i>Tetapan</button></nav>`, 'm-home');
+  m.querySelectorAll('.nav button').forEach(b => b.onclick = () => { SFX.ui(); haptic(); ({ home: () => {}, shop: () => showShop('paper'), play: beginCpu, studio: () => showStudio(), cog: showSettings })[b.dataset.n](); });
   bindHeader(m);
   m.querySelector('#kick').onclick = () => { SFX.ui(); beginCpu(); };
   m.querySelectorAll('.mode').forEach(b => b.onclick = () => { SFX.ui(); haptic(); ({ cpu: () => showSetup('cpu'), two: () => showSetup('local'), web: showOnline, shop: () => showShop('paper'), studio: () => showStudio(), help: showHelp })[b.dataset.k](); });
@@ -802,7 +804,7 @@ function lockSwipe() {
   document.addEventListener('touchmove', ev => { if (!ev.target.closest('#menu, .ov .sheet')) ev.preventDefault(); }, { passive: false });
 }
 async function boot() {
-  try { tg?.ready(); tg?.expand(); tg?.disableVerticalSwipes?.(); tg?.setHeaderColor?.('#0b0618'); tg?.setBackgroundColor?.('#0b0618'); } catch {}
+  try { tg?.ready(); tg?.expand(); tg?.disableVerticalSwipes?.(); tg?.setHeaderColor?.('#4aa8ff'); tg?.setBackgroundColor?.('#4aa8ff'); } catch {}
   lockSwipe();
   await document.fonts?.ready;
   await loadProfile();
