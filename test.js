@@ -56,6 +56,38 @@ ok('stars fulfilment is exactly once and checks amount', () => {
   S.fulfill('ch2', 5, 'pass_week', 30); S.fulfill('ch3', 5, 'pass_week', 30);
   const until = S.db.prepare('SELECT pass_until FROM users WHERE uid=5').get().pass_until; assert.ok(until > Date.now() + 13 * 86400e3);
 });
+ok('coin packs: Stars buy coins once per charge, repeatable, outside the daily play cap', () => {
+  const { itemById: I, ITEMS: L } = S.catalog;
+  const packs = L.filter(i => i.slot === 'coins'); assert.ok(packs.length >= 4 && packs.every(p => p.stars && p.grantCoins && p.consumable));
+  S.db.prepare('INSERT OR IGNORE INTO users (uid,coins,equip) VALUES (9031,0,\'{}\')').run();
+  assert.equal(S.fulfill('cp1', 9031, 'c_pack1', 9).ok, false);
+  assert.equal(S.fulfill('cp1', 9031, 'c_pack1', I('c_pack1').stars).ok, true);
+  assert.equal(S.fulfill('cp1', 9031, 'c_pack1', I('c_pack1').stars).dup, true);
+  assert.equal(S.fulfill('cp2', 9031, 'c_pack1', I('c_pack1').stars).ok, true);
+  const u = S.db.prepare('SELECT coins, day_coins FROM users WHERE uid=9031').get();
+  assert.equal(u.coins, I('c_pack1').grantCoins * 2); assert.equal(u.day_coins, 0);
+  assert.equal(S.db.prepare('SELECT COUNT(*) c FROM owned WHERE uid=9031').get().c, 0);
+  assert.ok(S.readPayload(S.makePayload('c_pack4', 9031)));
+});
+ok('bot rich text: balanced HTML, escaped user input, no em dash, AI not CPU', () => {
+  const snap = { name: '<b>Ali & Abu</b>', coins: 1234, owned: 3, items: 60, equip: { paper: 'p_a4', ball: 'b_classic' }, pass: '' };
+  const pages = [S.botText('start', snap), S.botText('coins', snap), S.botText('profile', snap), S.botText('help'), S.botText('support'), S.botText('terms'),
+    S.botText('paid', { ok: true, item: S.catalog.itemById('c_pack2'), charge: 'stxt<1>', coins: 2634 }), S.botText('paid', { ok: true, item: S.catalog.itemById('p_gold'), charge: 'x' }), S.botText('paid', { ok: false, charge: 'y' })];
+  for (const t of pages) {
+    assert.ok(t.length > 20 && t.length < 4096);
+    assert.ok(!t.includes('—') && !/CPU/.test(t), t.slice(0, 60));
+    const stack = []; for (const [, close, tag] of t.matchAll(/<(\/?)(b|i|code|blockquote)(?: expandable)?>/g)) { if (close) assert.equal(stack.pop(), tag); else stack.push(tag); } assert.equal(stack.length, 0);
+    assert.ok(!/<(?!\/?(b|i|code|blockquote)( expandable)?>)/.test(t), 'only allowed tags');
+  }
+  assert.ok(pages[0].includes('&lt;b&gt;Ali &amp; Abu&lt;/b&gt;')); assert.ok(pages[6].includes('stxt&lt;1&gt;')); assert.ok(pages[6].includes('+1,400'));
+});
+ok('cheap catalog: every new item is priced low and drawable', () => {
+  const { ITEMS: L } = S.catalog, cheap = L.filter(i => (i.coins && i.coins <= 900) || (i.stars && i.stars <= 8 && i.slot !== 'coins'));
+  assert.ok(cheap.length >= 30, 'cheap items ' + cheap.length);
+  assert.equal(new Set(L.map(i => i.id)).size, L.length);
+  for (const i of L.filter(i => i.slot === 'paper')) assert.ok(i.stats.power <= 115 && i.stats.control <= 110);
+  for (const i of L.filter(i => i.grants)) for (const g of i.grants) assert.ok(L.find(x => x.id === g), g);
+});
 ok('set bundle grants every piece once, then counts as owned', () => {
   assert.equal(S.fulfill('ch9', 11, 'set_night', 129).ok, true);
   const got = S.db.prepare('SELECT item FROM owned WHERE uid=11 ORDER BY item').all().map(r => r.item);

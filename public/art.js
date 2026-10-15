@@ -1,6 +1,6 @@
 // art.js : procedural 2D art drawn on canvas. Jerseys, crests, pitch, ball, net, paper surfaces.
 // Used for 3D textures and for menu thumbnails, so the menu and the match always look the same.
-import { FIELD } from './engine.js?v=23';
+import { FIELD } from './engine.js?v=24';
 
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; };
 export const shade = (hex, k) => { // k<0 darker, k>0 lighter
@@ -90,8 +90,20 @@ export function printOn(c, look) {
     const s = w / 64; for (let y = 0; y < h; y += s) for (let x = (y / s) % 2 ? s / 2 : 0; x < w; x += s) { g.beginPath(); g.arc(x, y, s * 0.28, 0, 7); g.fill(); }
     g.fillStyle = 'rgba(20,20,20,0.16)'; for (let col = 0; col < 4; col++) for (let y = h * 0.04; y < h; y += h / 70) g.fillRect(w * 0.03 + col * w / 4, y, (w / 4 - w * 0.05) * (0.55 + r() * 0.45), h / 260);
     g.font = F(800, w * 0.09); g.fillStyle = 'rgba(20,20,20,0.18)'; g.textAlign = 'left'; g.fillText('BERITA HARIAN', w * 0.05, h * 0.995);
+  } else if (k === 'ruled' || k === 'graph' || k === 'kajang') { // school stationery: paper margin band + printed grid over the print
+    g.globalAlpha = 0.45; g.fillStyle = look.base; g.fillRect(0, 0, w, h); g.globalAlpha = 1; // the print sits faded on school paper
+    g.fillStyle = look.base; g.fillRect(0, 0, w, h * 0.08); g.fillRect(0, 0, w * 0.15, h); if (k === 'kajang') g.fillRect(w * 0.85, 0, w * 0.15, h);
+    const s = k === 'graph' ? w / 22 : h / 14; g.strokeStyle = look.ink || 'rgba(40,100,210,0.95)'; g.lineWidth = Math.max(3.5, w / 130);
+    for (let y = s * (k === 'graph' ? 1 : 1.6); y < h; y += s) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
+    if (k === 'graph') for (let x = s; x < w; x += s) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
+    g.strokeStyle = 'rgba(220,40,50,0.95)'; g.lineWidth = Math.max(4, w / 100); const mx = w * 0.15; if (k !== 'graph') { g.beginPath(); g.moveTo(mx, 0); g.lineTo(mx, h); g.stroke(); }
+    if (k === 'kajang') { g.beginPath(); g.moveTo(w - mx, 0); g.lineTo(w - mx, h); g.stroke(); g.font = F(800, w * 0.05); g.fillStyle = 'rgba(60,60,60,0.7)'; g.textAlign = 'left'; g.fillText('NAMA: ________', w * 0.18, h * 0.06); }
+  } else if (k === 'plain' && look.tint) { // coloured craft paper: wide paper-colour border, print tinted by the stock
+    g.globalCompositeOperation = 'multiply'; g.fillStyle = look.base; g.fillRect(0, 0, w, h); g.globalCompositeOperation = 'source-over';
+    g.fillStyle = look.base; const b = w * 0.07; g.fillRect(0, 0, w, b); g.fillRect(0, h - b * 0.6, w, b); g.fillRect(0, 0, b, h); g.fillRect(w - b, 0, b, h);
+    for (let i = 0; i < 500; i++) { g.fillStyle = `rgba(255,255,255,${r() * 0.12})`; g.fillRect(r() * w, r() * h, 2, 2); }
   } else if (k === 'plain' || k === 'kraft' || k === 'washi') { // tinted stock + fibres: ink soaks in
-    g.globalCompositeOperation = 'multiply'; g.fillStyle = k === 'kraft' ? '#c99a62' : k === 'washi' ? '#f3ecdc' : '#e8c98a'; g.fillRect(0, 0, w, h);
+    g.globalCompositeOperation = 'multiply'; g.fillStyle = k === 'kraft' ? '#c99a62' : k === 'washi' ? '#f3ecdc' : look.base !== '#ead9a6' ? look.base : '#e8c98a'; g.fillRect(0, 0, w, h);
     g.globalCompositeOperation = 'source-over';
     const n = k === 'kraft' ? 2600 : k === 'washi' ? 520 : 900;
     for (let i = 0; i < n; i++) {
@@ -167,6 +179,10 @@ export function paperSurface(look, w = 512, h = 512) {
       g.lineWidth = r() * 1.4; g.beginPath(); const x = r() * w, y = r() * h, a = r() * 6.28, l = 3 + r() * (look.kind === 'washi' ? 30 : 9);
       g.moveTo(x, y); g.quadraticCurveTo(x + Math.cos(a) * l / 2 + r() * 4, y + Math.sin(a) * l / 2, x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
     }
+  } else if (look.kind === 'ruled' || look.kind === 'graph' || look.kind === 'kajang') {
+    g.strokeStyle = look.ink || 'rgba(60,110,200,0.5)'; g.lineWidth = 1.5; const s = look.kind === 'graph' ? 18 : 26;
+    for (let y = s; y < h; y += s) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
+    if (look.kind === 'graph') for (let x = s; x < w; x += s) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
   } else if (look.kind === 'carbon') {
     const s = 16; for (let y = 0; y < h; y += s) for (let x = 0; x < w; x += s) {
       const gr = ((x + y) / s) % 2 < 1 ? g.createLinearGradient(x, y, x + s, y) : g.createLinearGradient(x, y, x, y + s);
@@ -271,6 +287,11 @@ export function ballTexture(look, w = 1024, h = 512) {
     const pent = (x, y, s) => { g.beginPath(); for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * 2 * Math.PI / 5; g.lineTo(x + Math.cos(a) * s, y + Math.sin(a) * s); } g.fill(); };
     for (let row = 0; row < 3; row++) for (let i = 0; i < 6; i++) pent(i * w / 6 + (row % 2) * w / 12, h * (0.18 + row * 0.32), h * 0.1);
     g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 3; for (let i = 0; i < 12; i++) { g.beginPath(); g.moveTo(i * w / 12, 0); g.lineTo(i * w / 12 + 40, h); g.stroke(); }
+  } else if (look.kind === 'flag') { // Jalur Gemilang: 14 red/white stripes, blue canton with a yellow crescent and star
+    for (let i = 0; i < 14; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#cc0001'; g.fillRect(0, i * h / 14, w, h / 14 + 1); }
+    for (const x0 of [0, w / 2]) { g.fillStyle = '#010066'; g.fillRect(x0, 0, w * 0.22, h / 2);
+      const cx = x0 + w * 0.09, cy = h / 4, R0 = h * 0.15; g.fillStyle = '#ffcc00'; g.beginPath(); g.arc(cx, cy, R0, 0, 7); g.fill(); g.fillStyle = '#010066'; g.beginPath(); g.arc(cx + R0 * 0.25, cy, R0 * 0.82, 0, 7); g.fill();
+      g.fillStyle = '#ffcc00'; g.beginPath(); for (let k = 0; k < 28; k++) { const a = k / 28 * Math.PI * 2 - Math.PI / 2, rr = k % 2 ? R0 * 0.4 : R0 * 0.9; g.lineTo(x0 + w * 0.165 + Math.cos(a) * rr * 0.55, cy + Math.sin(a) * rr * 0.55); } g.fill(); }
   } else if (look.kind === 'candy') { // twisted peppermint swirl + gloss + sugar speckles
     for (let i = -8; i < 16; i++) { g.fillStyle = i % 2 ? look.b : '#ffffff'; g.beginPath(); g.moveTo(i * w / 8, 0); g.lineTo(i * w / 8 + w / 16, 0); g.lineTo(i * w / 8 + w / 16 + w * 0.5, h); g.lineTo(i * w / 8 + w * 0.5, h); g.fill(); }
     g.fillStyle = '#ffd1e0'; for (let i = 0; i < 9; i++) { g.globalAlpha = 0.5; g.fillRect(i * w / 9 + 10, 0, 5, h); } g.globalAlpha = 1;
@@ -295,7 +316,7 @@ export function ballTexture(look, w = 1024, h = 512) {
       g.fillStyle = shade(i % 3 ? look.a : look.b, (r() - 0.5) * 0.35); g.beginPath(); g.moveTo(x, up ? y + h / 6 : y); g.lineTo(x + w / 16, up ? y : y + h / 6); g.lineTo(x + w / 8, up ? y + h / 6 : y); g.fill(); }
     g.strokeStyle = 'rgba(0,0,0,0.15)'; g.lineWidth = 1.5; for (let y = 0; y < h; y += h / 6) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
   } else if (look.kind === 'rubber') { // gelang getah: hundreds of overlapping coloured bands
-    g.fillStyle = '#c94a2a'; g.fillRect(0, 0, w, h); const cols = ['#e8452c', '#f2a51a', '#2f8fe0', '#2fb35a', '#e84fa0', '#f5e04a', '#8a4fe0'];
+    g.fillStyle = look.a; g.fillRect(0, 0, w, h); const cols = look.two ? [look.a, look.b] : ['#e8452c', '#f2a51a', '#2f8fe0', '#2fb35a', '#e84fa0', '#f5e04a', '#8a4fe0'];
     for (let i = 0; i < 260; i++) { const y = r() * h, a = (r() - 0.5) * 0.9, c = cols[i % cols.length]; g.save(); g.translate(r() * w, y); g.rotate(a); g.fillStyle = shade(c, -0.25); g.fillRect(-w, -7, w * 2, 14); g.fillStyle = c; g.fillRect(-w, -6, w * 2, 9); g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(-w, -5, w * 2, 2); g.restore(); }
   } else if (look.kind === 'disco') { // mirror tiles with varied tone
     g.fillStyle = '#20232c'; g.fillRect(0, 0, w, h); const n = 40, m = 20; for (let j = 0; j < m; j++) for (let i = 0; i < n; i++) { const v = 160 + r() * 95, tint = r() < 0.08 ? ['#9fefff', '#ff9fe8', '#fff1a0'][j % 3] : null;

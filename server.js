@@ -8,6 +8,7 @@ import { WebSocketServer } from 'ws';
 import { Engine, runToRest, isRest, makeCode, BASE_STATS, FORMATIONS } from './public/engine.js';
 import { teamById, rosterFor, cleanRoster, cleanKit } from './public/teams.js';
 import { ITEMS, itemById, DEFAULT_EQUIP, SLOTS, matchReward, DAILY_COIN_CAP, isOwned, aiEquip, tossResult } from './public/items.js';
+export const catalog = { ITEMS, itemById };
 
 const PORT = +(process.env.PORT || 3000);
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
@@ -86,7 +87,8 @@ export function fulfill(chargeId, uid, itemId, stars) {
     if (prev) return prev.uid === uid && prev.item === itemId ? { ok: true, dup: true } : { ok: false, err: 'conflict' };
     getUser(uid);
     q('INSERT INTO payments (charge_id,uid,item,stars,at) VALUES (?,?,?,?,?)').run(chargeId, uid, itemId, stars, Date.now());
-    if (item.slot === 'pass') {
+    if (item.grantCoins) q('UPDATE users SET coins=coins+? WHERE uid=?').run(item.grantCoins, uid); // bought coins skip the daily play cap
+    else if (item.slot === 'pass') {
       const u = q('SELECT pass_until FROM users WHERE uid=?').get(uid);
       q('UPDATE users SET pass_until=? WHERE uid=?').run(Math.max(Date.now(), u.pass_until) + item.days * 86400e3, uid);
     } else for (const id of item.grants || [itemId]) q('INSERT OR IGNORE INTO owned (uid,item,src,at) VALUES (?,?,?,?)').run(uid, id, 'stars', Date.now());
@@ -215,29 +217,70 @@ async function api(req, res, path) {
   return json(res, 404, { err: 'nope' });
 }
 
-// ── bot webhook: /start, pre-checkout, successful payment ──
-async function onUpdate(u) {
+// ── bot webhook: rich HTML chat, coin shop in chat, pre-checkout, successful payment ──
+const h = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const fmt = n => Number(n).toLocaleString('ms-MY');
+const PACKS = ITEMS.filter(i => i.slot === 'coins');
+const kb = rows => ({ inline_keyboard: rows });
+const playBtn = (t = '⚽ MULA MAIN') => ({ text: t, web_app: { url: WEBAPP_URL } });
+const say = (chat_id, text, reply_markup) => bot('sendMessage', { chat_id, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...(reply_markup ? { reply_markup } : {}) });
+const packsKb = () => kb([...PACKS.map(p => [{ text: `${fmt(p.grantCoins)} coins · ${p.stars} ⭐${p.tag ? '  ' + p.tag : ''}`, callback_data: 'buy:' + p.id }]), [playBtn('🎒 Buka Loker dalam game')]]);
+export function botText(kind, d = {}) {
+  if (kind === 'start') return `<b>⚽ Bola Kertas</b>\n<i>Bola sepak kertas 3D, terus dalam Telegram.</i>\n\n`
+    + `<blockquote>Seret dari bola, tarik ke belakang, lepas. Lagi jauh tarik, lagi padu tepukan.</blockquote>\n\n`
+    + `👋 Hai <b>${h(d.name || 'pemain')}</b>\n🪙 Coins: <b>${fmt(d.coins)}</b>\n🎒 Item: <b>${d.owned}</b> dalam loker\n\n`
+    + `<blockquote expandable><b>Apa ada dalam game</b>\n🏆 70 pasukan: Liga Malaysia, EPL, La Liga, Bundesliga, negara\n🤖 Lawan AI 3 tahap, 2 pemain satu telefon, online\n🪙 Lambung syiling: pemenang jadi HOME, guna venue dan bola sendiri\n📄 ${d.items}+ item: kertas, bola, padang, venue, efek gol</blockquote>`;
+  if (kind === 'coins') return `<b>🪙 Kedai Coins</b>\nBaki anda: <b>${fmt(d.coins)} coins</b>\n\n`
+    + `<blockquote>${PACKS.map(p => `${p.tag ? '🔥' : '•'} <b>${fmt(p.grantCoins)} coins</b> untuk ${p.stars} ⭐${p.tag ? `  <i>${h(p.tag)}</i>` : ''}`).join('\n')}</blockquote>\n\n`
+    + `<i>Item termurah dari 150 coins. Coins yang dibeli tidak dikira dalam had harian 1,500.</i>\nTekan pek di bawah untuk bayar dengan Stars.`;
+  if (kind === 'profile') return `<b>👤 Profil ${h(d.name || '')}</b>\n\n🪙 Coins: <b>${fmt(d.coins)}</b>\n🎒 Item dimiliki: <b>${d.owned}</b>/${d.items}\n${d.pass ? `🎟 Pas Mingguan aktif sehingga <b>${h(d.pass)}</b>\n` : ''}\n`
+    + `<blockquote expandable><b>Sedang dipakai</b>\n${Object.entries(d.equip).map(([k, v]) => `${{ paper: '📄 Kertas', pitch: '🟩 Padang', venue: '🏟 Venue', ball: '⚽ Bola', fx: '🎆 Efek gol' }[k] || k}: <b>${h(itemById(v)?.name || v)}</b>`).join('\n')}</blockquote>`;
+  if (kind === 'help') return `<b>📖 Cara Main</b>\n\n<blockquote expandable><b>1. Lastik.</b> Seret dari bola ke belakang, lepas untuk tepuk. Tarik jauh = padu.\n<b>2. Jenis sepakan.</b> BUMI bergolek, CUNGKIL naik sikit, LAMBUNG tinggi.\n<b>3. Tiga tepukan.</b> Satu pasukan boleh tepuk 3 kali berturut, kemudian giliran bertukar.\n<b>4. Lambung syiling.</b> Pemenang mula dulu dan jadi HOME.\n<b>5. Coins.</b> Menang lawan AI untuk kumpul coins, maksimum 1,500 sehari.</blockquote>\n\n`
+    + `<b>Arahan</b>\n/start  menu utama\n/coins  beli coins dengan Stars\n/profil  baki dan item anda\n/paysupport  masalah pembelian\n/terms  terma`;
+  if (kind === 'paid') return d.ok ? `<b>✅ Bayaran diterima</b>\n\n${d.item.grantCoins ? `🪙 <b>+${fmt(d.item.grantCoins)} coins</b> masuk akaun\nBaki baru: <b>${fmt(d.coins)} coins</b>` : `🎁 <b>${h(d.item.name)}</b> dah masuk loker`}\n\n<i>ID resit (tekan untuk salin):</i>\n<code>${h(d.charge)}</code>`
+    : `<b>⚠️ Bayaran diterima tetapi gagal diproses</b>\n\nJangan risau, Stars anda selamat. Hantar ID resit ini melalui /paysupport:\n<code>${h(d.charge)}</code>`;
+  if (kind === 'support') return `<b>🛟 Bantuan Pembelian</b>\n\n<blockquote>Hantar dalam chat ini:\n1. <b>ID resit</b> dari mesej bayaran (bermula dengan <code>stxt</code>)\n2. Nama item atau pek coins yang dibeli</blockquote>\n\n<i>Kami semak dalam 48 jam. Bayaran berganda akan dipulangkan.</i>`;
+  if (kind === 'terms') return `<b>📜 Terma</b>\n\n<blockquote expandable>• Semua item adalah kosmetik dalam permainan. Kertas mahal tidak lebih kuat dari A4.\n• Coins dan item tiada nilai tunai, tidak boleh ditukar kepada wang dan tidak boleh dipindah.\n• Pembelian Stars adalah muktamad kecuali item gagal diterima. Hubungi /paysupport.\n• Coins dari bermain dihadkan 1,500 sehari. Coins yang dibeli tiada had.</blockquote>`;
+  return '';
+}
+function userSnap(uid, name) { getUser(uid, name); const p = profile(uid); return { name: name || p.name, coins: p.coins, owned: p.owned.length, items: ITEMS.filter(i => !['coins', 'pass', 'bundle'].includes(i.slot)).length, equip: p.equip, pass: p.passUntil > Date.now() ? new Date(p.passUntil).toLocaleDateString('ms-MY') : '' }; }
+async function sendInvoiceFor(chat_id, uid, item) {
+  if (!item?.stars) return;
+  if (!item.consumable && isOwned(ownedSet(uid), item)) return say(chat_id, `Anda sudah memiliki <b>${h(item.name)}</b>.`);
+  if (limited('inv:' + uid, 10, 60e3)) return;
+  return bot('sendInvoice', { chat_id, title: item.name, description: item.desc.slice(0, 255), payload: makePayload(item.id, uid), provider_token: '', currency: 'XTR', prices: [{ label: item.name, amount: item.stars }] });
+}
+export async function onUpdate(u) {
   if (u.pre_checkout_query) {
     const pq = u.pre_checkout_query, p = readPayload(pq.invoice_payload);
     const ok = !!p && p.uid === pq.from.id && pq.currency === 'XTR' && pq.total_amount === p.item.stars &&
       (p.item.consumable || !isOwned(ownedSet(p.uid), p.item));
     return bot('answerPreCheckoutQuery', ok ? { pre_checkout_query_id: pq.id, ok: true } : { pre_checkout_query_id: pq.id, ok: false, error_message: 'Item ini tidak boleh dibeli sekarang.' });
   }
+  if (u.callback_query) {
+    const cq = u.callback_query, [act, id] = String(cq.data || '').split(':');
+    bot('answerCallbackQuery', { callback_query_id: cq.id });
+    if (act === 'buy' && cq.message) return sendInvoiceFor(cq.message.chat.id, cq.from.id, PACKS.find(p => p.id === id));
+    if (act === 'menu' && cq.message && ['coins', 'profil', 'help'].includes(id)) return onUpdate({ message: { chat: cq.message.chat, from: cq.from, text: '/' + id } });
+    return;
+  }
   const m = u.message; if (!m) return;
   if (m.successful_payment) {
     const sp = m.successful_payment, p = readPayload(sp.invoice_payload);
     // Already charged: no expiry check here, only identity, item and amount.
     const r = p && p.uid === m.from.id && sp.currency === 'XTR' ? fulfill(sp.telegram_payment_charge_id, p.uid, p.item.id, sp.total_amount) : { ok: false };
-    return bot('sendMessage', { chat_id: m.chat.id, text: r.ok ? `Terima kasih! ${p.item.name} dah masuk loker anda.` : `Bayaran diterima tetapi gagal diproses. Simpan ID resit ini dan hubungi /paysupport:\n${sp.telegram_payment_charge_id}` });
+    return say(m.chat.id, botText('paid', { ok: r.ok, item: p?.item, charge: sp.telegram_payment_charge_id, coins: r.ok ? profile(p.uid).coins : 0 }),
+      r.ok ? kb([[playBtn('⚽ MAIN SEKARANG')], ...(p.item.grantCoins ? [[{ text: '🪙 Beli lagi', callback_data: 'menu:coins' }]] : [])]) : undefined);
   }
-  const text = m.text || '';
-  if (text.startsWith('/start')) return bot('sendMessage', { chat_id: m.chat.id, parse_mode: 'HTML',
-    text: '<b>⚽ Selamat datang ke Bola Kertas!</b>\n\nBola sepak kertas 3D, terus dalam Telegram.\n\n<b>Cara main:</b> sentuh dekat bola, tarik ke belakang, lepas. Lagi jauh tarik, lagi padu tepukan.\n\n🏆 Pilih pasukan Liga Malaysia, EPL, La Liga, Bundesliga atau negara\n🤖 Menang lawan CPU untuk kumpul coins\n📄 Tukar coins atau Stars kepada kertas, padang dan venue baru\n\nSedia? Tekan butang di bawah.',
-    reply_markup: { inline_keyboard: [[{ text: '⚽ MULA MAIN', web_app: { url: WEBAPP_URL } }]] } });
-  if (text.startsWith('/paysupport')) return bot('sendMessage', { chat_id: m.chat.id, text: 'Masalah pembelian? Hantar ID resit (telegram_payment_charge_id) dan item yang dibeli dalam chat ini. Kami semak dalam 48 jam.' });
-  if (text.startsWith('/terms')) return bot('sendMessage', { chat_id: m.chat.id, text: 'Semua item adalah kosmetik atau peningkatan dalam permainan sahaja. Tiada nilai tunai dan tidak boleh ditukar kepada wang.' });
+  if (m.chat.type !== 'private') return;
+  const text = (m.text || '').trim().toLowerCase(), uid = m.from.id, name = (m.from.first_name || '').slice(0, 40);
+  if (text.startsWith('/start')) return say(m.chat.id, botText('start', userSnap(uid, name)), kb([[playBtn()], [{ text: '🪙 Beli Coins', callback_data: 'menu:coins' }, { text: '👤 Profil', callback_data: 'menu:profil' }], [{ text: '📖 Cara Main', callback_data: 'menu:help' }]]));
+  if (text.startsWith('/coins')) return say(m.chat.id, botText('coins', userSnap(uid, name)), packsKb());
+  if (text.startsWith('/profil')) return say(m.chat.id, botText('profile', userSnap(uid, name)), kb([[playBtn()], [{ text: '🪙 Beli Coins', callback_data: 'menu:coins' }]]));
+  if (text.startsWith('/bantuan') || text.startsWith('/help')) return say(m.chat.id, botText('help'), kb([[playBtn()]]));
+  if (text.startsWith('/paysupport')) return say(m.chat.id, botText('support'));
+  if (text.startsWith('/terms')) return say(m.chat.id, botText('terms'));
 }
-
 // ── online rooms (server authoritative) ────────────────────
 const rooms = new Map(), queue = [];
 const TURN_MS = 15000 + 1500, GONE_MS = 60000;
@@ -384,11 +427,11 @@ setInterval(() => { const now = Date.now(); for (const [c, r] of rooms) if (now 
 if (process.env.NODE_ENV !== 'test') {
   server.listen(PORT, () => console.log('Bola Kertas on :' + PORT));
   if (BOT_TOKEN && WEBAPP_URL) {
-    bot('setWebhook', { url: WEBAPP_URL + '/bot/webhook', secret_token: WH_SECRET, allowed_updates: ['message', 'pre_checkout_query'] }).then(r => console.log('webhook', r.ok, r.description || ''));
+    bot('setWebhook', { url: WEBAPP_URL + '/bot/webhook', secret_token: WH_SECRET, allowed_updates: ['message', 'pre_checkout_query', 'callback_query'] }).then(r => console.log('webhook', r.ok, r.description || ''));
     bot('setChatMenuButton', { menu_button: { type: 'web_app', text: 'MULA', web_app: { url: WEBAPP_URL } } });
-    bot('setMyCommands', { commands: [{ command: 'start', description: 'Mula main Bola Kertas' }, { command: 'paysupport', description: 'Bantuan pembelian Stars' }, { command: 'terms', description: 'Terma dan syarat' }] });
+    bot('setMyCommands', { commands: [{ command: 'start', description: 'Menu utama' }, { command: 'coins', description: 'Beli coins dengan Stars' }, { command: 'profil', description: 'Baki coins dan item anda' }, { command: 'bantuan', description: 'Cara main' }, { command: 'paysupport', description: 'Bantuan pembelian Stars' }, { command: 'terms', description: 'Terma dan syarat' }] });
     bot('setMyName', { name: 'Bola Kertas' });
-    bot('setMyDescription', { description: '⚽ Bola Kertas: bola sepak kertas 3D terus dalam Telegram.\n\nTarik, bidik, tepuk. Lambung melepasi pertahanan, cungkil ke penjuru, atau lepaskan Rembatan Padu terus ke gol.\n\n🏆 70 pasukan: Liga Malaysia, EPL, La Liga, Bundesliga dan negara\n🤖 Lawan CPU 3 tahap, 2 pemain satu telefon, online cabar kawan\n📄 Kumpul kertas, padang dan venue. Ada yang padu, ada yang untuk bergaya\n\nPercuma dimain. Tekan MULA sekarang.' });
+    bot('setMyDescription', { description: '⚽ Bola Kertas: bola sepak kertas 3D terus dalam Telegram.\n\nTarik, bidik, tepuk. Lambung melepasi pertahanan, cungkil ke penjuru, atau lepaskan Rembatan Padu terus ke gol.\n\n🏆 70 pasukan: Liga Malaysia, EPL, La Liga, Bundesliga dan negara\n🤖 Lawan AI 3 tahap, 2 pemain satu telefon, online cabar kawan\n📄 Kumpul kertas, padang dan venue. Ada yang padu, ada yang untuk bergaya\n\nPercuma dimain. Tekan MULA sekarang.' });
     bot('setMyShortDescription', { short_description: 'Bola sepak kertas 3D dalam Telegram. Tarik, bidik, GOL! Lawan AI atau cabar kawan. Percuma.' });
   }
 }

@@ -1,9 +1,17 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=23';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=23';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=23';
-import { RARITY } from './items.js?v=23';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=24';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=24';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=24';
+import { RARITY } from './items.js?v=24';
+// [colours, start height, count, speed, gravity, size, glow, life]
+const FX_SIMPLE = {
+  x_team: ['team', 0.8, 110, 6.5, 8, 0.11, false, 2.4],
+  x_stars: [['#fff3a0', '#ffd45a', '#ffffff'], 5.5, 120, 2.2, 1.4, 0.08, true, 2.8],
+  x_balloon: [['#ff4f7a', '#2ad4ff', '#ffd400', '#7cff6b', '#b36bff'], 0.3, 40, 2.5, -1.6, 0.26, false, 3.5],
+  x_leaves: [['#c8782a', '#e0a23c', '#8a5a1e', '#d9b45a'], 6, 90, 1.6, 2.2, 0.13, false, 3.6],
+  x_merdeka: [['#cc0001', '#ffffff', '#010066', '#ffcc00'], 0.6, 150, 7.5, 6.5, 0.12, false, 3],
+};
 
 export const Q = (() => { // quality tier. Telegram WebView on mobile gets the lean tier.
   const touch = matchMedia('(pointer:coarse)').matches, low = touch && (navigator.hardwareConcurrency || 4) <= 4;
@@ -631,6 +639,8 @@ export class World {
       const cols = ['#ff4f7a', '#ffd400', '#2ad4ff', '#7cff6b', '#b36bff', '#ffffff'];
       this.shock(x, z, '#ffffff'); for (const sx of [-1, 1]) this.burst(x + sx * 2.5, 0.3, z, cols, 90, 7.5, 3.2, 0.13, false, 3.2); // two cannons + a shower from above
       this.burst(x, 6.5, z, cols, 150, 2.4, 1.6, 0.14, false, 3.6);
+    } else if (FX_SIMPLE[kind]) { const [cols, up, n, speed, grav, size, glow, life] = FX_SIMPLE[kind]; // cheap effects: one tuned burst
+      this.flash(x, 0.6, z, cols[0], 2.5, 0.3); this.burst(x, up, z, cols === 'team' ? [...teamColors, '#ffffff'] : cols, n, speed, grav, size, glow, life);
     } else { this.flash(x, 0.6, z, '#ffffff', 3, 0.35); this.burst(x, 0.8, z, ['#ffffff', '#f1ece0', ...teamColors], 90, 6, 9, 0.1); }
   }
 

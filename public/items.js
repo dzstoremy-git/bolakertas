@@ -56,14 +56,58 @@ export const ITEMS = [
   { id: 'x_confetti', rarity: 'epic', slot: 'fx', name: 'Konfeti Pelangi', desc: 'Hujan konfeti warna warni.', stars: 10 },
   { id: 'x_fireworks', rarity: 'legend', slot: 'fx', name: 'Bunga Api', desc: 'Langit menyala setiap gol.', stars: 25 },
 
+
+  // ── CHEAP RANGE: coins first, small Stars. Cosmetic only: every new paper plays exactly like A4.
+  { id: 'p_pink', rarity: 'common', slot: 'paper', name: 'Kertas Warna Merah Jambu', desc: 'Kertas warna dari kedai buku sekolah.', coins: 150, stats: { power: 100, weight: 100, control: 100 }, look: { kind: 'plain', tint: true, base: '#ff9cc4', rough: 0.85 } },
+  { id: 'p_blue', rarity: 'common', slot: 'paper', name: 'Kertas Warna Biru', desc: 'Biru langit, sejuk mata memandang.', coins: 150, stats: { power: 100, weight: 100, control: 100 }, look: { kind: 'plain', tint: true, base: '#8cc8ff', rough: 0.85 } },
+  { id: 'p_green', rarity: 'common', slot: 'paper', name: 'Kertas Warna Hijau', desc: 'Hijau pucuk pisang.', coins: 150, stats: { power: 100, weight: 100, control: 100 }, look: { kind: 'plain', tint: true, base: '#9fe08a', rough: 0.85 } },
+  { id: 'p_yellow', rarity: 'common', slot: 'paper', name: 'Kertas Warna Kuning', desc: 'Kuning nota lekat.', coins: 150, stats: { power: 100, weight: 100, control: 100 }, look: { kind: 'plain', tint: true, base: '#ffe066', rough: 0.85 } },
+  { id: 'p_ruled', rarity: 'common', slot: 'paper', name: 'Buku Latihan', desc: 'Garisan biru, margin merah. Koyak dari belakang buku.', coins: 250, stats: { power: 100, weight: 100, control: 100 }, look: { kind: 'ruled', base: '#fbf8ef', rough: 0.85 } },
+  { id: 'p_graph', rarity: 'rare', slot: 'paper', name: 'Kertas Graf', desc: 'Petak kecil untuk pemain yang suka kira sudut.', coins: 400, stats: { power: 100, weight: 100, control: 100 }, look: { kind: 'graph', base: '#f2f7f2', rough: 0.8, ink: 'rgba(40,150,110,0.5)' } },
+  { id: 'p_envelope', rarity: 'rare', slot: 'paper', name: 'Sampul Surat Coklat', desc: 'Sampul pejabat kerajaan. Tegas dan rasmi.', coins: 450, stats: { power: 100, weight: 100, control: 100 }, look: { kind: 'plain', tint: true, base: '#c99a5e', rough: 0.9 } },
+  { id: 'p_kajang', rarity: 'rare', slot: 'paper', name: 'Kertas Kajang', desc: 'Kertas peperiksaan. Margin dua belah.', coins: 600, stats: { power: 100, weight: 100, control: 100 }, look: { kind: 'kajang', base: '#fdfbf4', rough: 0.85, ink: 'rgba(80,80,90,0.75)' } },
+
+  { id: 'b_candy_blue', rarity: 'common', slot: 'ball', name: 'Gula Gula Biru', desc: 'Jalur biru pudina.', coins: 200, look: { a: '#ffffff', b: '#2f8fe8', kind: 'candy' } },
+  { id: 'b_candy_green', rarity: 'common', slot: 'ball', name: 'Gula Gula Hijau', desc: 'Jalur hijau epal.', coins: 200, look: { a: '#ffffff', b: '#3fb34f', kind: 'candy' } },
+  { id: 'b_candy_gold', rarity: 'common', slot: 'ball', name: 'Gula Gula Kuning', desc: 'Jalur kuning nanas.', coins: 200, look: { a: '#ffffff', b: '#f2b51a', kind: 'candy' } },
+  { id: 'b_my', rarity: 'rare', slot: 'ball', name: 'Jalur Gemilang', desc: 'Merah putih biru kuning. Semangat kebangsaan.', coins: 450, look: { a: '#ffffff', b: '#cc0001', kind: 'flag' } },
+  { id: 'b_news', rarity: 'common', slot: 'ball', name: 'Ronyok Surat Khabar', desc: 'Surat khabar semalam dironyok bulat.', coins: 300, look: { a: '#e2ddd0', b: '#555555', kind: 'crumple' } },
+  { id: 'b_rubber_rw', rarity: 'rare', slot: 'ball', name: 'Gelang Getah Merah Putih', desc: 'Dua warna sahaja, lilit kemas.', coins: 450, look: { a: '#d23a2a', b: '#f4f1ea', kind: 'rubber', two: true } },
+  { id: 'b_tiger', rarity: 'rare', slot: 'ball', name: 'Belang Harimau', desc: 'Oren hitam, garang di padang.', coins: 600, look: { a: '#f28c1a', b: '#1b1b1b', kind: 'candy' } },
+  { id: 'b_origami_blue', rarity: 'rare', slot: 'ball', name: 'Origami Laut', desc: 'Segi biru dan putih.', stars: 5, look: { a: '#2f8fe8', b: '#e8f4ff', kind: 'origami' } },
+
+  { id: 'f_dry', rarity: 'common', slot: 'pitch', name: 'Rumput Kering', desc: 'Musim kemarau, rumput kekuningan.', coins: 250, look: { a: '#9aa84a', b: '#8c9a40', line: '#ffffff', style: 'stripes' } },
+  { id: 'f_school', rarity: 'common', slot: 'pitch', name: 'Padang Sekolah', desc: 'Garisan kapur, rumput tak rata.', coins: 300, look: { a: '#5a9a3c', b: '#4f8f35', line: '#f2efe2', style: 'worn' } },
+  { id: 'f_rain', rarity: 'common', slot: 'pitch', name: 'Padang Hujan', desc: 'Basah lencun lepas hujan petang.', coins: 350, look: { a: '#1d6b33', b: '#165a2a', line: '#e8f2ff', style: 'checker' } },
+  { id: 'f_blue', rarity: 'rare', slot: 'pitch', name: 'Petak Biru', desc: 'Gelanggang futsal biru.', coins: 600, look: { a: '#2f78c4', b: '#2869ad', line: '#ffffff', style: 'checker' } },
+  { id: 'f_purple', rarity: 'rare', slot: 'pitch', name: 'Jalur Ungu', desc: 'Padang pameran warna ungu.', coins: 750, look: { a: '#7b55d6', b: '#5a3aa8', line: '#ffe36b', style: 'stripes' } },
+  { id: 'f_dusk', rarity: 'rare', slot: 'pitch', name: 'Rumput Petang', desc: 'Cahaya jingga pukul tujuh.', coins: 900, look: { a: '#8a8a2c', b: '#7a7524', line: '#ffc27a', style: 'stripes' } },
+
+  { id: 'x_team', rarity: 'common', slot: 'fx', name: 'Letupan Warna Pasukan', desc: 'Cebisan kertas warna jersi anda.', coins: 300 },
+  { id: 'x_leaves', rarity: 'common', slot: 'fx', name: 'Daun Kering', desc: 'Daun berguguran macam petang di kampung.', coins: 400 },
+  { id: 'x_stars', rarity: 'rare', slot: 'fx', name: 'Hujan Bintang', desc: 'Bintang kecil turun perlahan.', coins: 800 },
+  { id: 'x_balloon', rarity: 'rare', slot: 'fx', name: 'Belon', desc: 'Belon warna warni terbang ke langit.', stars: 5 },
+  { id: 'x_merdeka', rarity: 'epic', slot: 'fx', name: 'Konfeti Merdeka', desc: 'Merah, putih, biru dan kuning.', stars: 8 },
+
   // SETS: cheaper than buying the three pieces. Wearing a full set adds its own goal effect.
   { id: 'set_night', slot: 'bundle', rarity: 'legend', name: 'Set Liga Malam', desc: 'Gentian Karbon, Neon Grid dan Atas Bumbung KL. Pakai ketiga-tiga untuk letupan neon setiap gol.', stars: 129, tag: 'JIMAT 31%',
     grants: ['p_carbon', 'f_neon', 'v_rooftop'], setFx: ['#39f6ff', '#b36bff', '#ffffff'] },
   { id: 'set_gold', slot: 'bundle', rarity: 'myth', name: 'Set Final Emas', desc: 'Kerajang Emas 24K, Emas Final dan Stadium Final. Pakai ketiga-tiga untuk hujan emas setiap gol.', stars: 299, tag: 'JIMAT 30%',
     grants: ['p_gold', 'f_gold', 'v_final'], setFx: ['#ffd45a', '#fff1b8', '#e8a917'] },
 
+
+  { id: 'set_start', slot: 'bundle', rarity: 'rare', name: 'Pek Pemula', desc: 'Buku Latihan, Jalur Gemilang dan Padang Sekolah. Pakai ketiga-tiga untuk konfeti biru putih setiap gol.', stars: 5, tag: 'MURAH',
+    grants: ['p_ruled', 'b_my', 'f_school'], setFx: ['#3a6fd8', '#ffffff', '#e8343f'] },
+
   // STUDIO: unlocks premium patterns in the Kit Studio. One-off, cosmetic.
   { id: 'k_studio', rarity: 'epic', slot: 'studio', name: 'Pek Corak Studio', desc: 'Buka corak Batik, Songket, Belang Harimau dan Prisma dalam Studio Jersi.', stars: 25, tag: 'BARU' },
+
+
+  // COINS: Stars to coins. Repeatable. Bought coins do not count toward the daily play cap.
+  { id: 'c_pack1', rarity: 'common', slot: 'coins', name: 'Segenggam Coins', desc: '500 coins.', stars: 10, grantCoins: 500, consumable: true },
+  { id: 'c_pack2', rarity: 'rare', slot: 'coins', name: 'Sekampit Coins', desc: '1,400 coins. Bonus 12%.', stars: 25, grantCoins: 1400, consumable: true, tag: '+12%' },
+  { id: 'c_pack3', rarity: 'epic', slot: 'coins', name: 'Seguni Coins', desc: '3,000 coins. Bonus 20%.', stars: 50, grantCoins: 3000, consumable: true, tag: 'POPULAR' },
+  { id: 'c_pack4', rarity: 'legend', slot: 'coins', name: 'Sepeti Coins', desc: '6,500 coins. Bonus 30%.', stars: 100, grantCoins: 6500, consumable: true, tag: 'TERBAIK' },
 
   // PASS
   { id: 'pass_week', rarity: 'rare', slot: 'pass', name: 'Pas Mingguan', desc: '7 hari: coins x2 dan lencana emas.', stars: 30, consumable: true, days: 7 },

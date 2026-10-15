@@ -1,11 +1,11 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=23';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=23';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=23';
-import { World, Q } from './scene.js?v=23';
-import { crest, ink } from './art.js?v=23';
-import * as L3 from './locker3d.js?v=23';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=24';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=24';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=24';
+import { World, Q } from './scene.js?v=24';
+import { crest, ink } from './art.js?v=24';
+import * as L3 from './locker3d.js?v=24';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -528,7 +528,7 @@ function header(back, title = '') {
   <button class="chip coins" id="coins-btn"><span class="coin"></span><b data-coins></b></button>
   ${back ? '' : `<button class="chip ghost sq" id="cog" aria-label="Tetapan">${svg('cog')}</button>`}</header>`;
 }
-function bindHeader(root, back) { root.querySelector('#back')?.addEventListener('click', () => { SFX.ui(); (back || showHome)(); }); root.querySelector('#coins-btn').onclick = () => showShop('paper'); root.querySelector('#cog')?.addEventListener('click', showSettings); updateCoins(); }
+function bindHeader(root, back) { root.querySelector('#back')?.addEventListener('click', () => { SFX.ui(); (back || showHome)(); }); root.querySelector('#coins-btn').onclick = () => showShop('coins'); root.querySelector('#cog')?.addEventListener('click', showSettings); updateCoins(); }
 function screen(html, cls = '') { const m = $('#menu'); m.hidden = false; m.className = cls; m.innerHTML = html; m.scrollTop = 0; return m; }
 
 // Context for 3D art: your team, your kit, your equipped items.
@@ -608,7 +608,7 @@ function showOnline() {
   m.querySelector('#join').onclick = () => inp.value.length >= 4 ? joinRoom(inp.value) : toast('Masukkan kod 5 aksara.');
 }
 
-const SLOT_TABS = [['paper', 'KERTAS'], ['bundle', 'SET'], ['pitch', 'PADANG'], ['venue', 'VENUE'], ['ball', 'BOLA'], ['fx', 'EFEK GOL'], ['studio', 'STUDIO'], ['pass', 'PAS']];
+const SLOT_TABS = [['coins', 'COINS'], ['paper', 'KERTAS'], ['bundle', 'SET'], ['pitch', 'PADANG'], ['venue', 'VENUE'], ['ball', 'BOLA'], ['fx', 'EFEK GOL'], ['studio', 'STUDIO'], ['pass', 'PAS']];
 function statBars(st) {
   return `<div class="stats">${[['KUASA', 'power'], ['BERAT', 'weight'], ['KAWALAN', 'control']].map(([l, k]) => { const v = st[k], p = (v - 85) / 30 * 100; return `<div><span>${l}</span><i><b style="width:${p}%" class="${v > 100 ? 'up' : v < 100 ? 'down' : ''}"></b></i><em>${v === 100 ? 'ASAS' : `${v > 100 ? '+' : ''}${v - 100}%`}</em></div>`; }).join('')}</div>`;
 }
@@ -621,7 +621,10 @@ function showShop(slot = 'paper') {
     <div class="tabs">${SLOT_TABS.map(([k, l]) => `<button class="tab ${k === slot ? 'on' : ''}" data-s="${k}">${l}</button>`).join('')}</div>
     ${slot === 'paper' ? '<p class="muted">Gambar di sini dirender oleh enjin perlawanan. Apa yang anda nampak, itulah yang masuk padang. Stat maksimum +15%. Kertas Mitos menang gaya, bukan kuasa.</p>' : slot === 'bundle' ? '<p class="muted">Satu set = kertas, padang dan venue. Pakai ketiga-tiga untuk sambutan gol set yang tiada di tempat lain.</p>' : ''}
     ${P.guest ? '<p class="warn">Buka dalam Telegram untuk simpan coins dan beli item.</p>' : ''}
-    <div class="items">${items.map(it => {
+    ${slot === 'coins' ? `<p class="muted">Tambah coins dengan Stars untuk beli kertas, bola dan padang. Coins yang dibeli tidak dikira dalam had harian.</p>
+    <div class="packs">${items.map((it, i) => `<button class="pack r-${it.rarity}" data-id="${it.id}" style="--i:${i}">${it.tag ? `<em class="tag">${it.tag}</em>` : ''}<span class="pile p${i + 1}">${'<i></i>'.repeat(i + 2)}</span>
+      <b>${it.grantCoins.toLocaleString('ms-MY')}</b><small>${esc(it.name)}</small><span class="btn lime"><span class="star"></span>${it.stars}</span></button>`).join('')}</div>` : ''}
+    <div class="items" ${slot === 'coins' ? 'hidden' : ''}>${items.map(it => {
       const r = rarityOf(it), { have, eq } = itemState(it, owned);
       return `<article class="item r-${it.rarity || 'common'} ${eq ? 'eq' : ''}" data-id="${it.id}" style="--rc:${r.color}">
         <div class="ith"><span class="rb">${r.label}</span>${it.tag ? `<em class="tag">${it.tag}</em>` : ''}${eq ? '<span class="eqb">DIPAKAI</span>' : have ? '<span class="eqb own">DIMILIKI</span>' : ''}</div>
@@ -633,6 +636,8 @@ function showShop(slot = 'paper') {
   bindHeader(m);
   m.querySelectorAll('.tab').forEach(b => b.onclick = () => { SFX.ui(); showShop(b.dataset.s); });
   m.querySelectorAll('.item').forEach(card => card.onclick = () => { SFX.ui(); haptic(); itemSheet(itemById(card.dataset.id), slot); });
+  m.querySelectorAll('.pack').forEach(card => card.onclick = () => { haptic(); buyOrEquip(itemById(card.dataset.id), 'buy', card.querySelector('.btn'), () => showShop('coins')); });
+  if (slot === 'coins') return;
   L3.thumbs(items, artCtx(), (id, url) => { if (m.isConnected) paint(m.querySelector(`.item[data-id="${id}"] .ith`), url); });
 }
 
@@ -674,7 +679,7 @@ async function buyOrEquip(it, act, btn, done) {
     return;
   }
   btn.disabled = true; btn.textContent = 'Membuka...';
-  const got = () => it.consumable || isOwned(new Set(P.owned), it);
+  const c0 = P.coins, got = () => it.grantCoins ? P.coins > c0 : it.consumable || isOwned(new Set(P.owned), it);
   try {
     const { url } = await api('/api/shop/invoice', { item: it.id });
     tg.openInvoice(url, async status => {
@@ -682,7 +687,7 @@ async function buyOrEquip(it, act, btn, done) {
       if (status === 'paid' || status === 'pending') {
         toast(status === 'paid' ? 'Bayaran diterima. Memasukkan item...' : 'Bayaran sedang diproses.');
         for (let i = 0; i < 8; i++) { await new Promise(r => setTimeout(r, 1200)); await loadProfile(); if (got()) break; }
-        if (got()) { SFX.buy(); notify(); toast(`${it.name} dah masuk loker!`); }
+        if (got()) { SFX.buy(); notify(); updateCoins(); toast(it.grantCoins ? `+${it.grantCoins.toLocaleString('ms-MY')} coins masuk!` : `${it.name} dah masuk loker!`); }
         done();
       } else if (status === 'failed') { toast('Bayaran gagal. Stars anda tidak ditolak.'); done(); }
       else done();
