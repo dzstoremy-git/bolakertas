@@ -1,8 +1,8 @@
 // locker3d.js : Locker and menu art rendered by the match renderer itself.
 // Every thumbnail is a real World (scene.js) with the item applied, so what the shop shows is what the match shows.
 import * as THREE from 'three';
-import { World, makePlayer, makeBall } from './scene.js?v=29';
-import { itemById, DEFAULT_EQUIP } from './items.js?v=29';
+import { World, makePlayer, makeBall } from './scene.js?v=30';
+import { itemById, DEFAULT_EQUIP } from './items.js?v=30';
 
 // HD: thumbnails render at 2x their on-screen size (min 512), live preview at device pixel ratio up to 1024px.
 const DPR = Math.min(2, Math.max(1, devicePixelRatio || 1));
@@ -25,7 +25,7 @@ function stage(o) {
   w.particles.forEach(p => { w.fx.remove(p.m); const g = p.m.geometry; if (!p.sprite && --g.userData.refs <= 0) g.dispose(); p.m.material.dispose(); }); w.particles = []; w.queue = [];
   const cache = new Map();
   for (const [x, z, ry, side = 0, num] of o.players || []) {
-    const pl = makePlayer({ team: side ? o.opp : o.team, kit: side ? o.oppKit : o.kit, number: num ?? o.number ?? 10, name: o.name || 'KAPTEN', look: side ? lookOf('p_a4') : lookOf(e.paper, 'p_a4') }, cache);
+    const pl = makePlayer({ team: side ? o.opp : o.team, kit: side ? o.oppKit : o.kit, number: num ?? o.number ?? 10, name: o.name || 'KAPTEN', look: side ? lookOf('p_a4') : o.star ? lookOf(o.star) : lookOf(e.paper, 'p_a4') }, cache);
     pl.root.position.set(x, 0, z); pl.root.rotation.y = ry; w.dyn.add(pl.root); w.pieces.push({ ...pl, data: { id: w.pieces.length } });
   }
   const [bx, bz] = o.ball || [0.5, 0.75]; w.ballMesh.position.set(bx, 0.16, bz); w.ballRing.visible = false;
@@ -43,6 +43,7 @@ function shotFor(it, ctx) {
   const base = { equip: { ...ctx.equip }, team: ctx.team, kit: ctx.kit, opp: ctx.opp, oppKit: ctx.oppKit };
   const s = it.slot;
   if (s === 'bundle') { const [p, f, v] = it.grants; return { ...base, equip: { ...base.equip, paper: p, pitch: f, venue: v }, players: [[0, 0, 0.35]], ball: [-0.62, 0.42], cam: [[1.6, 1.1, 2.3], [0, 0.35, 0], 42], tap: true }; }
+  if (s === 'star') return { ...base, star: it.id, number: it.id === 's_carton' ? 1 : 10, players: [[0, 0, 0.35]], ball: [-0.62, 0.42], cam: HERO, tap: it.rarity !== 'common' };
   if (s === 'paper') return { ...base, equip: { ...base.equip, paper: it.id }, players: [[0, 0, 0.35]], ball: [-0.62, 0.42], cam: HERO, tap: it.rarity !== 'common' };
   if (s === 'pitch') return { ...base, equip: { ...base.equip, pitch: it.id }, players: [[-1.4, -0.6, 0], [1.3, 0.8, Math.PI, 1], [0.2, -2.6, 0]], ball: [0.1, 0.1], cam: [[0, 6.2, 6.2], [0, 0, -0.4], 44] };
   if (s === 'venue') return { ...base, lift: 0, equip: { ...base.equip, venue: it.id }, players: [[0, 6, 0], [-2, 8, 0, 0, 7], [1.6, 4.2, Math.PI, 1]], ball: [0.2, 6.6], cam: [[0, 6.5, 19], [0, 0.5, -1], 52] };

@@ -1,6 +1,6 @@
 // art.js : procedural 2D art drawn on canvas. Jerseys, crests, pitch, ball, net, paper surfaces.
 // Used for 3D textures and for menu thumbnails, so the menu and the match always look the same.
-import { FIELD } from './engine.js?v=29';
+import { FIELD } from './engine.js?v=30';
 
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; };
 export const shade = (hex, k) => { // k<0 darker, k>0 lighter
@@ -84,8 +84,9 @@ export function crest(g, x, y, s, team) {
 export function printOn(c, look) {
   const k = look?.kind; if (!k || k === 'plain' && look.base === '#f4f2ec') return c;
   const g = c.getContext('2d'), w = c.width, h = c.height, r = rng(13);
-  if (k === 'news') { // newsprint: grey stock, halftone dots, columns ghosting through
-    g.globalCompositeOperation = 'multiply'; g.fillStyle = '#d9d4c6'; g.fillRect(0, 0, w, h);
+  if (k === 'news') { // newsprint: grey stock (old: yellowed), halftone dots, columns ghosting through
+    g.globalCompositeOperation = 'multiply'; g.fillStyle = look.base === '#d9c48e' ? '#e8cf8a' : '#d9d4c6'; g.fillRect(0, 0, w, h);
+    if (look.base === '#d9c48e') { g.globalCompositeOperation = 'source-over'; g.globalAlpha = 0.55; g.fillStyle = '#efe0b0'; g.fillRect(0, 0, w, h); g.globalAlpha = 1; g.globalCompositeOperation = 'multiply'; }
     g.globalCompositeOperation = 'source-over'; g.fillStyle = 'rgba(255,255,255,0.22)';
     const s = w / 64; for (let y = 0; y < h; y += s) for (let x = (y / s) % 2 ? s / 2 : 0; x < w; x += s) { g.beginPath(); g.arc(x, y, s * 0.28, 0, 7); g.fill(); }
     g.fillStyle = 'rgba(20,20,20,0.16)'; for (let col = 0; col < 4; col++) for (let y = h * 0.04; y < h; y += h / 70) g.fillRect(w * 0.03 + col * w / 4, y, (w / 4 - w * 0.05) * (0.55 + r() * 0.45), h / 260);
@@ -112,6 +113,18 @@ export function printOn(c, look) {
       g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + Math.cos(a) * l / 2 + r() * 6, y + Math.sin(a) * l / 2 + r() * 6, x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
     }
     if (k === 'washi') { g.fillStyle = 'rgba(255,250,235,0.9)'; for (let x = 0; x < w; x += w / 90) { g.fillRect(x, 0, w / 90, h * (0.004 + r() * 0.012)); g.fillRect(x, h - h * (0.004 + r() * 0.012), w / 90, h); } }
+  } else if (k === 'carton') { // milk carton: printed blue band + SUSU label over the kit
+    g.fillStyle = '#ffffff'; g.fillRect(0, h * 0.86, w, h * 0.14); g.fillStyle = '#2f7de1'; g.fillRect(0, h * 0.88, w, h * 0.1);
+    g.fillStyle = '#fff'; g.font = F(900, w * 0.075); g.textAlign = 'center'; g.fillText('SUSU SEGAR 1L', w / 2, h * 0.955);
+    g.fillStyle = 'rgba(20,20,20,0.85)'; for (const [x, y, a, b] of [[0.08, 0.1, 0.07, 0.05], [0.9, 0.18, 0.06, 0.08], [0.12, 0.7, 0.05, 0.06]]) { g.beginPath(); g.ellipse(x * w, y * h, a * w, b * h, 0.4, 0, 7); g.fill(); }
+  } else if (k === 'origami') { // crease lines and shaded fold triangles over the kit
+    g.globalCompositeOperation = 'multiply'; g.fillStyle = 'rgba(200,60,50,0.55)'; g.fillRect(0, 0, w, h); g.globalCompositeOperation = 'source-over';
+    g.fillStyle = 'rgba(0,0,0,0.16)'; for (const [a, b, c] of [[[0, 0], [w / 2, h / 2], [0, h]], [[w, 0], [w / 2, h / 2], [w, h]]]) { g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.lineTo(...c); g.fill(); }
+    g.strokeStyle = 'rgba(255,255,255,0.75)'; g.lineWidth = Math.max(3, w / 120); for (const [x1, y1, x2, y2] of [[0, 0, w, h], [w, 0, 0, h], [w / 2, 0, w / 2, h], [0, h / 2, w, h / 2]]) { g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); }
+  } else if (k === 'rocket') { // flames licking up from the hem + porthole
+    const gr = g.createLinearGradient(0, h, 0, h * 0.55); gr.addColorStop(0, 'rgba(255,50,20,0.95)'); gr.addColorStop(0.5, 'rgba(255,160,40,0.75)'); gr.addColorStop(1, 'rgba(255,230,90,0)'); g.fillStyle = gr;
+    g.beginPath(); g.moveTo(0, h); for (let i = 0; i <= 8; i++) { const x = i / 8 * w; g.lineTo(x, h * (0.62 + (i % 2 ? 0.1 : 0) + r() * 0.06)); } g.lineTo(w, h); g.fill();
+    g.fillStyle = '#9fd8ff'; g.strokeStyle = '#2a1f5c'; g.lineWidth = w / 40; g.beginPath(); g.arc(w * 0.82, h * 0.16, w * 0.07, 0, 7); g.fill(); g.stroke();
   } else if (k === 'laminate') { // gloss film: deeper colour + a hard light streak
     g.globalCompositeOperation = 'saturation'; g.fillStyle = 'hsl(0,100%,50%)'; g.globalAlpha = 0.25; g.fillRect(0, 0, w, h); g.globalAlpha = 1;
     g.globalCompositeOperation = 'screen'; const gr = g.createLinearGradient(0, 0, w, h);
@@ -192,6 +205,13 @@ export function paperSurface(look, w = 512, h = 512) {
     const gr = g.createLinearGradient(0, 0, w, h);
     ['#ffb3d9', '#b3e1ff', '#c9ffb3', '#fff3b3', '#e3b3ff', '#b3fff0'].forEach((col, i, a) => gr.addColorStop(i / (a.length - 1), col));
     g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  } else if (look.kind === 'carton') { // milk carton: white board, blue band, cow patches
+    g.fillStyle = '#2f7de1'; g.fillRect(0, h * 0.62, w, h * 0.2); g.fillStyle = '#fff'; g.font = F(800, 46); g.textAlign = 'center'; g.fillText('SUSU', w / 2, h * 0.76);
+    g.fillStyle = '#222'; for (let i = 0; i < 7; i++) { g.beginPath(); g.ellipse(r() * w, r() * h * 0.55, 20 + r() * 34, 14 + r() * 24, r() * 3, 0, 7); g.fill(); }
+  } else if (look.kind === 'origami') { // origami: fold triangles in two tones
+    const s = w / 4; for (let y = 0; y < h; y += s) for (let x = 0; x < w; x += s) { g.fillStyle = ((x + y) / s) % 2 ? shade(look.base, -0.18) : shade(look.base, 0.08); g.beginPath(); g.moveTo(x, y); g.lineTo(x + s, y); g.lineTo(x, y + s); g.fill(); }
+  } else if (look.kind === 'rocket') { // rocket: flame from the bottom
+    const gr = g.createLinearGradient(0, h, 0, h * 0.35); gr.addColorStop(0, '#ff3b1f'); gr.addColorStop(0.45, '#ff9f2e'); gr.addColorStop(1, 'rgba(255,220,80,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
   } else if (look.kind === 'gold') {
     for (let i = 0; i < 60; i++) { g.fillStyle = `rgba(${200 + r() * 55},${150 + r() * 60},${40 + r() * 40},0.35)`; g.fillRect(r() * w, r() * h, 8 + r() * 50, 2 + r() * 6); }
   } else {

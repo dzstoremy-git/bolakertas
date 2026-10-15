@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=29';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=29';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=29';
-import { World, Q } from './scene.js?v=29';
-import { crest, ink } from './art.js?v=29';
-import * as L3 from './locker3d.js?v=29';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=29';
-import { tierOf, TIERS } from './rank.js?v=29';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=30';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=30';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=30';
+import { World, Q } from './scene.js?v=30';
+import { crest, ink } from './art.js?v=30';
+import * as L3 from './locker3d.js?v=30';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=30';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=30';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -86,6 +86,8 @@ let M = null; // current match
 let menuSpin = 0;
 
 function looksFor(paperIds) { return paperIds.map(id => { const it = itemById(id) || itemById('p_a4'); return { ...it.look, rarity: it.rarity }; }); }
+// Star player skins per team: { slot: itemId } -> { slot: look }. Unknown ids are ignored.
+const starLooks = st => Object.fromEntries(Object.entries(st || {}).map(([k, id]) => [k, itemById(id)]).filter(([, it]) => it?.slot === 'star').map(([k, it]) => [k, { ...it.look, rarity: it.rarity }]));
 function pickKits(t0, t1, k0 = 0) {
   const kit0 = t0.jerseys[k0] || t0.jerseys[0];
   const dist = (a, b) => { const p = x => parseInt(x.slice(1), 16), A = p(a), B = p(b); return Math.hypot((A >> 16) - (B >> 16), ((A >> 8) & 255) - ((B >> 8) & 255), (A & 255) - (B & 255)); };
@@ -102,7 +104,7 @@ function stageWorld(setup, paperIds, equip) {
   world.setPitch(itemById(equip.pitch)?.look || itemById('f_stripes').look);
   if (world.venueId !== equip.venue) world.setVenue(equip.venue);
   world.setBall(itemById(equip.ball)?.look || itemById('b_classic').look);
-  return { teams: [t0, t1], kits, keepers: auto.keepers, looks: looksFor(paperIds) };
+  return { teams: [t0, t1], kits, keepers: auto.keepers, looks: looksFor(paperIds), stars: (setup.stars || []).map(starLooks) };
 }
 
 // ── match lifecycle ────────────────────────────────────────
@@ -110,7 +112,7 @@ function startMatch({ setup, mode, seat = 0, mid = null, paperIds, names }) {
   closeAllOverlays();
   const e = new Engine(setup);
   const art = stageWorld(setup, paperIds, { ...P.equip, ...(setup.home || {}) }); // home side's venue, pitch and ball for everyone
-  world.setTeams(e, art.teams, art.kits, art.looks, art.keepers);
+  world.setTeams(e, art.teams, art.kits, art.looks, art.keepers, art.stars);
   M = { e, setup, mode, seat, mid, art, names: names || [art.teams[0].short, art.teams[1].short], actions: [], shot: 0, ps: false, goals: [], tape: [],
     aim: null, cpuWait: 0, turnLeft: null, turnDeadline: 0, halfWait: 0, lastMsg: 0, shake: 0, pending: null, over: false, paused: false,
     camYaw: 0, camMode: S.cam, zoom: 1, goalCam: 0, slow: 1, kickoffHint: true };
@@ -466,7 +468,7 @@ async function showRanked(tab = 'season') {
   m.querySelector('#rk-card').innerHTML = `<div class="rk-top" style="--tc:${t.color}"><div class="rk-medal"><i>${t.index + 1}</i></div><div><small>${T('rk_season_n', { n: me.season })}  ·  ${T('rk_ends', { d: days })}</small>
     <b>${tierName(me.tier, me.div)}</b><span>${T('rk_rp', { n: num(me.rp) })}  ·  ${T('rk_wld', { w: me.w, d: me.d, l: me.l })}</span></div></div>
     <div class="rk-bar"><i style="width:${pct}%;background:${t.color}"></i></div><small class="rk-nx">${nxt ? T('rk_next', { n: hi - me.rp, t: T('t_' + nxt.id) }) : T('rk_top')}</small>`;
-  const col = T('rk_col_' + tab), rows = r.rows.map(x => `<li class="${x.me ? 'me' : ''} ${x.pos <= 3 ? 'p' + x.pos : ''}"><em>${x.pos}</em><b>${esc(x.name)}${x.me ? ` <i>${T('rk_you')}</i>` : ''}</b>${x.tier ? `<span class="tchip" style="--tc:${TIERS.find(z => z.id === x.tier).color}">${T('t_' + x.tier)}</span>` : ''}<strong>${num(x.score)}</strong></li>`).join('');
+  const col = T('rk_col_' + tab), rows = r.rows.map(x => `<li class="${x.me ? 'me' : ''} ${x.pos <= 3 ? 'p' + x.pos : ''}"><em>${x.pos}</em><b>${esc(x.name)}${x.pro ? ' <i class="pro-b">PRO</i>' : ''}${x.me ? ` <i>${T('rk_you')}</i>` : ''}</b>${x.tier ? `<span class="tchip" style="--tc:${TIERS.find(z => z.id === x.tier).color}">${T('t_' + x.tier)}</span>` : ''}<strong>${num(x.score)}</strong></li>`).join('');
   const mine = r.me && !r.rows.some(x => x.me) ? `<li class="me sticky"><em>${num(r.me.pos)}</em><b>${T('rk_you')}</b><strong>${num(r.me.score)}</strong></li>` : '';
   m.querySelector('#rk-list').innerHTML = `<div class="rk-hd"><span>${tab === 'week' ? T('rk_week_reset') : ''}</span><span>${col}</span></div><ol>${rows || `<li class="empty">${T('rk_empty')}</li>`}${mine}</ol>`;
 }
@@ -502,7 +504,7 @@ async function showOfficial() {
       : `<p class="ol-vs">${mt?.opp ? T('ol_vs', { name: esc(mt.opp) }) : T('ol_tbd')}</p><p class="muted">${T('ol_hint')}</p>`;
     main = `<div class="rk-card ol-next"><small>${T('ol_next')}</small><b class="ol-clock" id="ol-clock">${mt?.room ? '🟢 LIVE' : left > 0 ? T('ol_in', { t: dur(left) }) : '21:00'}</b>${state}</div>`;
   }
-  const div = st.me?.div || 0, rows = st.table.map(r => `<li class="${r.me ? 'me' : ''} ${r.pos <= 3 && r.p ? 'p' + r.pos : ''} ${r.out ? 'out' : ''}"><em>${r.pos}</em><b>${esc(r.name)}${r.me ? ` <i>${T('rk_you')}</i>` : ''}</b><span class="lg-n">${r.p}</span><span class="lg-n">${r.w}</span><span class="lg-n">${r.d}</span><span class="lg-n">${r.l}</span><span class="lg-n">${r.gd > 0 ? '+' : ''}${r.gd}</span><strong>${r.pts}</strong></li>`).join('');
+  const div = st.me?.div || 0, rows = st.table.map(r => `<li class="${r.me ? 'me' : ''} ${r.pos <= 3 && r.p ? 'p' + r.pos : ''} ${r.out ? 'out' : ''}"><em>${r.pos}</em><b>${esc(r.name)}${r.pro ? ' <i class="pro-b">PRO</i>' : ''}${r.me ? ` <i>${T('rk_you')}</i>` : ''}</b><span class="lg-n">${r.p}</span><span class="lg-n">${r.w}</span><span class="lg-n">${r.d}</span><span class="lg-n">${r.l}</span><span class="lg-n">${r.gd > 0 ? '+' : ''}${r.gd}</span><strong>${r.pts}</strong></li>`).join('');
   const table = st.started ? `<h3 class="rk-h">${T('ol_table')}  ·  ${div ? T('ol_div', { n: div }) : T('ol_super')}</h3><div class="rk-list lg-table"><div class="rk-hd"><span></span><span class="lg-cols-h">${T('lg_cols').split('  ').map(c => `<i>${c}</i>`).join('')}</span></div><ol>${rows}</ol><p class="lg-legend">${T('lg_legend')}</p></div>` : '';
   body.innerHTML = hero + main + table + prizes + rules;
   paintBall();
@@ -518,7 +520,7 @@ async function showOfficial() {
 }
 
 // ── friend leagues ─────────────────────────────────────────
-const lgErr = e => T({ name: 'lg_err_name', limit: 'lg_err_limit', full: 'lg_err_full', no_league: 'lg_err_none' }[e] || 'oops');
+const lgErr = e => T({ name: 'lg_err_name', limit: proOn() ? 'lg_err_limit_pro' : 'lg_err_limit', full: 'lg_err_full', no_league: 'lg_err_none' }[e] || 'oops');
 async function lgApi(body) { const r = await fetch('/api/league', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Init-Data': initData }, body: JSON.stringify(body) }); const j = await r.json().catch(() => ({})); if (!r.ok) throw j.err || 'oops'; return j; }
 async function joinLeagueCode(code, by = 0) {
   if (P.guest) return toast(T('rk_guest'));
@@ -542,6 +544,7 @@ async function showLeagues() {
   if (!m.isConnected) return;
   m.querySelector('#lg-list').innerHTML = r.leagues.length ? r.leagues.map(l => `<button class="lg-row" data-id="${l.id}" style="--lc:${l.color}"><span class="lg-badge">${esc(l.name[0] || '?')}</span><span class="mt"><b>${esc(l.name)}</b><small>${T('lg_members', { n: l.n, m: r.free.members })}${l.own ? '  ·  ' + T('lg_owner') : ''}</small></span><span class="go"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span></button>`).join('') : `<p class="muted lg-empty">${T('lg_none')}</p>`;
   m.querySelectorAll('.lg-row').forEach(b => b.onclick = () => { SFX.ui(); showLeague(+b.dataset.id); });
+  if (!r.pro) { const up = document.createElement('button'); up.className = 'lg-pro'; up.innerHTML = `<i class="pro-b">PRO</i> ${T('lg_go_pro')}`; up.onclick = () => showShop('pass'); m.querySelector('#lg-list').after(up); }
   window.__lgColors = r.colors;
 }
 function newLeagueSheet() {
@@ -559,7 +562,7 @@ async function showLeague(id) {
   let t; try { t = await lgApi({ op: 'get', id }); } catch (e) { toast(lgErr(e)); return showLeagues(); }
   if (!m.isConnected) return;
   const days = Math.max(0, Math.ceil((t.ends - Date.now()) / 864e5)), me = t.table.find(r => r.me);
-  const rows = t.table.map(r => `<li class="${r.me ? 'me' : ''} ${r.pos === 1 && r.p ? 'p1' : ''}"><em>${r.pos}</em><b>${esc(r.name)}${r.me ? ` <i>${T('rk_you')}</i>` : ''}</b><span class="lg-n">${r.p}</span><span class="lg-n">${r.w}</span><span class="lg-n">${r.d}</span><span class="lg-n">${r.l}</span><span class="lg-n">${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</span><strong>${r.pts}</strong></li>`).join('');
+  const rows = t.table.map(r => `<li class="${r.me ? 'me' : ''} ${r.pos === 1 && r.p ? 'p1' : ''}"><em>${r.pos}</em><b>${esc(r.name)}${r.pro ? ' <i class="pro-b">PRO</i>' : ''}${r.me ? ` <i>${T('rk_you')}</i>` : ''}</b><span class="lg-n">${r.p}</span><span class="lg-n">${r.w}</span><span class="lg-n">${r.d}</span><span class="lg-n">${r.l}</span><span class="lg-n">${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</span><strong>${r.pts}</strong></li>`).join('');
   const recent = t.recent.map(x => `<li><b>${esc(x.a)}</b><em>${x.ga} : ${x.gb}</em><b>${esc(x.b)}</b></li>`).join('');
   m.querySelector('#lg-body').innerHTML = `<div class="lg-head" style="--lc:${t.color}"><span class="lg-badge big">${esc(t.name[0] || '?')}</span><div><h2 class="ttl">${esc(t.name)}</h2><small>${T('rk_season_n', { n: t.season })}  ·  ${T('lg_members', { n: t.table.length, m: t.max })}  ·  <code>${t.code}</code></small></div></div>
     <div class="rp-row"><button class="play" id="lg-ch"><b>${T('lg_challenge')}</b></button><button class="btn lime" id="lg-inv">📨 ${T('lg_invite')}</button></div>
@@ -600,7 +603,7 @@ function replayCam(clip, f, k) {
 function playReplays(idx, record = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=29" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=30" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -652,7 +655,7 @@ const loadImg = src => new Promise((ok, bad) => { const i = new Image(); i.onloa
 async function sharePoster(clip) {
   if (!clip) return toast(T('rp_none'));
   const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
-  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=29'), loadImg('/sponsor/revolix.png?v=29').catch(() => null)]);
+  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=30'), loadImg('/sponsor/revolix.png?v=30').catch(() => null)]);
   const sc = Math.max(W / art.width, H / art.height); g.drawImage(art, (W - art.width * sc) / 2, (H - art.height * sc) / 2, art.width * sc, art.height * sc);
   let gr = g.createLinearGradient(0, H * 0.5, 0, H); gr.addColorStop(0, 'rgba(5,10,30,0)'); gr.addColorStop(0.45, 'rgba(5,10,30,.82)'); gr.addColorStop(1, 'rgba(5,10,30,.96)'); g.fillStyle = gr; g.fillRect(0, H * 0.5, W, H * 0.5);
   gr = g.createLinearGradient(0, 0, 0, 220); gr.addColorStop(0, 'rgba(5,10,30,.85)'); gr.addColorStop(1, 'rgba(5,10,30,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, 220);
@@ -679,7 +682,7 @@ function localSetup(cpu) {
   return { seed: (Math.random() * 2 ** 32) >>> 0, minutes: S.minutes, halves: true, powerStrike: true, layout: 'spread', lockstep: true, turnLimit: 15, cpu, cpuSkill: S.skill,
     formations: [S.formation, '4-4-2'], teams: [t0.id, t1.id], kits: [S.kit === -1 && mySquad().kit ? 'custom' : kk.kits[0].id, kk.kits[1].id], rosters: [mySquad().roster ? cleanRoster(mySquad().roster, t0) : rosterFor(t0), rosterFor(t1)],
     custom: [S.kit === -1 ? cleanKit(mySquad().kit, P.owned.includes('k_studio')) : null, null],
-    paper: [itemById(P.equip.paper)?.stats || BASE_STATS, BASE_STATS] };
+    paper: [itemById(P.equip.paper)?.stats || BASE_STATS, BASE_STATS], stars: [mySquad().stars || {}, {}] };
 }
 async function beginCpu() {
   const call = await pickSide(true); if (!call) return;
@@ -860,7 +863,7 @@ function showOnline() {
   m.querySelector('#join').onclick = () => inp.value.length >= 4 ? joinRoom(inp.value) : toast(T('enter_code'));
 }
 
-const SLOT_TABS = ['coins', 'paper', 'bundle', 'pitch', 'venue', 'ball', 'fx', 'studio', 'pass'];
+const SLOT_TABS = ['coins', 'pass', 'star', 'paper', 'bundle', 'pitch', 'venue', 'ball', 'fx', 'studio'];
 function statBars(st) {
   return `<div class="stats">${[[T('stat_power'), 'power'], [T('stat_weight'), 'weight'], [T('stat_control'), 'control']].map(([l, k]) => { const v = st[k], p = (v - 85) / 30 * 100; return `<div><span>${l}</span><i><b style="width:${p}%" class="${v > 100 ? 'up' : v < 100 ? 'down' : ''}"></b></i><em>${v === 100 ? T('stat_base') : `${v > 100 ? '+' : ''}${v - 100}%`}</em></div>`; }).join('')}</div>`;
 }
@@ -868,10 +871,11 @@ const priceHtml = it => it.free ? T('free') : it.coins ? `<span class="coin"></s
 const itemState = (it, owned) => { const have = !it.consumable && isOwned(owned, it), eq = it.grants ? it.grants.every(g => Object.values(P.equip).includes(g)) : P.equip[it.slot] === it.id; return { have, eq }; };
 
 function showShop(slot = 'paper') {
-  const owned = new Set(P.owned), items = ITEMS.filter(i => i.slot === slot && (!i.exclusive || owned.has(i.id))).sort((a, b) => (RARITY[a.rarity]?.rank || 0) - (RARITY[b.rarity]?.rank || 0));
+  const owned = new Set(P.owned), items = ITEMS.filter(i => i.slot === slot && (!i.exclusive || owned.has(i.id)) && (!i.season || i.season === seasonOf() || owned.has(i.id)) && !i.sub).sort((a, b) => (RARITY[a.rarity]?.rank || 0) - (RARITY[b.rarity]?.rank || 0));
   const m = screen(`${header(true, T('mode_shop'))}<main class="shop">
     <div class="tabs">${SLOT_TABS.map(k => `<button class="tab ${k === slot ? 'on' : ''}" data-s="${k}">${T('tab_' + k)}</button>`).join('')}</div>
-    ${slot === 'paper' ? `<p class="muted">${T('note_paper')}</p>` : slot === 'bundle' ? `<p class="muted">${T('note_bundle')}</p>` : ''}
+    ${slot === 'paper' ? `<p class="muted">${T('note_paper')}</p>` : slot === 'bundle' ? `<p class="muted">${T('note_bundle')}</p>` : slot === 'star' ? `<p class="muted">${T('note_star')}</p>` : ''}
+    ${slot === 'pass' ? proCard() : ''}
     ${P.guest ? `<p class="warn">${T('guest_warn')}</p>` : ''}
     ${slot === 'coins' ? `<p class="muted">${T('note_coins')}</p>
     <div class="packs">${items.map((it, i) => `<button class="pack r-${it.rarity}" data-id="${it.id}" style="--i:${i}">${it.tag ? `<em class="tag">${trMs(S.lang, it.tag)}</em>` : ''}<span class="pile p${i + 1}">${'<i></i>'.repeat(i + 2)}</span>
@@ -888,11 +892,18 @@ function showShop(slot = 'paper') {
   bindHeader(m);
   m.querySelectorAll('.tab').forEach(b => b.onclick = () => { SFX.ui(); showShop(b.dataset.s); });
   m.querySelectorAll('.item').forEach(card => card.onclick = () => { SFX.ui(); haptic(); itemSheet(itemById(card.dataset.id), slot); });
+  m.querySelector('#pro-go')?.addEventListener('click', ev => buyOrEquip(itemById('pro_month'), 'buy', ev.currentTarget, () => showShop('pass')));
   m.querySelectorAll('.pack').forEach(card => card.onclick = () => { haptic(); buyOrEquip(itemById(card.dataset.id), 'buy', card.querySelector('.btn'), () => showShop('coins')); });
   if (slot === 'coins') return;
   L3.thumbs(items, artCtx(), (id, url) => { if (m.isConnected) paint(m.querySelector(`.item[data-id="${id}"] .ith`), url); });
 }
 
+const proOn = () => (P.proUntil || 0) > Date.now();
+function proCard() {
+  const it = itemById('pro_month'), on = proOn();
+  return `<div class="pro-card"><div class="pro-h"><em>PRO</em><b>${T('pro_title')}</b></div><ul>${[1, 2, 3, 4].map(i => `<li>${T('pro_l' + i)}</li>`).join('')}</ul><p class="pro-fair">${T('pro_fair')}</p>
+    ${on ? `<p class="pro-on">✅ ${T('pro_until', { d: new Date(P.proUntil).toLocaleDateString(S.lang) })}</p>` : `<button class="play" id="pro-go"><b><span class="star"></span>${it.stars}${T('pro_month')}  ·  ${T('pro_get')}</b></button>`}<small>${T('pro_cancel')}</small></div>`;
+}
 function itemSheet(it, slot) {
   const owned = new Set(P.owned), r = rarityOf(it), { have, eq } = itemState(it, owned), ctx = artCtx();
   const perks = it.slot === 'paper' || it.slot === 'bundle' ? perksUpTo(it.rarity) : [];
@@ -918,6 +929,7 @@ function itemSheet(it, slot) {
 
 async function buyOrEquip(it, act, btn, done) {
   SFX.ui();
+  if (act === 'equip' && it.slot === 'star') { closeAllOverlays(); return showSquad(showHome, it.id); }
   if (act === 'equip') {
     const ids = it.grants || [it.id];
     if (P.guest) { if (!it.free) return; P.equip[it.slot] = it.id; localStorage.setItem('bk/equip', JSON.stringify(P.equip)); return done(); }
@@ -931,7 +943,7 @@ async function buyOrEquip(it, act, btn, done) {
     return;
   }
   btn.disabled = true; btn.textContent = T('opening');
-  const c0 = P.coins, got = () => it.grantCoins ? P.coins > c0 : it.consumable || isOwned(new Set(P.owned), it);
+  const c0 = P.coins, got = () => it.grantCoins ? P.coins > c0 : it.sub ? proOn() : it.consumable || isOwned(new Set(P.owned), it);
   try {
     const { url } = await api('/api/shop/invoice', { item: it.id, lang: S.lang });
     tg.openInvoice(url, async status => {
@@ -944,7 +956,7 @@ async function buyOrEquip(it, act, btn, done) {
       } else if (status === 'failed') { toast(T('pay_failed')); done(); }
       else done();
     });
-  } catch (e) { btn.disabled = false; toast(T(e.code === 'owned' ? 'already_own' : 'inv_fail')); done(); }
+  } catch (e) { btn.disabled = false; toast(T(e.code === 'owned' ? 'already_own' : e.code === 'not_for_sale' ? 'not_for_sale' : 'inv_fail')); done(); }
 }
 
 function showHelp() {
@@ -970,18 +982,32 @@ async function saveSquad(sq) {
   if (P.guest) { localStorage.setItem('bk/squad', JSON.stringify(sq)); return true; }
   try { P = { ...(await api('/api/squad', sq)), guest: false }; return true; } catch { toast(T('save_fail')); return false; }
 }
-function showSquad(back = showHome) {
-  const t = teamById(S.team), r = cleanRoster(mySquad().roster, t);
+function showSquad(back = showHome, pickStar = null) {
+  const t = teamById(S.team), r = cleanRoster(mySquad().roster, t), stars = { ...(mySquad().stars || {}) }, mine = ITEMS.filter(i => i.slot === 'star' && P.owned.includes(i.id));
+  const chip = i => { const it = itemById(stars[i]); return `<button class="star-chip ${it ? 'on r-' + it.rarity : ''}" data-i="${i}" aria-label="${T('star_pick')}">${it ? '⭐' : '+'}</button>`; };
   const m = screen(`${header(true, T('squad'))}<main class="squad"><p class="muted">${T('squad_note')}</p>
-    <div class="roster">${r.names.map((n, i) => `<div class="rrow"><span class="pos">${i === 0 ? 'GK' : i < 5 ? 'DEF' : i < 9 ? 'MID' : 'FWD'}</span><input class="num" inputmode="numeric" maxlength="2" value="${r.numbers[i]}" data-i="${i}"><input class="nm" maxlength="12" value="${esc(n)}" data-i="${i}"></div>`).join('')}</div>
+    <div class="roster">${r.names.map((n, i) => `<div class="rrow"><span class="pos">${i === 0 ? 'GK' : i < 5 ? 'DEF' : i < 9 ? 'MID' : 'FWD'}</span><input class="num" inputmode="numeric" maxlength="2" value="${r.numbers[i]}" data-i="${i}"><input class="nm" maxlength="12" value="${esc(n)}" data-i="${i}">${chip(i)}</div>`).join('')}</div>
     <p class="warn" id="dupe" hidden>${T('dupe')}</p>
     <div class="cta"><button class="btn" id="reset">${T('reset')}</button><button class="btn lime big" id="save">${T('save_squad')}</button></div></main>`, 'm-shop');
   bindHeader(m, back);
   const read = () => ({ names: [...m.querySelectorAll('.nm')].map(x => x.value), numbers: [...m.querySelectorAll('.num')].map(x => +x.value) });
+  const setStar = async (i, id) => { if (id) stars[i] = id; else delete stars[i]; m.querySelector(`.star-chip[data-i="${i}"]`).outerHTML = chip(i); bindChips();
+    if (await saveSquad({ ...mySquad(), stars })) { notify(); if (id) toast(T('star_set', { name: iname(itemById(id)), n: read().numbers[i] })); } };
+  const sheet = i => {
+    const o = overlay(`<div class="star-sheet"><h2>${T('star_pick')}  ·  #${read().numbers[i]} ${esc(read().names[i])}</h2><div class="star-grid">
+      <button class="star-opt ${!stars[i] ? 'on' : ''}" data-id=""><span class="sth none">A4</span><b>${T('star_none')}</b></button>
+      ${mine.map(it => `<button class="star-opt r-${it.rarity} ${stars[i] === it.id ? 'on' : ''}" data-id="${it.id}"><span class="sth" data-th="${it.id}"></span><b>${esc(iname(it))}</b></button>`).join('')}</div>
+      <button class="btn lime" id="st-shop">⭐ ${T('star_shop')}</button><button class="btn ghost" id="st-x">${T('close')}</button></div>`);
+    o.querySelectorAll('.star-opt').forEach(b => b.onclick = () => { SFX.ui(); closeAllOverlays(); setStar(i, b.dataset.id || null); });
+    o.querySelector('#st-shop').onclick = () => { closeAllOverlays(); showShop('star'); }; o.querySelector('#st-x').onclick = closeAllOverlays;
+    L3.thumbs(mine, artCtx(), (id, url) => paint(o.querySelector(`[data-th="${id}"]`), url));
+  };
+  const bindChips = () => m.querySelectorAll('.star-chip').forEach(b => b.onclick = () => { SFX.ui(); if (P.guest) return toast(T('open_tg_buy')); if (pickStar) { const id = pickStar; pickStar = null; return setStar(+b.dataset.i, id); } sheet(+b.dataset.i); });
+  bindChips(); if (pickStar) toast(T('star_pick'));
   const check = () => { const n = read().numbers, d = n.filter((x, i) => n.indexOf(x) !== i); m.querySelector('#dupe').hidden = !d.length; m.querySelectorAll('.num').forEach(x => x.classList.toggle('bad', d.includes(+x.value) || !(+x.value >= 1 && +x.value <= 99))); return !d.length; };
   m.querySelectorAll('.num').forEach(x => x.oninput = () => { x.value = x.value.replace(/\D/g, ''); check(); });
-  m.querySelector('#reset').onclick = async () => { await saveSquad({ ...mySquad(), roster: null }); showSquad(back); };
-  m.querySelector('#save').onclick = async () => { if (!check()) return toast(T('fix_dupes')); SFX.ui(); if (await saveSquad({ ...mySquad(), roster: read() })) { notify(); toast(T('squad_saved')); back(); } };
+  m.querySelector('#reset').onclick = async () => { await saveSquad({ ...mySquad(), roster: null, stars }); showSquad(back); };
+  m.querySelector('#save').onclick = async () => { if (!check()) return toast(T('fix_dupes')); SFX.ui(); if (await saveSquad({ ...mySquad(), roster: read(), stars })) { notify(); toast(T('squad_saved')); back(); } };
 }
 const SWATCH = ['#d71920', '#ff6a1a', '#ffd400', '#7dff3a', '#0f7a3a', '#00e0c6', '#2a7de1', '#1b3f94', '#7a3cff', '#ff2d95', '#ffffff', '#111111'];
 function showStudio(back = showHome) {
@@ -1018,7 +1044,7 @@ function showStudio(back = showHome) {
 // ── menu backdrop: slow orbit around a staged kickoff ──────
 function stageMenuScene() {
   const setup = localSetup([true, true]); const e = new Engine(setup);
-  const art = stageWorld(setup, [P.equip.paper, 'p_a4'], P.equip); world.setTeams(e, art.teams, art.kits, art.looks, art.keepers);
+  setup.stars = [mySquad().stars || {}, {}]; const art = stageWorld(setup, [P.equip.paper, 'p_a4'], P.equip); world.setTeams(e, art.teams, art.kits, art.looks, art.keepers, art.stars);
   world.pieces.forEach(p => { p.root.position.set(p.data.x, 0, p.data.z); p.root.rotation.y = e.attackSign(p.data.team) > 0 ? 0 : Math.PI; });
   world.ballMesh.position.set(0, 0.16, 0); world.showAim(null);
 }
@@ -1041,7 +1067,7 @@ window.__bk = {
   get M() { return M; }, get P() { return P; }, world, S,
   snap: () => M && { mode: M.mode, phase: M.e.phase, score: M.e.score, turn: M.e.turnTeam, clock: +M.e.clock.toFixed(1), human: humanTurn(), kicker: M.e.kicker?.id, ball: [+M.e.ball.x.toFixed(2), +M.e.ball.z.toFixed(2)], over: M.over },
   shoot: (dx, dz, power, shot = 0) => humanTurn() && (act({ t: 'aim', dx, dz, power, shot }), true),
-  ballScreen, beginCpu, beginLocal, showShop, showHome, playReplays, sharePoster,
+  ballScreen, beginCpu, beginLocal, showShop, showHome, showSquad, playReplays, sharePoster,
 };
 
 // Stop Telegram's swipe-down-to-close while aiming.

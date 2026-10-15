@@ -282,7 +282,7 @@ body.playing #toast{bottom:auto;top:calc(62px + var(--sat))}
 body.playing #menu{display:none}
 /* squad + studio */
 .roster{display:grid;gap:8px}
-.rrow{display:grid;grid-template-columns:50px 64px 1fr;gap:8px;align-items:center}
+.rrow{display:grid;grid-template-columns:44px 58px 1fr 44px;gap:7px;align-items:center}
 .rrow .pos{font:400 15px/1 var(--disp);color:var(--ink2);text-align:center}
 .rrow input,.txt{width:100%;min-width:0;padding:10px 12px;border-radius:14px;border:2.5px solid var(--ink);background:#fff;color:var(--ink);font:400 18px/1 var(--disp);box-shadow:0 3px 0 var(--ink)}
 .rrow .num{text-align:center;font-size:22px;color:var(--blu-d)}.rrow .num.bad{border-color:var(--red);color:var(--red)}
@@ -399,3 +399,20 @@ body.playing #menu{display:none}
 .lg-table li.out{opacity:.45;text-decoration:line-through}
 .ranked .play b{font-size:clamp(20px,6.4vw,28px);white-space:nowrap}.ranked .play{height:64px}
 .ol-prizes p{line-height:1.35}.ol-p1 .ol-ball{box-shadow:0 0 0 3px #ffd23a,0 0 18px #ffd23a}
+
+/* PRO + star players */
+.pro-b{display:inline-block;margin-left:5px;padding:1px 6px;border-radius:8px;background:linear-gradient(135deg,#ffd23a,#ff9f2e);border:2px solid var(--ink);color:var(--ink);font:400 11px/1.3 var(--disp);font-style:normal;vertical-align:2px}
+.pro-card{margin:4px 0 16px;padding:14px 16px;border-radius:24px;background:radial-gradient(120% 100% at 50% 0%,#3b1d7a,#1d1240);border:var(--st) solid var(--ink);box-shadow:var(--lift);color:#fff}
+.pro-h{display:flex;align-items:center;gap:10px}.pro-h em{padding:4px 10px;border-radius:12px;background:linear-gradient(135deg,#ffd23a,#ff9f2e);color:var(--ink);font:400 20px/1 var(--disp);font-style:normal;border:2.5px solid var(--ink)}
+.pro-h b{font:400 22px/1.1 var(--disp);letter-spacing:.02em}
+.pro-card ul{margin:10px 0 0;padding:0;list-style:none}.pro-card li{padding:5px 0 5px 28px;position:relative;font:800 15px/1.3 var(--sans)}.pro-card li:before{content:'★';position:absolute;left:4px;color:#ffd23a}
+.pro-fair{margin-top:8px;font:800 13px/1.35 var(--sans);color:#c9b8ff}.pro-on{margin-top:12px;font:900 15px var(--sans);color:#7dffb5}.pro-card small{display:block;margin-top:8px;text-align:center;font:700 12px var(--sans);color:#b3a6d9}
+.pro-card .play{height:60px;margin:14px 0 4px}.pro-card .play b{font-size:clamp(18px,5.6vw,24px);white-space:nowrap;display:flex;align-items:center;gap:4px}
+.lg-pro{display:block;width:100%;margin-top:10px;padding:12px;border-radius:16px;border:2.5px dashed var(--ink);background:#fff8dc;color:var(--ink);font:900 14px var(--sans)}
+.star-chip{width:44px;height:44px;border-radius:14px;border:2.5px solid var(--ink);background:#fff;color:var(--ink2);font:400 22px/1 var(--disp);box-shadow:0 3px 0 var(--ink)}
+.star-chip.on{background:linear-gradient(135deg,#fff3c4,#ffd23a);color:var(--ink)}
+.ov .sheet:has(.star-sheet){background:var(--paper,#fffaf0);border:var(--st) solid var(--ink)}
+.star-sheet h2{font:400 20px/1.2 var(--disp);color:var(--ink);-webkit-text-stroke:0;text-shadow:none;margin-bottom:12px}.star-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:10px;max-height:58vh;overflow:auto;padding:3px}
+.star-opt{display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px;border-radius:16px;border:2.5px solid var(--ink);background:#fff}.star-opt.on{background:#fff3c4;outline:3px solid var(--yel)}
+.star-opt .sth{width:100%;aspect-ratio:1;border-radius:12px;background:#e8eefc center/cover}.star-opt .sth.none{display:grid;place-items:center;font:400 30px/1 var(--disp);color:var(--ink2)}.star-opt b{font:900 11px/1.2 var(--sans);color:var(--ink);text-align:center}
+.star-sheet .btn{width:100%;margin-top:6px}

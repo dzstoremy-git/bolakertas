@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=29';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=29';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=29';
-import { RARITY } from './items.js?v=29';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=30';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=30';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=30';
+import { RARITY } from './items.js?v=30';
 // [colours, start height, count, speed, gravity, size, glow, life]
 const FX_SIMPLE = {
   x_team: ['team', 0.8, 110, 6.5, 8, 0.11, false, 2.4],
@@ -161,7 +161,7 @@ function paperMaterial(map, look, printed, grain) {
   return m;
 }
 
-const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=29'; });
+const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=30'; });
 export class World {
   // size = [w, h] gives a fixed-size studio World (Locker previews) that renders with the exact match pipeline.
   constructor(canvas, size = null) {
@@ -564,11 +564,11 @@ export class World {
   }
 
   // Team of paper players. look = paper item look.
-  setTeams(engine, teams, kits, looks, keeperKits) {
+  setTeams(engine, teams, kits, looks, keeperKits, stars = []) { // stars[team][slot] = look for that one player
     this.disposeGroup(this.dyn); this.pieces = [];
     SHIMMER.clear(); const cache = new Map();
     for (const p of engine.pieces) {
-      const team = teams[p.team], kit = p.isGK ? keeperKits[p.team] : kits[p.team], look = looks[p.team];
+      const team = teams[p.team], kit = p.isGK ? keeperKits[p.team] : kits[p.team], look = stars[p.team]?.[p.slot] || looks[p.team];
       const pl = makePlayer({ team, kit, number: p.number, name: p.name, look }, cache);
       this.dyn.add(pl.root); this.pieces.push({ ...pl, data: p, x: p.x, z: p.z, hop: 0, ry: 0 });
     }

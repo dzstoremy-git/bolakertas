@@ -228,6 +228,33 @@ ok('official league: waits for minimum, 30 min warning, 10 min no-show rule, 3 m
   for (const lang of ['ms', 'en', 'ru']) for (const k of ['ol_invite', 'ol_started', 'ol_soon', 'ol_open', 'ol_walkover', 'ol_missed', 'ol_prize']) { const x = S.botText(k, { lang, opp: '<b>x', time: '21:00', min: 10, pos: 1, coins: 3000, ball: true, season: 2 }); assert.ok(x && !x.includes('—') && !x.includes('<b>x') && !/undefined|NaN/.test(x), k + lang); }
   assert.equal(I.itemName(S.catalog.itemById('b_champion'), 'ru'), 'Чемпион лиги'); assert.ok(!S.catalog.itemById('b_champion').coins && !S.catalog.itemById('b_champion').stars);
 });
+ok('PRO: subscription invoice, renewal extends once per charge, league limits, coin boost, star skins validated, season sale', () => {
+  const u = 7900, pro = S.catalog.itemById('pro_month'); S.db.prepare('INSERT OR IGNORE INTO users (uid,name,equip,created,coins) VALUES (?,?,?,?,0)').run(u, 'Pro', '{}', 0);
+  assert.equal(pro.stars, 50); assert.ok(pro.stars < 57); // under RM5
+  assert.equal(S.isPro(u), false); assert.equal(S.leagueLimits(u).own, 1);
+  for (const n of ['A1', 'A2']) S.createLeague(u, 'Liga ' + n);
+  assert.equal(S.db.prepare('SELECT COUNT(*) n FROM league WHERE owner=?').get(u).n, 1); // free: 1
+  assert.ok(S.fulfill('sub-1', u, 'pro_month', 50).ok); assert.ok(S.isPro(u));
+  const t1 = S.db.prepare('SELECT pro_until FROM users WHERE uid=?').get(u).pro_until; assert.ok(Math.abs(t1 - Date.now() - 30 * 864e5) < 5000);
+  assert.ok(S.fulfill('sub-1', u, 'pro_month', 50).dup); assert.equal(S.db.prepare('SELECT pro_until FROM users WHERE uid=?').get(u).pro_until, t1); // same charge: no extra month
+  assert.ok(S.fulfill('sub-2', u, 'pro_month', 50).ok); assert.equal(S.db.prepare('SELECT pro_until FROM users WHERE uid=?').get(u).pro_until, t1 + 30 * 864e5); // renewal stacks
+  assert.equal(S.fulfill('sub-3', u, 'pro_month', 30).ok, false); // wrong amount
+  assert.ok(S.db.prepare("SELECT 1 FROM owned WHERE uid=? AND item='b_pro'").get(u));
+  for (const n of ['B1', 'B2', 'B3', 'B4', 'B5']) S.createLeague(u, 'Liga ' + n);
+  assert.equal(S.db.prepare('SELECT COUNT(*) n FROM league WHERE owner=?').get(u).n, 5); // PRO: 5
+  const code = S.db.prepare('SELECT code FROM league WHERE owner=? LIMIT 1').get(u).code;
+  for (let i = 1; i <= 35; i++) { S.db.prepare('INSERT OR IGNORE INTO users (uid,name,equip,created) VALUES (?,?,?,?)').run(7910 + i, 'M' + i, '{}', 0); S.joinLeague(7910 + i, code); }
+  assert.equal(S.db.prepare('SELECT COUNT(*) n FROM league_member lm JOIN league l ON l.id=lm.lid WHERE l.code=?').get(code).n, 32); // PRO owner: 32 members
+  const f = S.invoiceFieldsFor(pro, u, 'en'); assert.equal(f.subscription_period, 2592000); assert.equal(f.prices[0].amount, 50);
+  assert.equal(S.invoiceFieldsFor(S.catalog.itemById('c_pack1'), u, 'en').subscription_period, undefined);
+  // star skins: only owned star items, slots 0-10
+  S.db.prepare("INSERT OR IGNORE INTO owned (uid,item,src,at) VALUES (?,'s_carton','stars',0)").run(u);
+  const sq = S.saveSquad(u, { stars: { 0: 's_carton', 9: 's_rocket', 11: 's_carton', 3: 'p_gold', x: 's_carton' } });
+  assert.deepEqual(sq.stars, { 0: 's_carton' });
+  assert.ok(S.onSale(S.catalog.itemById('s_season1'), K.SEASON_EPOCH + 1000)); assert.ok(!S.onSale(S.catalog.itemById('s_season1'), K.SEASON_EPOCH + K.SEASON_MS + 1000)); assert.ok(S.onSale(S.catalog.itemById('s_rocket'), K.SEASON_EPOCH + 9 * K.SEASON_MS));
+  for (const lang of ['ms', 'en', 'ru']) { const x = S.botText('paid', { lang, ok: true, item: pro, charge: 'c1', coins: 0, until: Date.UTC(2026, 10, 14) }); assert.ok(x.includes('2026-11-14') && x.includes('PRO') && !x.includes('—') && !/undefined/.test(x), lang); }
+  for (const it of S.catalog.ITEMS.filter(i => i.slot === 'star')) { assert.ok(it.stars >= 5 && it.stars <= 49, it.id); assert.ok(!it.stats, it.id); } // style only
+});
 // async checks run after the sync ones
 const aok = async (name, fn) => { await fn(); n++; console.log('ok', name); };
 await aok('goal clips: only signed players, real jpg/mp4 bytes, size cap, share page serves it', async () => {

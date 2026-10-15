@@ -112,6 +112,16 @@ export const ITEMS = [
 
   // PASS
   { id: 'pass_week', rarity: 'rare', slot: 'pass', name: 'Pas Mingguan', desc: '7 hari: coins berganda dan lencana emas.', stars: 30, consumable: true, days: 7 },
+  // PRO: Telegram Stars subscription, renews every 30 days. Comfort and style only, never stronger.
+  { id: 'pro_month', rarity: 'legend', slot: 'pass', name: 'Bola Kertas PRO', desc: 'Langganan bulanan: 5 liga sendiri sehingga 32 ahli, coins main +50%, lencana PRO dan bola eksklusif PRO. Batal bila-bila masa.', stars: 50, consumable: true, sub: true, days: 30, tag: 'PRO' },
+  { id: 'b_pro', rarity: 'legend', slot: 'ball', name: 'Bola PRO', desc: 'Hadiah untuk pelanggan PRO. Tidak dijual.', exclusive: true, look: { a: '#ffd23a', b: '#7a3cff', kind: 'galaxy', trail: '#b36bff' } },
+
+  // STAR PLAYERS: one look for one player in your squad. Style only, same strength as A4.
+  { id: 's_oldnews', rarity: 'common', slot: 'star', name: 'Pemain Surat Khabar Lama', desc: 'Kertas berita kuning dari zaman atuk. Pasang pada mana-mana pemain.', stars: 5, look: { kind: 'news', base: '#d9c48e', rough: 0.95 } },
+  { id: 's_carton', rarity: 'rare', slot: 'star', name: 'Penjaga Gol Kotak Susu', desc: 'Dibuat dari kotak susu. Paling sesuai untuk penjaga gol.', stars: 15, look: { kind: 'carton', base: '#ffffff', rough: 0.6 } },
+  { id: 's_origami', rarity: 'epic', slot: 'star', name: 'Kapten Origami', desc: 'Lipatan origami merah yang kemas. Untuk kapten pasukan.', stars: 29, look: { kind: 'origami', base: '#e9443a', rough: 0.7 } },
+  { id: 's_season1', rarity: 'epic', slot: 'star', name: 'Edisi Musim 1', desc: 'Dijual sepanjang Musim 1 sahaja. Selepas itu hilang dari kedai.', stars: 39, season: 1, look: { kind: 'laminate', base: '#7a3cff', rough: 0.5 } },
+  { id: 's_rocket', rarity: 'legend', slot: 'star', name: 'Penyerang Roket Kertas', desc: 'Roket kertas dengan nyalaan api. Untuk penyerang utama.', stars: 49, look: { kind: 'rocket', base: '#f4f2ec', rough: 0.6 } },
 ];
 
 // Each tier keeps every perk of the tiers below it. Perks are cosmetic: they never change the physics.
@@ -146,4 +156,4 @@ export function matchReward({ won, draw, goals, skill, passActive }) {
   c = Math.round(c * (0.6 + 0.8 * Math.max(0, Math.min(1, skill))));
   return passActive ? c * 2 : c;
 }
-export const DAILY_COIN_CAP = 1500;
+export const DAILY_COIN_CAP = 1500, PRO = { coinBoost: 1.5, cap: 2250, leagues: { own: 5, members: 32 } };

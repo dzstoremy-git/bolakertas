@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { WebSocketServer } from 'ws';
 import { Engine, runToRest, isRest, makeCode, BASE_STATS, FORMATIONS } from './public/engine.js';
 import { teamById, rosterFor, cleanRoster, cleanKit } from './public/teams.js';
-import { ITEMS, itemById, DEFAULT_EQUIP, SLOTS, matchReward, DAILY_COIN_CAP, isOwned, aiEquip, tossResult } from './public/items.js';
+import { ITEMS, itemById, DEFAULT_EQUIP, SLOTS, matchReward, DAILY_COIN_CAP, PRO, isOwned, aiEquip, tossResult } from './public/items.js';
 import { langFrom, itemName, itemDesc, trMs, LANGS } from './public/i18n.js';
 import { seasonOf, weekOf, rpDelta, softReset, tierOf, START_RP, seasonEnds } from './public/rank.js';
 export const catalog = { ITEMS, itemById };
@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS owned (uid INTEGER NOT NULL, item TEXT NOT NULL, src 
 CREATE TABLE IF NOT EXISTS payments (charge_id TEXT PRIMARY KEY, uid INTEGER NOT NULL, item TEXT NOT NULL, stars INTEGER NOT NULL, at INTEGER);
 CREATE TABLE IF NOT EXISTS matches (mid TEXT PRIMARY KEY, uid INTEGER NOT NULL, setup TEXT NOT NULL, created INTEGER, done INTEGER NOT NULL DEFAULT 0);`);
 try { db.exec("ALTER TABLE users ADD COLUMN squad TEXT NOT NULL DEFAULT '{}'"); } catch {} // per-team names/numbers + studio kit
+try { db.exec('ALTER TABLE users ADD COLUMN pro_until INTEGER NOT NULL DEFAULT 0'); } catch {} // PRO subscription paid up to
 // Ranked: one row per player per season; every settled ranked match logged (weekly board + same-pair daily cap).
 db.exec(`CREATE TABLE IF NOT EXISTS rank (uid INTEGER NOT NULL, season INTEGER NOT NULL, rp INTEGER NOT NULL, best INTEGER NOT NULL, w INTEGER NOT NULL DEFAULT 0, l INTEGER NOT NULL DEFAULT 0, d INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (uid, season));
 CREATE TABLE IF NOT EXISTS rmatch (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, season INTEGER NOT NULL, week INTEGER NOT NULL, a INTEGER NOT NULL, b INTEGER NOT NULL, sa REAL NOT NULL, da INTEGER NOT NULL, db INTEGER NOT NULL);
@@ -58,11 +59,16 @@ const ownedSet = uid => new Set([...ITEMS.filter(i => i.free).map(i => i.id), ..
 function profile(uid) {
   const u = q('SELECT * FROM users WHERE uid=?').get(uid);
   const equip = { ...DEFAULT_EQUIP, ...JSON.parse(u.equip || '{}') };
-  return { uid, name: u.name, coins: u.coins, equip, owned: [...ownedSet(uid)], passUntil: u.pass_until, squad: JSON.parse(u.squad || '{}') };
+  return { uid, name: u.name, coins: u.coins, equip, owned: [...ownedSet(uid)], passUntil: u.pass_until, proUntil: u.pro_until, squad: JSON.parse(u.squad || '{}') };
 }
+export const isPro = (uid, now = Date.now()) => !!uid && (q('SELECT pro_until FROM users WHERE uid=?').get(uid)?.pro_until || 0) > now;
+// Star player skins: { slot(0-10): itemId }, only star items the user owns. Style only.
+const cleanStars = (st, owned) => { const o = {}; for (const [k, v] of Object.entries(st && typeof st === 'object' ? st : {})) { const i = +k, it = itemById(v); if (i >= 0 && i <= 10 && Number.isInteger(i) && it?.slot === 'star' && owned.has(it.id)) o[i] = it.id; } return o; };
+// A season-limited item is only for sale during its season.
+export const onSale = (item, now = Date.now()) => !item.season || item.season === seasonOf(now);
 // Saved squad: { roster:{names,numbers}, kit:{studio kit}|null }. Applied to whichever team the user plays as.
 export function saveSquad(uid, body) {
-  const owned = ownedSet(uid), squad = { roster: body.roster ? cleanRoster(body.roster) : null, kit: cleanKit(body.kit, owned.has('k_studio')) };
+  const owned = ownedSet(uid), squad = { roster: body.roster ? cleanRoster(body.roster) : null, kit: cleanKit(body.kit, owned.has('k_studio')), stars: cleanStars(body.stars, owned) };
   q('UPDATE users SET squad=? WHERE uid=?').run(JSON.stringify(squad), uid); return squad;
 }
 const squadOf = uid => uid ? JSON.parse(q('SELECT squad FROM users WHERE uid=?').get(uid)?.squad || '{}') : {};
@@ -96,12 +102,12 @@ export function settleRanked(a, b, scoreA, durationMs, now = Date.now()) {
   });
 }
 // ── friend leagues ─────────────────────────────────────────
-export const LEAGUE_FREE = { own: 1, members: 8 }, LEAGUE_COLORS = ['#4fb3ff', '#ff5d73', '#3fd1a2', '#ffc93c', '#9d85ff', '#ff9f66'], INVITE_REWARD = 100;
+export const LEAGUE_FREE = { own: 1, members: 8 }, leagueLimits = uid => isPro(uid) ? PRO.leagues : LEAGUE_FREE, LEAGUE_COLORS = ['#4fb3ff', '#ff5d73', '#3fd1a2', '#ffc93c', '#9d85ff', '#ff9f66'], INVITE_REWARD = 100;
 const cleanName = s => String(s || '').replace(/[<>&"'\u0000-\u001f]/g, '').trim().slice(0, 24);
 const isMember = (lid, uid) => !!q('SELECT 1 FROM league_member WHERE lid=? AND uid=?').get(lid, uid);
 export function createLeague(uid, name, color) {
   name = cleanName(name); if (name.length < 3) return { ok: false, err: 'name' };
-  if (q('SELECT COUNT(*) n FROM league WHERE owner=?').get(uid).n >= LEAGUE_FREE.own) return { ok: false, err: 'limit' };
+  if (q('SELECT COUNT(*) n FROM league WHERE owner=?').get(uid).n >= leagueLimits(uid).own) return { ok: false, err: 'limit' };
   let code; do code = makeCode(6); while (q('SELECT 1 FROM league WHERE code=?').get(code));
   return tx(() => { const id = q('INSERT INTO league (code,name,color,owner,created) VALUES (?,?,?,?,?)').run(code, name, LEAGUE_COLORS.includes(color) ? color : LEAGUE_COLORS[0], uid, Date.now()).lastInsertRowid;
     q('INSERT INTO league_member (lid,uid,joined) VALUES (?,?,?)').run(id, uid, Date.now()); return { ok: true, id: Number(id), code }; });
@@ -109,7 +115,7 @@ export function createLeague(uid, name, color) {
 export function joinLeague(uid, code, by = 0) {
   const lg = q('SELECT * FROM league WHERE code=?').get(String(code || '').toUpperCase()); if (!lg) return { ok: false, err: 'no_league' };
   if (isMember(lg.id, uid)) return { ok: true, id: lg.id, already: true };
-  if (q('SELECT COUNT(*) n FROM league_member WHERE lid=?').get(lg.id).n >= LEAGUE_FREE.members) return { ok: false, err: 'full' };
+  if (q('SELECT COUNT(*) n FROM league_member WHERE lid=?').get(lg.id).n >= leagueLimits(lg.owner).members) return { ok: false, err: 'full' };
   const inviter = by && by !== uid && isMember(lg.id, by) ? by : lg.owner !== uid ? lg.owner : null;
   q('INSERT INTO league_member (lid,uid,by,joined) VALUES (?,?,?,?)').run(lg.id, uid, inviter, Date.now()); return { ok: true, id: lg.id };
 }
@@ -141,9 +147,9 @@ export function leagueTable(lid, me = 0, now = Date.now()) {
   for (const m of q('SELECT lm.uid, COALESCE(u.name, \'\') name FROM league_member lm LEFT JOIN users u ON u.uid=lm.uid WHERE lid=? ORDER BY joined').all(lid)) rows.set(m.uid, { uid: m.uid, name: m.name.slice(0, 20) || 'Pemain', p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 });
   for (const x of q('SELECT * FROM league_match WHERE lid=? AND season=?').all(lid, season))
     for (const [uid, f, ag] of [[x.a, x.ga, x.gb], [x.b, x.gb, x.ga]]) { const r = rows.get(uid); if (!r) continue; r.p++; r.gf += f; r.ga += ag; if (f > ag) { r.w++; r.pts += 3; } else if (f === ag) { r.d++; r.pts++; } else r.l++; }
-  const table = [...rows.values()].sort((x, y) => y.pts - x.pts || (y.gf - y.ga) - (x.gf - x.ga) || y.gf - x.gf || y.p - x.p).map((r, i) => ({ ...r, pos: i + 1, me: r.uid === me, uid: undefined }));
+  const table = [...rows.values()].sort((x, y) => y.pts - x.pts || (y.gf - y.ga) - (x.gf - x.ga) || y.gf - x.gf || y.p - x.p).map((r, i) => ({ ...r, pos: i + 1, me: r.uid === me, pro: isPro(r.uid), uid: undefined }));
   const recent = q('SELECT lm.ga, lm.gb, lm.at, COALESCE(ua.name,\'\') an, COALESCE(ub.name,\'\') bn FROM league_match lm LEFT JOIN users ua ON ua.uid=lm.a LEFT JOIN users ub ON ub.uid=lm.b WHERE lid=? ORDER BY at DESC LIMIT 5').all(lid);
-  return { id: lg.id, code: lg.code, name: lg.name, color: lg.color, owner: lg.owner === me, season, ends: seasonEnds(season), max: LEAGUE_FREE.members, table, recent: recent.map(r => ({ a: r.an.slice(0, 20), b: r.bn.slice(0, 20), ga: r.ga, gb: r.gb, at: r.at })) };
+  return { id: lg.id, code: lg.code, name: lg.name, color: lg.color, owner: lg.owner === me, season, ends: seasonEnds(season), max: leagueLimits(lg.owner).members, table, recent: recent.map(r => ({ a: r.an.slice(0, 20), b: r.bn.slice(0, 20), ga: r.ga, gb: r.gb, at: r.at })) };
 }
 export const myLeagues = uid => q('SELECT l.id, l.code, l.name, l.color, l.owner=? own, (SELECT COUNT(*) FROM league_member x WHERE x.lid=l.id) n FROM league l JOIN league_member m ON m.lid=l.id AND m.uid=? ORDER BY m.joined').all(uid, uid).map(r => ({ ...r, own: !!r.own }));
 
@@ -268,7 +274,7 @@ export function olStatus(uid, now = Date.now()) {
   const s = seasonOf(now), me = uid ? q('SELECT * FROM ol_player WHERE uid=? AND season=?').get(uid, s) : null, started = olStarted(s);
   const div = me?.div || 0, day = mytDay(now), k = kickAt(day), nextAt = now < k + OL.joinMin * 60e3 ? k : kickAt(mytDay(now + 864e5));
   const table = q('SELECT o.uid, o.pts, o.p, o.w, o.d, o.l, o.gf, o.ga, o.out, COALESCE(u.name,\'\') name FROM ol_player o LEFT JOIN users u ON u.uid=o.uid WHERE season=? AND div=? ORDER BY pts DESC, gf-ga DESC, gf DESC, joined LIMIT 100').all(s, div)
-    .map((r, i) => ({ pos: i + 1, name: r.name.slice(0, 20) || 'Pemain', pts: r.pts, p: r.p, w: r.w, d: r.d, l: r.l, gd: r.gf - r.ga, out: !!r.out, me: r.uid === uid }));
+    .map((r, i) => ({ pos: i + 1, name: r.name.slice(0, 20) || 'Pemain', pts: r.pts, p: r.p, w: r.w, d: r.d, l: r.l, gd: r.gf - r.ga, out: !!r.out, me: r.uid === uid, pro: isPro(r.uid) }));
   const m = me ? q("SELECT * FROM ol_match WHERE season=? AND (a=? OR b=?) AND day=? ORDER BY id DESC LIMIT 1").get(s, uid, uid, day) : null;
   const opp = m && m.b ? (m.a === uid ? m.b : m.a) : 0;
   return { season: s, ends: seasonEnds(s), started, count: olCount(s), min: OL.min, divs: (q('SELECT MAX(div) d FROM ol_player WHERE season=?').get(s).d || 0) + 1, nextAt, joinMin: OL.joinMin,
@@ -288,7 +294,7 @@ export function board(tab, me = 0, now = Date.now()) {
   if (!SQL) return null;
   const rows = q(`SELECT t.uid, t.score, t.w, COALESCE(u.name,'') name, RANK() OVER (ORDER BY t.score DESC, t.w DESC) pos FROM (${SQL}) t LEFT JOIN users u ON u.uid=t.uid WHERE t.score > 0 ORDER BY pos, t.uid LIMIT 100`).all();
   const mine = me ? q(`SELECT * FROM (SELECT t.uid, t.score, t.w, RANK() OVER (ORDER BY t.score DESC, t.w DESC) pos FROM (${SQL}) t) WHERE uid=?`).get(me) : null;
-  return { tab, season: s, week: wk, ends: tab === 'week' ? 0 : seasonEnds(s), rows: rows.map(r => ({ name: r.name.slice(0, 20) || 'Pemain', score: r.score, w: r.w, pos: r.pos, me: r.uid === me, tier: tab === 'season' ? tierOf(r.score).id : undefined })), me: mine ? { score: mine.score, pos: mine.pos } : null };
+  return { tab, season: s, week: wk, ends: tab === 'week' ? 0 : seasonEnds(s), rows: rows.map(r => ({ name: r.name.slice(0, 20) || 'Pemain', score: r.score, w: r.w, pos: r.pos, me: r.uid === me, pro: isPro(r.uid), tier: tab === 'season' ? tierOf(r.score).id : undefined })), me: mine ? { score: mine.score, pos: mine.pos } : null };
 }
 
 // ── Telegram initData (HMAC, official algorithm) ───────────
@@ -328,7 +334,11 @@ export function fulfill(chargeId, uid, itemId, stars) {
     getUser(uid);
     q('INSERT INTO payments (charge_id,uid,item,stars,at) VALUES (?,?,?,?,?)').run(chargeId, uid, itemId, stars, Date.now());
     if (item.grantCoins) q('UPDATE users SET coins=coins+? WHERE uid=?').run(item.grantCoins, uid); // bought coins skip the daily play cap
-    else if (item.slot === 'pass') {
+    else if (item.sub) {
+      const u = q('SELECT pro_until FROM users WHERE uid=?').get(uid);
+      q('UPDATE users SET pro_until=? WHERE uid=?').run(Math.max(Date.now(), u.pro_until) + item.days * 86400e3, uid);
+      q("INSERT OR IGNORE INTO owned (uid,item,src,at) VALUES (?,'b_pro','pro',?)").run(uid, Date.now());
+    } else if (item.slot === 'pass') {
       const u = q('SELECT pass_until FROM users WHERE uid=?').get(uid);
       q('UPDATE users SET pass_until=? WHERE uid=?').run(Math.max(Date.now(), u.pass_until) + item.days * 86400e3, uid);
     } else for (const id of item.grants || [itemId]) q('INSERT OR IGNORE INTO owned (uid,item,src,at) VALUES (?,?,?,?)').run(uid, id, 'stars', Date.now());
@@ -445,7 +455,7 @@ async function api(req, res, path) {
   }
   if (path === '/api/league') { // ops: list | create | join | get | leave | room
     const op = body.op, lid = +body.id || 0;
-    if (op === 'list') return json(res, 200, { leagues: myLeagues(auth.uid), free: LEAGUE_FREE, colors: LEAGUE_COLORS });
+    if (op === 'list') return json(res, 200, { leagues: myLeagues(auth.uid), free: leagueLimits(auth.uid), pro: isPro(auth.uid), colors: LEAGUE_COLORS });
     if (op === 'create') { if (limited('lgc:' + auth.uid, 5, 3600e3)) return json(res, 429, { err: 'slow_down' }); const r = createLeague(auth.uid, body.name, body.color); return json(res, r.ok ? 200 : 400, r); }
     if (op === 'join') { if (limited('lgj:' + auth.uid, 20, 3600e3)) return json(res, 429, { err: 'slow_down' }); const r = joinLeague(auth.uid, body.code, +body.by || 0); return json(res, r.ok ? 200 : 400, r); }
     if (op === 'leave') { const r = leaveLeague(auth.uid, lid); return json(res, r.ok ? 200 : 400, r); }
@@ -467,6 +477,8 @@ async function api(req, res, path) {
     const item = itemById(body.item);
     if (!item?.stars) return json(res, 400, { err: 'not_for_stars' });
     if (!item.consumable && isOwned(ownedSet(auth.uid), item)) return json(res, 400, { err: 'owned' });
+    if (!onSale(item)) return json(res, 400, { err: 'not_for_sale' });
+    if (item.sub && isPro(auth.uid)) return json(res, 400, { err: 'owned' }); // renewals are charged by Telegram, never a second subscription
     if (limited('inv:' + auth.uid, 10, 60e3)) return json(res, 429, { err: 'slow_down' });
     const r = await bot('createInvoiceLink', invoiceFields(item, auth.uid, LANGS.includes(body.lang) ? body.lang : 'ms'));
     return r.ok ? json(res, 200, { url: r.result }) : json(res, 502, { err: 'invoice' });
@@ -475,6 +487,7 @@ async function api(req, res, path) {
     if (limited('ms:' + auth.uid, 30, 3600e3)) return json(res, 429, { err: 'slow_down' });
     const seed = randomBytes(4).readUInt32LE(), call = body.call === 'b' ? 'b' : 'k', coin = randomBytes(1)[0] & 1 ? 'b' : 'k', won = tossResult(call, coin);
     const setup = buildSetup({ ...body, seed, paper0: paperStats(auth.uid), squad0: squadOf(auth.uid), squad1: null, first: won ? 0 : 1, home: won ? profile(auth.uid).equip : aiEquip(seed) });
+    setup.stars = [squadOf(auth.uid).stars || {}, {}];
     setup.coin = coin; setup.call = call;
     const mid = randomBytes(8).toString('hex');
     q('DELETE FROM matches WHERE created < ?').run(Date.now() - 6 * 3600e3);
@@ -489,10 +502,12 @@ async function api(req, res, path) {
     q('UPDATE matches SET done=1 WHERE mid=?').run(m.mid);
     if (!e) return json(res, 400, { err: 'replay_failed' });
     const won = e.winner === 0, draw = e.winner === null, u = getUser(auth.uid), day = new Date().toISOString().slice(0, 10);
-    let reward = matchReward({ won, draw, goals: e.score[0], skill: setup.cpuSkill, passActive: u.pass_until > Date.now() });
-    const used = u.day === day ? u.day_coins : 0; reward = Math.max(0, Math.min(reward, DAILY_COIN_CAP - used));
+    const pass = u.pass_until > Date.now(), pro = u.pro_until > Date.now(), cap = pro ? PRO.cap : DAILY_COIN_CAP;
+    let reward = matchReward({ won, draw, goals: e.score[0], skill: setup.cpuSkill, passActive: pass });
+    if (pro && !pass) reward = Math.round(reward * PRO.coinBoost);
+    const used = u.day === day ? u.day_coins : 0; reward = Math.max(0, Math.min(reward, cap - used));
     q('UPDATE users SET coins=coins+?, day=?, day_coins=? WHERE uid=?').run(reward, day, used + reward, auth.uid);
-    return json(res, 200, { reward, score: e.score, winner: e.winner, capped: used + reward >= DAILY_COIN_CAP, profile: profile(auth.uid) });
+    return json(res, 200, { reward, score: e.score, winner: e.winner, capped: used + reward >= cap, profile: profile(auth.uid) });
   }
   return json(res, 404, { err: 'nope' });
 }
@@ -516,6 +531,7 @@ const BT = {
     slots: { paper: '📄 Kertas', pitch: '🟩 Padang', venue: '🏟 Venue', ball: '⚽ Bola', fx: '🎆 Efek gol' },
     help: 'Cara Main', rules: '<b>1. Lastik.</b> Tarik ke belakang dan lepas untuk tendang. Tarik jauh, sepakan lebih kuat.\n<b>2. Jenis sepakan.</b> BUMI bergolek, CUNGKIL naik sikit, LAMBUNG terbang tinggi.\n<b>3. Tiga tendangan.</b> Setiap pasukan boleh tendang 3 kali berturut-turut, kemudian giliran lawan.\n<b>4. Lambung syiling.</b> Pemenang mula dulu dan main di venue sendiri.\n<b>5. Coins.</b> Menang lawan AI untuk kumpul coins, sehingga 1,500 sehari.',
     cmds: '<b>Arahan</b>\n/start  menu utama\n/coins  beli coins\n/profil  coins dan item anda\n/paysupport  bantuan pembelian\n/terms  terma',
+    pro_on: d => `⭐ <b>PRO aktif!</b>\n<blockquote>5 liga sendiri sehingga 32 ahli\nCoins main +50%\nLencana PRO\nBola PRO dalam loker anda</blockquote>\nAktif sehingga <b>${d}</b>, diperbaharui automatik. Batal bila-bila masa dalam Tetapan Telegram.`,
     paid: 'Bayaran berjaya', added: 'masuk ke akaun anda', newbal: 'Baki terkini', in_locker2: 'dah masuk loker', receipt: 'ID resit (tekan untuk salin):',
     paid_bad: 'Bayaran diterima, tetapi item belum masuk', paid_bad2: 'Jangan risau, Stars anda selamat. Hantar ID resit ini melalui /paysupport dan kami akan uruskan:',
     support: 'Bantuan Pembelian', support_b: 'Hantar dalam chat ini:\n1. <b>ID resit</b> dari mesej bayaran (bermula dengan <code>stxt</code>)\n2. Nama item atau pek coins yang anda beli', support_n: 'Kami akan balas dalam masa 48 jam. Bayaran berganda akan dipulangkan.',
@@ -541,6 +557,7 @@ const BT = {
     slots: { paper: '📄 Paper', pitch: '🟩 Pitch', venue: '🏟 Venue', ball: '⚽ Ball', fx: '🎆 Goal effect' },
     help: 'How to Play', rules: '<b>1. Slingshot.</b> Pull back and let go to kick. Pull further for a harder kick.\n<b>2. Kick types.</b> GROUND rolls, CHIP lifts a little, LOB flies high.\n<b>3. Three kicks.</b> Each team gets 3 kicks in a row, then it is the other side\'s turn.\n<b>4. Coin toss.</b> The winner kicks off and plays at their own venue.\n<b>5. Coins.</b> Beat the AI to earn coins, up to 1,500 a day.',
     cmds: '<b>Commands</b>\n/start  main menu\n/coins  buy coins\n/profil  your coins and items\n/paysupport  purchase help\n/terms  terms',
+    pro_on: d => `⭐ <b>PRO is on!</b>\n<blockquote>5 own leagues of up to 32\n+50% match coins\nPRO badge\nPRO ball in your locker</blockquote>\nActive until <b>${d}</b>, renews automatically. Cancel any time in Telegram Settings.`,
     paid: 'Payment successful', added: 'added to your account', newbal: 'New balance', in_locker2: 'is now in your locker', receipt: 'Receipt ID (tap to copy):',
     paid_bad: "Payment received, but your item hasn't arrived yet", paid_bad2: "Don't worry, your Stars are safe. Send this receipt ID via /paysupport and we'll sort it out:",
     support: 'Purchase Help', support_b: 'Send us in this chat:\n1. The <b>receipt ID</b> from your payment message (it starts with <code>stxt</code>)\n2. The item or coin pack you bought', support_n: "We'll reply within 48 hours. Double payments are refunded.",
@@ -566,6 +583,7 @@ const BT = {
     slots: { paper: '📄 Бумага', pitch: '🟩 Поле', venue: '🏟 Стадион', ball: '⚽ Мяч', fx: '🎆 Эффект гола' },
     help: 'Как играть', rules: '<b>1. Рогатка.</b> Оттяни назад и отпусти для удара. Чем дальше, тем сильнее.\n<b>2. Виды ударов.</b> НИЗОМ катится, ПОДСЕЧКА чуть поднимается, НАВЕС летит высоко.\n<b>3. Три удара.</b> Команда бьёт 3 раза подряд, затем ход переходит к сопернику.\n<b>4. Жребий.</b> Победитель начинает и играет на своём стадионе.\n<b>5. Монеты.</b> Побеждай ИИ и получай монеты, до 1 500 в день.',
     cmds: '<b>Команды</b>\n/start  главное меню\n/coins  купить монеты\n/profil  твои монеты и предметы\n/paysupport  помощь с покупкой\n/terms  условия',
+    pro_on: d => `⭐ <b>PRO включён!</b>\n<blockquote>5 своих лиг до 32 участников\n+50% монет за матчи\nЗначок PRO\nМяч PRO в шкафу</blockquote>\nАктивен до <b>${d}</b>, продлевается автоматически. Отменить можно в настройках Telegram.`,
     paid: 'Оплата прошла', added: 'зачислено на счёт', newbal: 'Новый баланс', in_locker2: 'теперь в шкафу', receipt: 'ID чека (нажми, чтобы скопировать):',
     paid_bad: 'Оплата получена, но предмет ещё не зачислен', paid_bad2: 'Не волнуйся, твои звёзды в безопасности. Отправь этот ID чека через /paysupport, и мы всё решим:',
     support: 'Помощь с покупкой', support_b: 'Отправь в этот чат:\n1. <b>ID чека</b> из сообщения об оплате (начинается с <code>stxt</code>)\n2. Название предмета или набора монет', support_n: 'Ответим в течение 48 часов. Двойные платежи возвращаем.',
@@ -597,7 +615,7 @@ export function botText(kind, d = {}) {
   if (kind === 'profile') return `<b>👤 ${x.profile}: ${h(d.name || '')}</b>\n\n🪙 ${x.coins}: <b>${f(d.coins)}</b>\n🎒 ${x.owned}: <b>${d.owned}</b>/${d.items}\n${d.pass ? x.pass(h(d.pass)) + '\n' : ''}\n`
     + `<blockquote expandable><b>${x.wearing}</b>\n${Object.entries(d.equip).map(([k, v]) => `${x.slots[k] || k}: <b>${itemById(v) ? nm(itemById(v)) : h(v)}</b>`).join('\n')}</blockquote>`;
   if (kind === 'help') return `<b>📖 ${x.help}</b>\n\n<blockquote expandable>${x.rules}</blockquote>\n\n${x.cmds}`;
-  if (kind === 'paid') return d.ok ? `<b>✅ ${x.paid}</b>\n\n${d.item.grantCoins ? `🪙 <b>+${f(d.item.grantCoins)} ${x.coins_w}</b> ${x.added}\n${x.newbal}: <b>${f(d.coins)} ${x.coins_w}</b>` : `🎁 <b>${nm(d.item)}</b> ${x.in_locker2}`}\n\n<i>${x.receipt}</i>\n<code>${h(d.charge)}</code>`
+  if (kind === 'paid') return d.ok ? `<b>✅ ${x.paid}</b>\n\n${d.item.grantCoins ? `🪙 <b>+${f(d.item.grantCoins)} ${x.coins_w}</b> ${x.added}\n${x.newbal}: <b>${f(d.coins)} ${x.coins_w}</b>` : d.item.sub ? x.pro_on(d.until ? new Date(d.until).toISOString().slice(0, 10) : '') : `🎁 <b>${nm(d.item)}</b> ${x.in_locker2}`}\n\n<i>${x.receipt}</i>\n<code>${h(d.charge)}</code>`
     : `<b>⚠️ ${x.paid_bad}</b>\n\n${x.paid_bad2}\n<code>${h(d.charge)}</code>`;
   if (kind === 'support') return `<b>🛟 ${x.support}</b>\n\n<blockquote>${x.support_b}</blockquote>\n\n<i>${x.support_n}</i>`;
   if (kind === 'terms') return `<b>📜 ${x.terms}</b>\n\n<blockquote expandable>${x.terms_b}</blockquote>`;
@@ -612,9 +630,10 @@ export function botText(kind, d = {}) {
   return '';
 }
 function userSnap(uid, name, lang = 'ms') { getUser(uid, name); const p = profile(uid); return { lang, name: name || p.name, coins: p.coins, owned: p.owned.length, items: ITEMS.filter(i => !['coins', 'pass', 'bundle'].includes(i.slot)).length, equip: p.equip, pass: p.passUntil > Date.now() ? new Date(p.passUntil).toLocaleDateString(lang === 'ru' ? 'ru-RU' : lang === 'en' ? 'en-GB' : 'ms-MY') : '' }; }
-const invoiceFields = (item, uid, lang) => ({ title: itemName(item, lang).slice(0, 32), description: itemDesc(item, lang).slice(0, 255), payload: makePayload(item.id, uid), provider_token: '', currency: 'XTR', prices: [{ label: itemName(item, lang).slice(0, 32), amount: item.stars }] });
+export const invoiceFieldsFor = (item, uid, lang) => invoiceFields(item, uid, lang);
+const invoiceFields = (item, uid, lang) => ({ title: itemName(item, lang).slice(0, 32), description: itemDesc(item, lang).slice(0, 255), payload: makePayload(item.id, uid), provider_token: '', currency: 'XTR', prices: [{ label: itemName(item, lang).slice(0, 32), amount: item.stars }], ...(item.sub ? { subscription_period: 2592000 } : {}) });
 async function sendInvoiceFor(chat_id, uid, item, lang = 'ms') {
-  if (!item?.stars) return;
+  if (!item?.stars || item.sub) return; // subscriptions only via invoice links
   if (!item.consumable && isOwned(ownedSet(uid), item)) return say(chat_id, botText('owns', { lang, item }));
   if (limited('inv:' + uid, 10, 60e3)) return;
   return bot('sendInvoice', { chat_id, ...invoiceFields(item, uid, lang) });
@@ -623,7 +642,7 @@ export async function onUpdate(u) {
   if (u.pre_checkout_query) {
     const pq = u.pre_checkout_query, p = readPayload(pq.invoice_payload);
     const ok = !!p && p.uid === pq.from.id && pq.currency === 'XTR' && pq.total_amount === p.item.stars &&
-      (p.item.consumable || !isOwned(ownedSet(p.uid), p.item));
+      (p.item.consumable || !isOwned(ownedSet(p.uid), p.item)) && onSale(p.item);
     return bot('answerPreCheckoutQuery', ok ? { pre_checkout_query_id: pq.id, ok: true } : { pre_checkout_query_id: pq.id, ok: false, error_message: L(langFrom(pq.from.language_code)).cant_buy });
   }
   if (u.callback_query) {
@@ -639,7 +658,7 @@ export async function onUpdate(u) {
     // Already charged: no expiry check here, only identity, item and amount.
     const r = p && p.uid === m.from.id && sp.currency === 'XTR' ? fulfill(sp.telegram_payment_charge_id, p.uid, p.item.id, sp.total_amount) : { ok: false };
     const lang = langFrom(m.from.language_code);
-    return say(m.chat.id, botText('paid', { lang, ok: r.ok, item: p?.item, charge: sp.telegram_payment_charge_id, coins: r.ok ? profile(p.uid).coins : 0 }),
+    return say(m.chat.id, botText('paid', { lang, ok: r.ok, item: p?.item, charge: sp.telegram_payment_charge_id, coins: r.ok ? profile(p.uid).coins : 0, until: r.ok ? profile(p.uid).proUntil : 0 }),
       r.ok ? kb([[playBtn(lang)], ...(p.item.grantCoins ? [[{ text: L(lang).b_more, callback_data: 'menu:coins' }]] : [])]) : undefined);
   }
   if (m.chat.type !== 'private') return;
@@ -725,6 +744,7 @@ function startMatch(room, call = 'k') {
   setup.coin = coin; setup.call = call;
   setup.formations[1] = FORMATIONS[b.profile.formation] ? b.profile.formation : '4-4-2';
   setup.names = [a.profile.name, b.profile.name]; setup.paperIds = [a.paperId, b.paperId];
+  setup.stars = [squadOf(a.uid).stars || {}, squadOf(b.uid).stars || {}]; setup.pro = [isPro(a.uid), isPro(b.uid)];
   setup.ranked = room.ranked;
   room.setup = setup; room.engine = new Engine(setup); runToRest(room.engine); room.rematch = new Set(); room.startedAt = Date.now(); room.settled = false; room.leagueDone = false;
   room.players.forEach((p, i) => send(p.ws, { t: 'setup', setup, seat: i, state: room.engine.exportState(), left: TURN_MS }));
