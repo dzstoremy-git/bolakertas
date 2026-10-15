@@ -5,6 +5,7 @@ import { createHmac } from 'node:crypto';
 import { Engine, runToRest, BASE_STATS, checksum, predictPath, FIELD } from './public/engine.js';
 const S = await import('./server.js');
 const I = await import('./public/i18n.js');
+const K = await import('./public/rank.js');
 let n = 0; const ok = (name, fn) => { fn(); n++; console.log('ok', name); };
 
 const setup = (seed, paper) => S.buildSetup({ team0: 'jdt', team1: 'sel', seed, minutes: 1, skill: 0.5, cpu: [true, true], paper0: paper });
@@ -136,5 +137,62 @@ ok('coin toss: winner kicks off and is home; AI home skins are deterministic; re
   assert.equal(tossResult('k', 'k'), true); assert.equal(tossResult('k', 'b'), false);
   const played = playOut(S.buildSetup({ team0: 'jdt', team1: 'sel', seed: 9, minutes: 1, cpu: [true, true], first: 1 })); assert.equal(played.phase, 'over');
 }
+ok('ranked: elo points, pair cap, short games, boards, season soft reset', () => {
+  assert.equal(K.rpDelta(1000, 1000, 1), 16); assert.equal(K.rpDelta(1000, 1000, 0), -16);
+  assert.ok(K.rpDelta(1000, 1400, 1) > K.rpDelta(1400, 1000, 1)); // beating a stronger player pays more
+  assert.ok(K.rpDelta(1400, 1000, 1) >= 8 && K.rpDelta(1000, 1400, 0) <= -4); // never zero
+  assert.equal(K.tierOf(999).id, 'scrap'); assert.equal(K.tierOf(1100).id, 'kajang'); assert.equal(K.tierOf(1100).div, 3); assert.equal(K.tierOf(2100).id, 'legend');
+  assert.equal(K.softReset(1900), 1450); assert.equal(K.softReset(800), 900);
+  const T0 = K.seasonEnds(1) - 10 * 864e5, A = 7101, B = 7102, C = 7103;
+  for (const u of [A, B, C]) S.db.prepare('INSERT OR IGNORE INTO users (uid,name,equip,created) VALUES (?,?,?,?)').run(u, 'P' + u, '{}', 0);
+  assert.equal(S.settleRanked(A, B, 1, 30e3, T0).why, 'short');
+  assert.equal(S.settleRanked(A, A, 1, 90e3, T0).why, 'players');
+  const r1 = S.settleRanked(A, B, 1, 90e3, T0); assert.equal(r1.counted, true); assert.equal(r1[A].delta, 16); assert.equal(r1[B].delta, -16);
+  S.settleRanked(B, A, 0.5, 90e3, T0 + 1); S.settleRanked(A, B, 1, 90e3, T0 + 2);
+  assert.equal(S.settleRanked(B, A, 1, 90e3, T0 + 3).why, 'pair'); // 4th game same pair same day
+  assert.equal(S.settleRanked(A, B, 1, 90e3, T0 + 864e5 + 10).counted, true); // next day counts again
+  S.settleRanked(C, A, 1, 90e3, T0 + 5);
+  const ra = S.rankRow(A, 1), rb = S.rankRow(B, 1); assert.equal(ra.w, 3); assert.equal(ra.d, 1); assert.equal(ra.l, 1); assert.ok(ra.rp > 1000 && rb.rp < 1000 && ra.best >= ra.rp);
+  const sb = S.board('season', A, T0 + 6); assert.equal(sb.rows[0].me, true); assert.equal(sb.me.pos, 1); assert.ok(sb.rows.every(r => !('uid' in r)));
+  const wk = S.board('week', B, T0 + 6), top = wk.rows[0]; assert.ok(top.score >= wk.rows.at(-1).score); assert.ok(wk.me.score >= 1);
+  const all = S.board('all', C, T0 + 6); assert.ok(all.rows.find(r => r.me).score === 1); assert.equal(S.board('bogus'), null);
+  const s2 = S.rankRow(A, 2); assert.equal(s2.rp, K.softReset(ra.rp)); assert.equal(s2.w, 0); // next season: half way back, record cleared
+});
+// async checks run after the sync ones
+const aok = async (name, fn) => { await fn(); n++; console.log('ok', name); };
+await aok('goal clips: only signed players, real jpg/mp4 bytes, size cap, share page serves it', async () => {
+  const srv = S.server.listen(0), port = srv.address().port, base = `http://127.0.0.1:${port}`;
+  const sign = uid => { const p = new URLSearchParams({ auth_date: String(Math.floor(Date.now() / 1000)), user: JSON.stringify({ id: uid, first_name: 'Clip' }) });
+    const dc = [...p.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join('\n');
+    const key = createHmac('sha256', 'WebAppData').update('123:TEST').digest(); p.set('hash', createHmac('sha256', key).update(dc).digest('hex')); return p.toString(); };
+  const up = (body, type, auth = sign(7201)) => fetch(base + '/api/clip', { method: 'POST', headers: { 'Content-Type': type, 'X-Init-Data': auth }, body });
+  const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(3000, 7)]);
+  assert.equal((await up(jpg, 'image/jpeg', 'nope')).status, 401);
+  assert.equal((await up(jpg, 'text/html')).status, 415);
+  assert.equal((await up(Buffer.alloc(3000, 7), 'image/jpeg')).status, 400); // not really a jpeg
+  assert.equal((await up(Buffer.alloc(9 << 20, 0xff), 'video/mp4')).status, 413);
+  const r = await (await up(jpg, 'image/jpeg')).json(); assert.match(r.url, /^\/clip\/[\w-]{12}\.jpg$/);
+  const got = await fetch(base + r.url); assert.equal(got.headers.get('content-type'), 'image/jpeg'); assert.equal(Buffer.from(await got.arrayBuffer()).length, jpg.length);
+  const page = await (await fetch(base + r.page)).text(); assert.ok(page.includes('og:image') && page.includes(r.url) && !page.includes('—'));
+  assert.equal((await fetch(base + '/clip/../server.js')).status, 404); assert.equal((await fetch(base + '/c/aaaaaaaaaaaa')).status, 404);
+  srv.close();
+});
+await aok('ranked queue: guests refused, two signed players matched into a ranked room, same account never paired', async () => {
+  const { WebSocket } = await import('ws');
+  const srv = S.server.listen(0), port = srv.address().port;
+  const sign = uid => { const p = new URLSearchParams({ auth_date: String(Math.floor(Date.now() / 1000)), user: JSON.stringify({ id: uid, first_name: 'R' + uid }) });
+    const dc = [...p.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join('\n');
+    const key = createHmac('sha256', 'WebAppData').update('123:TEST').digest(); p.set('hash', createHmac('sha256', key).update(dc).digest('hex')); return p.toString(); };
+  const lobby = (initData) => new Promise(ok => { const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/lobby?pid=${Math.random()}`); const box = { ws, msgs: [] };
+    ws.on('message', m => box.msgs.push(JSON.parse(String(m)))); ws.on('open', () => { ws.send(JSON.stringify({ t: 'queue', ranked: true, initData })); ok(box); }); });
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const g = await lobby('nope'); await wait(150); assert.equal(g.msgs[0]?.msg, 'ranked-guest');
+  const a = await lobby(sign(7301)), a2 = await lobby(sign(7301)); await wait(150);
+  assert.equal(a.msgs.length + a2.msgs.length, 0); // same account twice: no match
+  const b = await lobby(sign(7302)); await wait(200);
+  const got = [a, a2, b].map(x => x.msgs.find(m => m.t === 'matched')).filter(Boolean);
+  assert.equal(got.length, 2); assert.equal(got[0].code, got[1].code); assert.ok(b.msgs[0]?.t === 'matched');
+  [g, a, a2, b].forEach(x => x.ws.close()); srv.close();
+});
 console.log(`\n${n} checks passed`);
 process.exit(0);

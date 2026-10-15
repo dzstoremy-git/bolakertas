@@ -1,12 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=26';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=26';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=26';
-import { World, Q } from './scene.js?v=26';
-import { crest, ink } from './art.js?v=26';
-import * as L3 from './locker3d.js?v=26';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=26';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=27';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=27';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=27';
+import { World, Q } from './scene.js?v=27';
+import { crest, ink } from './art.js?v=27';
+import * as L3 from './locker3d.js?v=27';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=27';
+import { tierOf, TIERS } from './rank.js?v=27';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -110,7 +111,7 @@ function startMatch({ setup, mode, seat = 0, mid = null, paperIds, names }) {
   const e = new Engine(setup);
   const art = stageWorld(setup, paperIds, { ...P.equip, ...(setup.home || {}) }); // home side's venue, pitch and ball for everyone
   world.setTeams(e, art.teams, art.kits, art.looks, art.keepers);
-  M = { e, setup, mode, seat, mid, art, names: names || [art.teams[0].short, art.teams[1].short], actions: [], shot: 0, ps: false,
+  M = { e, setup, mode, seat, mid, art, names: names || [art.teams[0].short, art.teams[1].short], actions: [], shot: 0, ps: false, goals: [], tape: [],
     aim: null, cpuWait: 0, turnLeft: null, turnDeadline: 0, halfWait: 0, lastMsg: 0, shake: 0, pending: null, over: false, paused: false,
     camYaw: 0, camMode: S.cam, zoom: 1, goalCam: 0, slow: 1, kickoffHint: true };
   world.pieces.forEach(p => { p.x = p.data.x; p.z = p.data.z; p.drop = p.rank >= 4 ? 1.2 + p.data.id * 0.05 : 0; });
@@ -153,6 +154,7 @@ function drainEvents() {
       SFX.goal(); notify('success'); M.shake = 0.7; world.cheer = 3; M.goalCam = 2.2;
       const k = M.art.kits[ev.team], mine = ev.team === myTeam() && M.mode !== 'local', set = mine ? completeSet(P.equip) : null, rank = mine ? (RARITY[itemById(P.equip.paper)?.rarity]?.rank || 0) : 0;
       world.goalFx(mine ? P.equip.fx : 'x_basic', e.ball.x, e.ball.z, [k.base, k.accent], set?.setFx, rank); if (rank >= 4) SFX.goalMyth();
+      M.goalAt = { team: ev.team, own: !!e.lastGoal?.own, who: e.lastGoal?.own ? T('own_goal') : e.lastGoal?.name ? `#${e.lastGoal.number} ${e.lastGoal.name}` : M.names[ev.team], score: [...e.score], fx: mine ? P.equip.fx : 'x_basic', colors: [k.base, k.accent], set: set?.setFx, rank, t: 0 };
     }
     else if (ev.type === 'turn') M.turnFlag = true;
   }
@@ -179,6 +181,7 @@ function tick(dt) {
   M.alpha = Math.min(1, e.acc / STEP);
   drainEvents();
   if (M.pending && isRest(e)) { e.importState(M.pending); M.pending = null; M.turnFlag = true; }
+  recordFrame(e);
   if (M.turnFlag && e.phase === 'aim') { M.turnFlag = false; onTurnStart(); }
   if (e.phase === 'over' && !M.over) finishMatch();
   if (e.message && e.message.id !== M.lastMsg) { M.lastMsg = e.message.id; banner(e.message); }
@@ -411,24 +414,157 @@ async function finishMatch() {
   M.over = true; const e = M.e, my = myTeam();
   const won = e.winner === my, draw = e.winner === null;
   setTimeout(async () => {
-    if (!M) return;
+    if (!M || M.replaying) return;
     const title = M.mode === 'local' ? (draw ? T('draw') : T('x_wins', { name: esc(M.names[e.winner]) })) : T(draw ? 'draw' : won ? 'win' : 'lose');
     const o = overlay(`<div class="res ${won ? 'win' : draw ? 'draw' : 'lose'}"><small>${T('fulltime')}</small><h2>${title}</h2>
       <div class="final"><span>${esc(M.names[0])}</span><b>${e.score[0]}</b><i>:</i><b>${e.score[1]}</b><span>${esc(M.names[1])}</span></div>
-      <div class="reward" id="reward">${M.mode === 'cpu' ? T(P.guest ? 'reward_guest' : 'reward_wait') : M.mode === 'online' && M.forfeit ? T('opp_left') : ''}</div></div>
+      <div class="reward" id="reward">${M.mode === 'cpu' ? T(P.guest ? 'reward_guest' : 'reward_wait') : M.mode === 'online' && M.forfeit ? T('opp_left') : ''}</div>${rankLine(M.rank)}</div>
+      ${M.goals.length ? `<div class="rp-row"><button class="btn" id="rp-watch">▶ ${T('rp_watch')}</button><button class="btn" id="rp-poster">🖼 ${T('rp_poster')}</button></div>` : ''}
       <button class="btn lime" id="again">${T(M.mode === 'online' ? 'rematch' : 'play_again')}</button><button class="btn" id="shop2">${T('locker_btn')}</button><button class="btn ghost" id="home">${T('main_menu')}</button>`);
     o.querySelector('#home').onclick = quitMatch;
+    o.querySelector('#rp-watch')?.addEventListener('click', () => playReplays(M.goals.length - 1));
+    o.querySelector('#rp-poster')?.addEventListener('click', () => sharePoster(M.goals.at(-1)));
     o.querySelector('#shop2').onclick = () => { quitMatch(); showShop(); };
     o.querySelector('#again').onclick = () => {
       if (M.mode === 'online') { M.ws?.send(JSON.stringify({ t: 'rematch' })); o.querySelector('#again').textContent = T('waiting_opp'); o.querySelector('#again').disabled = true; }
       else if (M.mode === 'cpu') { const m = M; M = null; beginCpu(); } else { beginLocal(); }
     };
-    if (M.mode === 'cpu' && M.mid) {
+    if (M.rewardHtml) $('#reward').innerHTML = M.rewardHtml; // back from a replay: never claim twice
+    else if (M.mode === 'cpu' && M.mid) {
       try { const r = await api('/api/match/finish', { mid: M.mid, actions: M.actions }); P = { ...r.profile, guest: false }; updateCoins();
-        $('#reward').innerHTML = `<span class="coin"></span> ${T('reward_got', { n: r.reward })}${r.capped ? ` <small>${T('cap_hit')}</small>` : ''}`; if (r.reward) SFX.buy(); }
+        $('#reward').innerHTML = M.rewardHtml = `<span class="coin"></span> ${T('reward_got', { n: r.reward })}${r.capped ? ` <small>${T('cap_hit')}</small>` : ''}`; if (r.reward) SFX.buy(); }
       catch (err) { $('#reward').textContent = T('reward_fail'); }
     }
   }, 1600);
+}
+
+// ── ranked ─────────────────────────────────────────────────
+const roman = d => ['', 'I', 'II', 'III'][d] || '';
+const tierName = (id, div) => `${T('t_' + id)}${div ? ' ' + roman(div) : ''}`;
+function rankLine(r) {
+  if (!r) return '';
+  if (!r.counted) return `<p class="rk-nc">${T(r.why === 'short' ? 'rk_nc_short' : r.why === 'pair' ? 'rk_nc_pair' : 'rk_nc')}</p>`;
+  const up = tierOf(r.rp).index > tierOf(r.before).index;
+  return `<div class="rk-res ${r.delta >= 0 ? 'up' : 'down'}" style="--tc:${tierOf(r.rp).color}"><b>${T(r.delta >= 0 ? 'rk_gain' : 'rk_loss', { n: r.delta })}</b><span>${up ? `${T('rk_up')} ` : ''}${tierName(r.tier, r.div)}  ·  ${T('rk_rp', { n: num(r.rp) })}</span></div>`;
+}
+async function showRanked(tab = 'season') {
+  const m = screen(`${header(true)}<main class="ranked"><h2 class="ttl">${T('ranked')}</h2><div id="rk-card" class="rk-card"><div class="spinner"></div></div>
+    <button class="play" id="rk-go"><b>${T('rk_play')}</b><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke-linejoin="round"/></svg></button>
+    <p class="rk-fair">⚖️ ${T('rk_fair')}</p>
+    <h3 class="rk-h">${T('rk_board')}</h3><div class="tabs rk-tabs">${['week', 'season', 'all'].map(k => `<button class="tab ${k === tab ? 'on' : ''}" data-t="${k}">${T('rk_' + k)}</button>`).join('')}</div>
+    <div id="rk-list" class="rk-list"></div><p class="rk-fair">🎁 ${T('rk_reward')}</p></main>`);
+  bindHeader(m);
+  m.querySelector('#rk-go').onclick = () => { SFX.ui(); if (P.guest) return toast(T('rk_guest')); findMatch(true); };
+  m.querySelectorAll('.rk-tabs .tab').forEach(b => b.onclick = () => { SFX.ui(); showRanked(b.dataset.t); });
+  if (P.guest) { m.querySelector('#rk-card').innerHTML = `<p class="muted">${T('rk_guest')}</p>`; m.querySelector('#rk-list').innerHTML = ''; return; }
+  let r; try { r = await api('/api/rank', { tab }); } catch { m.querySelector('#rk-card').innerHTML = `<p class="muted">${T('no_server')}</p>`; return; }
+  if (!m.isConnected) return;
+  const me = r.mine, t = tierOf(me.rp), nxt = TIERS[t.index + 1], days = Math.max(0, Math.ceil((me.ends - Date.now()) / 864e5));
+  const lo = t.rp, hi = nxt ? nxt.rp : t.rp, pct = nxt ? Math.round((me.rp - lo) / (hi - lo) * 100) : 100;
+  m.querySelector('#rk-card').innerHTML = `<div class="rk-top" style="--tc:${t.color}"><div class="rk-medal"><i>${t.index + 1}</i></div><div><small>${T('rk_season_n', { n: me.season })}  ·  ${T('rk_ends', { d: days })}</small>
+    <b>${tierName(me.tier, me.div)}</b><span>${T('rk_rp', { n: num(me.rp) })}  ·  ${T('rk_wld', { w: me.w, d: me.d, l: me.l })}</span></div></div>
+    <div class="rk-bar"><i style="width:${pct}%;background:${t.color}"></i></div><small class="rk-nx">${nxt ? T('rk_next', { n: hi - me.rp, t: T('t_' + nxt.id) }) : T('rk_top')}</small>`;
+  const col = T('rk_col_' + tab), rows = r.rows.map(x => `<li class="${x.me ? 'me' : ''} ${x.pos <= 3 ? 'p' + x.pos : ''}"><em>${x.pos}</em><b>${esc(x.name)}${x.me ? ` <i>${T('rk_you')}</i>` : ''}</b>${x.tier ? `<span class="tchip" style="--tc:${TIERS.find(z => z.id === x.tier).color}">${T('t_' + x.tier)}</span>` : ''}<strong>${num(x.score)}</strong></li>`).join('');
+  const mine = r.me && !r.rows.some(x => x.me) ? `<li class="me sticky"><em>${num(r.me.pos)}</em><b>${T('rk_you')}</b><strong>${num(r.me.score)}</strong></li>` : '';
+  m.querySelector('#rk-list').innerHTML = `<div class="rk-hd"><span>${tab === 'week' ? T('rk_week_reset') : ''}</span><span>${col}</span></div><ol>${rows || `<li class="empty">${T('rk_empty')}</li>`}${mine}</ol>`;
+}
+
+// ── goal replay ────────────────────────────────────────────
+// Every frame we keep where the ball and every paper player were drawn (last 5s). A goal keeps 4s before + 1.4s after.
+const TAPE_S = 5, PRE_S = 4, POST_S = 1.4;
+function recordFrame(e) {
+  if (!M || M.replaying) return;
+  const now = performance.now() / 1000, b = world.ballMesh.position;
+  M.tape.push({ t: now, b: [b.x, b.y, b.z], p: world.pieces.map(v => [v.root.position.x, v.root.position.y, v.root.position.z, v.root.rotation.y]) });
+  while (M.tape.length && now - M.tape[0].t > TAPE_S) M.tape.shift();
+  const G = M.goalAt; if (!G) return;
+  if (!G.t0) G.t0 = now;
+  if (now - G.t0 >= POST_S) { const from = G.t0 - PRE_S; M.goals.push({ ...G, frames: M.tape.filter(f => f.t >= from).map(f => ({ ...f, t: f.t - from })), goalT: PRE_S }); M.goalAt = null; }
+}
+// Cinematic: low orbit behind the net, slow motion near the goal, then a push-in on the celebration.
+function replayCam(clip, f, k) {
+  const gs = Math.sign(clip.frames.at(-1).b[2]) || 1, b = f.b, near = Math.min(1, Math.max(0, 1 - (clip.goalT - f.t) / 2.2)); // 0 build-up, 1 at the net
+  const side = (clip.frames.at(-1).b[0] >= 0 ? -1 : 1);
+  const track = new THREE.Vector3(b[0] * 0.6 + side * 2.2, 2.6, b[2] - gs * 5.2), trackLook = new THREE.Vector3(b[0] * 0.5, 0.3, b[2] + gs * 2.5);
+  const net = new THREE.Vector3(side * 4.6, 1.5, gs * (FIELD.L / 2 - 2.6)), netLook = new THREE.Vector3(b[0] * 0.5, 0.45, gs * (FIELD.L / 2 + 0.2));
+  const e = near * near * (3 - 2 * near), pos = track.lerp(net, e), look = trackLook.lerp(netLook, e);
+  const after = Math.max(0, f.t - clip.goalT); pos.y += after * 0.5; pos.x += side * after * 0.6; // slow lift and drift on the celebration
+  world.cam.position.copy(pos); world.cam.lookAt(look); world.cam.fov = 46 - 6 * e; world.cam.updateProjectionMatrix();
+}
+function playReplays(idx, record = false) {
+  const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
+  closeAllOverlays(); $('#hud').hidden = true;
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=27" alt=""><small>revolixgaming.com</small></span></div>`);
+  document.body.append(bar);
+  const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
+  if (record && window.MediaRecorder) {
+    const type = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(x => MediaRecorder.isTypeSupported(x));
+    try { rec = new MediaRecorder(canvas.captureStream(30), { mimeType: type, videoBitsPerSecond: 2.5e6 }); rec.ondataavailable = ev => ev.data.size && chunks.push(ev.data); rec.start(); } catch { rec = null; }
+  }
+  M.replaying = { step(dt) {
+    const near = Math.abs(t - clip.goalT) < 1.2; t += dt * (near ? 0.4 : 0.9);
+    let i = clip.frames.findIndex(f => f.t >= t); if (i < 0) i = clip.frames.length - 1; const f = clip.frames[i];
+    world.ballMesh.position.set(...f.b); f.p.forEach((p, j) => { const v = world.pieces[j]; if (v) { v.root.position.set(p[0], p[1], p[2]); v.root.rotation.y = p[3]; } });
+    world.showAim(null); replayCam(clip, f, Math.min(1, t / end));
+    if (!fxDone && t >= clip.goalT) { fxDone = true; world.goalFx(clip.fx, f.b[0], f.b[2], clip.colors, clip.set, clip.rank); SFX.goal(); }
+    if (t >= end) done();
+  } };
+  const done = () => {
+    if (!M?.replaying) return; M.replaying = null; bar.remove();
+    if (rec) { rec.onstop = () => record(new Blob(chunks, { type: rec.mimeType })); rec.stop(); }
+    replayMenu(idx);
+  };
+  bar.querySelector('#rp-x').onclick = done;
+}
+function replayMenu(idx) {
+  const list = M.goals.map((g, i) => `<button class="rp-goal ${i === idx ? 'on' : ''}" data-i="${i}"><b>${g.score[0]}:${g.score[1]}</b><span>${esc(g.who)}</span></button>`).join('');
+  const o = overlay(`<h2>${T('rp_goals')}</h2><div class="rp-list">${list}</div>
+    <div class="rp-row"><button class="btn lime" id="rp-share">📤 ${T('rp_share')}</button><button class="btn" id="rp-poster">🖼 ${T('rp_poster')}</button></div>
+    <button class="btn" id="rp-again">▶ ${T('rp_again')}</button><button class="btn ghost" id="rp-back">${T('back')}</button>`);
+  let sel = idx;
+  o.querySelectorAll('.rp-goal').forEach(b => b.onclick = () => { sel = +b.dataset.i; o.querySelectorAll('.rp-goal').forEach(x => x.classList.toggle('on', x === b)); });
+  o.querySelector('#rp-again').onclick = () => playReplays(sel);
+  o.querySelector('#rp-poster').onclick = () => sharePoster(M.goals[sel]);
+  o.querySelector('#rp-share').onclick = () => { if (!window.MediaRecorder) return sharePoster(M.goals[sel]); toast(T('rp_saving'), 6000); playReplays(sel, blob => shareFile(blob, `bola-kertas-gol.${blob.type.includes('mp4') ? 'mp4' : 'webm'}`)); };
+  o.querySelector('#rp-back').onclick = () => { closeAllOverlays(); M.over = false; finishMatch(); };
+}
+// Share: native share sheet when the phone allows files, else upload and let Telegram share the link / save the file.
+async function shareFile(blob, name) {
+  const file = new File([blob], name, { type: blob.type });
+  try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], text: T('share_goal') }); return; } } catch (e) { if (e?.name === 'AbortError') return; }
+  if (P.guest) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); return toast(T('share_saved')); }
+  try {
+    const r = await fetch('/api/clip', { method: 'POST', headers: { 'Content-Type': blob.type.split(';')[0], 'X-Init-Data': initData }, body: blob }).then(r => r.ok ? r.json() : Promise.reject(r.status));
+    const url = location.origin + r.url;
+    if (blob.type.startsWith('image/') && tg?.shareToStory) { tg.shareToStory(url, { text: T('share_goal'), widget_link: { url: 'https://t.me/BolaKertasBot', name: 'Bola Kertas' } }); return; }
+    if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(location.origin + r.page)}&text=${encodeURIComponent(T('share_goal'))}`);
+    else { navigator.clipboard?.writeText(location.origin + r.page); toast(T('link_copied')); }
+  } catch { toast(T('oops')); }
+}
+// AAA poster: Higgsfield key art (reusable, no text baked in) + live score, scorer, crests and the sponsor drawn on top.
+const loadImg = src => new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = src; });
+async function sharePoster(clip) {
+  if (!clip) return toast(T('rp_none'));
+  const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
+  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=27'), loadImg('/sponsor/revolix.png?v=27').catch(() => null)]);
+  const sc = Math.max(W / art.width, H / art.height); g.drawImage(art, (W - art.width * sc) / 2, (H - art.height * sc) / 2, art.width * sc, art.height * sc);
+  let gr = g.createLinearGradient(0, H * 0.5, 0, H); gr.addColorStop(0, 'rgba(5,10,30,0)'); gr.addColorStop(0.45, 'rgba(5,10,30,.82)'); gr.addColorStop(1, 'rgba(5,10,30,.96)'); g.fillStyle = gr; g.fillRect(0, H * 0.5, W, H * 0.5);
+  gr = g.createLinearGradient(0, 0, 0, 220); gr.addColorStop(0, 'rgba(5,10,30,.85)'); gr.addColorStop(1, 'rgba(5,10,30,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, 220);
+  await document.fonts.load('400 120px "Lilita One"');
+  const stroke = (txt, x, y, size, fill, sw = 10, font = '"Lilita One","Rubik Cyr"') => { g.font = `400 ${size}px ${font}`; g.lineJoin = 'round'; g.lineWidth = sw; g.strokeStyle = '#0b0726'; g.strokeText(txt, x, y); g.fillStyle = fill; g.fillText(txt, x, y); };
+  g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+  stroke('BOLA KERTAS', W / 2, 118, 92, '#ffffff', 14);
+  // layout bands: GOL 700-860, crests+score 900-1080, scorer 1150, rule 1240, footer 1258-1330
+  stroke(T('goal'), W / 2, 860, 230, '#ffc93c', 20);
+  const [t0, t1] = M.art.teams, cy = 990;
+  crest(g, 180, cy, 170, t0); crest(g, W - 180, cy, 170, t1);
+  stroke(`${clip.score[0]}  :  ${clip.score[1]}`, W / 2, cy + 55, 160, '#ffffff', 14);
+  stroke((clip.own ? clip.who : T('rp_scored', { name: clip.who })).toUpperCase(), W / 2, 1160, 48, '#7fe9ff', 8);
+  g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(60, H - 110, W - 120, 2);
+  if (logo) { const lw = 300, lh = lw * logo.height / logo.width; g.drawImage(logo, 60, H - 92 + (60 - lh) / 2, lw, lh); }
+  g.textAlign = 'right'; g.font = '800 30px Nunito'; g.fillStyle = '#9fc6ff'; g.fillText(T('rp_sponsor').toUpperCase(), W - 60, H - 64); g.fillStyle = '#ffffff'; g.font = '900 34px Nunito'; g.fillText('t.me/BolaKertasBot', W - 60, H - 26);
+  if (window.__bkPosterHook) return window.__bkPosterHook(c.toDataURL('image/jpeg', 0.9)); // QA capture
+  c.toBlob(b => shareFile(b, 'bola-kertas-gol.jpg'), 'image/jpeg', 0.9);
 }
 
 // ── start helpers ──────────────────────────────────────────
@@ -506,17 +642,17 @@ function joinRoom(code) {
     }
     else if (!M) return;
     else if (m.t === 'act') { M.sent = false; if (!M.e._applyAction(m.a)) M.e.importState(m.state); else M.pending = m.state; M.turnDeadline = performance.now() + (m.left || 0); }
-    else if (m.t === 'over') { M.forfeit = !!m.forfeit; if (m.state) M.e.importState(m.state); M.e.phase = 'over'; M.e.winner = m.winner; }
+    else if (m.t === 'over') { M.forfeit = !!m.forfeit; M.rank = m.rank || null; if (m.state) M.e.importState(m.state); M.e.phase = 'over'; M.e.winner = m.winner; }
     else if (m.t === 'opp') toast(T(m.here ? 'opp_back' : 'opp_gone'), 3500);
     else if (m.t === 'rematch') toast(T(m.seats.length < 2 ? 'rematch_asked' : 'rematch_go'));
   };
   ws.onclose = () => { if (state === 'cancel' || M?.closing) return; if (M && M.mode === 'online' && !M.over) { toast(T('conn_lost')); setTimeout(() => { if (M && !M.over) { const c = code; M = null; joinRoom(c); } }, 1500); } };
 }
-function findMatch() {
-  const o = overlay(`<h2>${T('finding')}</h2><div class="spinner"></div><p class="muted">${T('finding_note')}</p><button class="btn" id="inv">${T('invite_only')}</button><button class="btn ghost" id="cx">${T('cancel')}</button>`);
+function findMatch(ranked = false) {
+  const o = overlay(`<h2>${T(ranked ? 'rk_finding' : 'finding')}</h2><div class="spinner"></div><p class="muted">${T('finding_note')}</p><button class="btn" id="inv">${T('invite_only')}</button><button class="btn ghost" id="cx">${T('cancel')}</button>`);
   const ws = new WebSocket(wsUrl('/ws/lobby?pid=' + encodeURIComponent(PID))); let done = false;
-  ws.onopen = () => ws.send(JSON.stringify({ t: 'queue' }));
-  ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.t === 'matched') { done = true; ws.close(); joinRoom(m.code); } };
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'queue', ranked, initData }));
+  ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.t === 'matched') { done = true; ws.close(); joinRoom(m.code); } else if (m.t === 'err') { done = true; ws.close(); closeAllOverlays(); toast(T('rk_guest')); } };
   ws.onclose = () => { if (!done && document.body.contains(o)) o.querySelector('p').textContent = T('no_server'); };
   o.querySelector('#cx').onclick = () => { done = true; try { ws.send(JSON.stringify({ t: 'unqueue' })); } catch {} ws.close(); closeAllOverlays(); };
   o.querySelector('#inv').onclick = () => { done = true; ws.close(); createRoom(); };
@@ -557,6 +693,7 @@ function showHome() {
         <p>${T('ai')} ${T(['ai_easy', 'ai_normal', 'ai_hard'][[0.25, 0.5, 0.8].indexOf(S.skill)] || 'ai_normal')}  ·  ${T('minutes', { n: S.minutes })}  ·  ${esc(S.formation)}</p>
         <p class="ptag"><span class="rdot"></span>${T('paper_tag', { name: esc(iname(paper)) })}${paper.rarity !== 'common' ? ` <em>${T('r_' + paper.rarity)}</em>` : ''}</p></div>
     </section>
+    <button class="rk-tile" id="rk-tile"><span class="rk-badge" id="rk-badge">🏆</span><span class="mt"><b>${T('ranked')}</b><small id="rk-sub">${T('ranked_s')}</small></span><span class="go"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span></button>
     <button class="play" id="kick"><b>${T('play')}</b><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke-linejoin="round"/></svg></button>
     <section class="modes">
       ${[['cpu', T('mode_cpu'), T('mode_cpu_s')], ['two', T('mode_two'), T('mode_two_s')], ['web', T('mode_web'), T('mode_web_s'), T('tag_beta')], ['shop', T('mode_shop'), T('mode_shop_s', { a: have, b: sellable.length })], ['studio', T('mode_studio'), T('mode_studio_s'), T('tag_new')], ['help', T('mode_help'), T('mode_help_s')]]
@@ -567,6 +704,8 @@ function showHome() {
   m.querySelectorAll('.nav button').forEach(b => b.onclick = () => { SFX.ui(); haptic(); ({ home: () => {}, shop: () => showShop('paper'), play: beginCpu, studio: () => showStudio(), cog: showSettings })[b.dataset.n](); });
   bindHeader(m);
   m.querySelector('#kick').onclick = () => { SFX.ui(); beginCpu(); };
+  m.querySelector('#rk-tile').onclick = () => { SFX.ui(); haptic(); showRanked(); };
+  if (!P.guest) api('/api/rank', { tab: 'season' }).then(r => { const t = r.mine, el = m.querySelector('#rk-sub'); if (el) { el.textContent = `${T('t_' + t.tier)}${t.div ? ' ' + 'III II I'.split(' ')[3 - t.div] : ''}  ·  ${T('rk_rp', { n: num(t.rp) })}`; m.querySelector('#rk-badge').style.setProperty('--tc', tierOf(t.rp).color); } }).catch(() => {});
   m.querySelectorAll('.mode').forEach(b => b.onclick = () => { SFX.ui(); haptic(); ({ cpu: () => showSetup('cpu'), two: () => showSetup('local'), web: showOnline, shop: () => showShop('paper'), studio: () => showStudio(), help: showHelp })[b.dataset.k](); });
   (async () => { for (const k of ['hero', 'cpu', 'two', 'web', 'shop', 'studio', 'help']) { const url = await L3.icon(k, ctx); if (!m.isConnected) return; paint(k === 'hero' ? m.querySelector('#hero-img') : m.querySelector(`[data-icon="${k}"]`), url); } })();
 }
@@ -609,7 +748,7 @@ function showOnline() {
     <div class="join"><input id="code" maxlength="8" placeholder="${T('room_code')}" autocomplete="off"><button class="btn lime" id="join">${T('join')}</button></div>
   </main>`);
   bindHeader(m);
-  m.querySelector('#find').onclick = findMatch; m.querySelector('#make').onclick = createRoom;
+  m.querySelector('#find').onclick = () => findMatch(); m.querySelector('#make').onclick = createRoom;
   (async () => { const ctx = artCtx(); for (const k of ['web', 'two']) { const url = await L3.icon(k, ctx); if (m.isConnected) m.querySelectorAll(`[data-icon="${k}"]`).forEach(el => paint(el, url)); } })();
   const inp = m.querySelector('#code'); inp.oninput = () => inp.value = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
   m.querySelector('#join').onclick = () => inp.value.length >= 4 ? joinRoom(inp.value) : toast(T('enter_code'));
@@ -783,7 +922,9 @@ let last = performance.now(), fpsAcc = 0, fpsN = 0;
 function loop(now) {
   requestAnimationFrame(loop);
   const dt = Math.min(0.05, (now - last) / 1000); last = now; const t = now / 1000;
-  if (M) { tick(dt); syncVisuals(dt, t); updateHud(); }
+  if (M?.replaying) M.replaying.step(dt);
+  else if (M) { tick(dt); syncVisuals(dt, t); updateHud(); }
+  else if (window.__frz) {} // QA: camera held still for screenshots
   else { menuSpin += dt * 0.08; const r = 17; world.cam.fov = 45; world.cam.updateProjectionMatrix(); world.cam.position.set(Math.sin(menuSpin) * r, 9, Math.cos(menuSpin) * r); world.cam.lookAt(0, 0, 0); }
   world.update(dt, t); world.render();
   fpsAcc += dt; fpsN++; if (fpsAcc > 2) { window.__bkFps = Math.round(fpsN / fpsAcc); fpsAcc = 0; fpsN = 0; }
@@ -794,7 +935,7 @@ window.__bk = {
   get M() { return M; }, get P() { return P; }, world, S,
   snap: () => M && { mode: M.mode, phase: M.e.phase, score: M.e.score, turn: M.e.turnTeam, clock: +M.e.clock.toFixed(1), human: humanTurn(), kicker: M.e.kicker?.id, ball: [+M.e.ball.x.toFixed(2), +M.e.ball.z.toFixed(2)], over: M.over },
   shoot: (dx, dz, power, shot = 0) => humanTurn() && (act({ t: 'aim', dx, dz, power, shot }), true),
-  ballScreen, beginCpu, beginLocal, showShop, showHome,
+  ballScreen, beginCpu, beginLocal, showShop, showHome, playReplays, sharePoster,
 };
 
 // Stop Telegram's swipe-down-to-close while aiming.

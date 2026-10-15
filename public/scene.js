@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=26';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=26';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=26';
-import { RARITY } from './items.js?v=26';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=27';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=27';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=27';
+import { RARITY } from './items.js?v=27';
 // [colours, start height, count, speed, gravity, size, glow, life]
 const FX_SIMPLE = {
   x_team: ['team', 0.8, 110, 6.5, 8, 0.11, false, 2.4],
@@ -161,6 +161,7 @@ function paperMaterial(map, look, printed, grain) {
   return m;
 }
 
+const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=27'; });
 export class World {
   // size = [w, h] gives a fixed-size studio World (Locker previews) that renders with the exact match pipeline.
   constructor(canvas, size = null) {
@@ -252,6 +253,27 @@ export class World {
         const tt = t.clone(); tt.needsUpdate = true; tt.repeat.set(len / 12, 1);
         const b = add(new THREE.BoxGeometry(len, 0.45, 0.08), [std('#222'), std('#222'), std('#111'), std('#111'), new THREE.MeshStandardMaterial({ map: tt, emissive: 0xffffff, emissiveMap: tt, emissiveIntensity: 0.25, roughness: 0.6 }), std('#222')], x, 0.22, z);
         b.rotation.y = ry; b.castShadow = true;
+      }
+    };
+    // Official sponsor: Revolix Gaming LED boards behind both goals and along both touchlines, on every venue.
+    const sponsor = () => {
+      const c = document.createElement('canvas'); c.width = 2048; c.height = 160; const g = c.getContext('2d'), t = tex(c); t.anisotropy = 8;
+      const draw = img => {
+        const gr = g.createLinearGradient(0, 0, 0, 160); gr.addColorStop(0, '#0d1b3d'); gr.addColorStop(1, '#050b1c'); g.fillStyle = gr; g.fillRect(0, 0, 2048, 160);
+        g.fillStyle = '#2f8fff'; g.fillRect(0, 0, 2048, 6); g.fillRect(0, 154, 2048, 6);
+        for (const x0 of [0, 1024]) {
+          if (img) { const w = 440, h = w * img.height / img.width; g.drawImage(img, x0 + 36, (160 - h) / 2, w, h); } // logo left half, URL right half: never touch
+          g.fillStyle = 'rgba(127,184,255,.35)'; g.fillRect(x0 + 512, 30, 3, 100);
+          g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#7fb8ff'; g.font = '700 26px "Rajdhani", Arial'; g.fillText('OFFICIAL SPONSOR', x0 + 768, 40);
+          g.fillStyle = '#ffffff'; g.font = '800 64px "Teko", Arial'; g.fillText('revolixgaming.com', x0 + 768, 98);
+        }
+        t.needsUpdate = true;
+      };
+      draw(null); SPONSOR_IMG.then(draw);
+      const mat = new THREE.MeshStandardMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.55, roughness: 0.5 }), dark = std('#0a0f1e', 0.6);
+      const L = 9.6, H = 0.75, ez = TL / 2 + 0.62, sx = TW / 2 + 0.62;
+      for (const [x, z, ry] of [[0, -ez, 0], [0, ez, Math.PI], [-sx, -5, Math.PI / 2], [sx, 5, -Math.PI / 2]]) {
+        const b = add(new THREE.BoxGeometry(L, H, 0.1), [dark, dark, dark, dark, mat, dark], x, H / 2 + 0.02, z); b.rotation.y = ry; b.castShadow = true;
       }
     };
     const crowd = (count, radius, colors, lift = 0) => {
@@ -538,6 +560,7 @@ export class World {
       const hp = add(new THREE.CircleGeometry(9, 48), new THREE.MeshStandardMaterial({ map: cv(256, 256, (g, w, h) => { g.fillStyle = '#2e333c'; g.fillRect(0, 0, w, h); g.strokeStyle = '#ffd34a'; g.lineWidth = 10; g.beginPath(); g.arc(128, 128, 110, 0, 7); g.stroke(); g.fillStyle = '#ffffff'; g.font = '800 150px "Teko", Arial'; g.textAlign = 'center'; g.fillText('H', 128, 182); }), roughness: 0.8 }), 26, -9.35, 18); hp.rotation.x = -Math.PI / 2;
       this.scene.fog = new THREE.Fog('#0a1022', 70, 190);
     }
+    sponsor();
   }
 
   // Team of paper players. look = paper item look.

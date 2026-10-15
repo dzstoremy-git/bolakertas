@@ -1,6 +1,6 @@
 // server.js : Bola Kertas. Static files, Telegram auth, shop + Stars, CPU match rewards, online rooms.
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, statSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { join, extname, normalize } from 'node:path';
 import { createHmac, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
@@ -9,6 +9,7 @@ import { Engine, runToRest, isRest, makeCode, BASE_STATS, FORMATIONS } from './p
 import { teamById, rosterFor, cleanRoster, cleanKit } from './public/teams.js';
 import { ITEMS, itemById, DEFAULT_EQUIP, SLOTS, matchReward, DAILY_COIN_CAP, isOwned, aiEquip, tossResult } from './public/items.js';
 import { langFrom, itemName, itemDesc, trMs, LANGS } from './public/i18n.js';
+import { seasonOf, weekOf, rpDelta, softReset, tierOf, START_RP, seasonEnds } from './public/rank.js';
 export const catalog = { ITEMS, itemById };
 
 const PORT = +(process.env.PORT || 3000);
@@ -29,6 +30,10 @@ CREATE TABLE IF NOT EXISTS owned (uid INTEGER NOT NULL, item TEXT NOT NULL, src 
 CREATE TABLE IF NOT EXISTS payments (charge_id TEXT PRIMARY KEY, uid INTEGER NOT NULL, item TEXT NOT NULL, stars INTEGER NOT NULL, at INTEGER);
 CREATE TABLE IF NOT EXISTS matches (mid TEXT PRIMARY KEY, uid INTEGER NOT NULL, setup TEXT NOT NULL, created INTEGER, done INTEGER NOT NULL DEFAULT 0);`);
 try { db.exec("ALTER TABLE users ADD COLUMN squad TEXT NOT NULL DEFAULT '{}'"); } catch {} // per-team names/numbers + studio kit
+// Ranked: one row per player per season; every settled ranked match logged (weekly board + same-pair daily cap).
+db.exec(`CREATE TABLE IF NOT EXISTS rank (uid INTEGER NOT NULL, season INTEGER NOT NULL, rp INTEGER NOT NULL, best INTEGER NOT NULL, w INTEGER NOT NULL DEFAULT 0, l INTEGER NOT NULL DEFAULT 0, d INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (uid, season));
+CREATE TABLE IF NOT EXISTS rmatch (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, season INTEGER NOT NULL, week INTEGER NOT NULL, a INTEGER NOT NULL, b INTEGER NOT NULL, sa REAL NOT NULL, da INTEGER NOT NULL, db INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS rmatch_week ON rmatch (week); CREATE INDEX IF NOT EXISTS rmatch_pair ON rmatch (a, b, at);`);
 const q = sql => db.prepare(sql);
 const tx = fn => { db.exec('BEGIN IMMEDIATE'); try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; } };
 
@@ -51,6 +56,47 @@ export function saveSquad(uid, body) {
 }
 const squadOf = uid => uid ? JSON.parse(q('SELECT squad FROM users WHERE uid=?').get(uid)?.squad || '{}') : {};
 const paperStats = uid => { if (!uid) return { ...BASE_STATS }; const id = profile(uid).equip.paper; return { ...BASE_STATS, ...(itemById(id)?.stats || {}) }; };
+
+// ── ranked ─────────────────────────────────────────────────
+// A player's row for this season. First visit of a season starts from a soft reset of the last season played.
+export function rankRow(uid, season = seasonOf()) {
+  let r = q('SELECT * FROM rank WHERE uid=? AND season=?').get(uid, season);
+  if (!r) {
+    const prev = q('SELECT rp FROM rank WHERE uid=? AND season<? ORDER BY season DESC LIMIT 1').get(uid, season), rp = prev ? softReset(prev.rp) : START_RP;
+    q('INSERT INTO rank (uid,season,rp,best) VALUES (?,?,?,?)').run(uid, season, rp, rp); r = q('SELECT * FROM rank WHERE uid=? AND season=?').get(uid, season);
+  }
+  return r;
+}
+export const PAIR_DAILY = 3, MIN_RANKED_MS = 60e3;
+// Settle one ranked result. scoreA: 1 a won, 0.5 draw, 0 b won. Returns per-player deltas, or a reason it does not count.
+export function settleRanked(a, b, scoreA, durationMs, now = Date.now()) {
+  if (!a || !b || a === b) return { counted: false, why: 'players' };
+  if (durationMs < MIN_RANKED_MS) return { counted: false, why: 'short' };
+  return tx(() => {
+    const [x, y] = a < b ? [a, b] : [b, a], n = q('SELECT COUNT(*) n FROM rmatch WHERE ((a=? AND b=?) OR (a=? AND b=?)) AND at>?').get(x, y, y, x, now - 864e5).n;
+    if (n >= PAIR_DAILY) return { counted: false, why: 'pair' };
+    const s = seasonOf(now), ra = rankRow(a, s), rb = rankRow(b, s), da = rpDelta(ra.rp, rb.rp, scoreA), db2 = rpDelta(rb.rp, ra.rp, 1 - scoreA);
+    const col = sc => sc === 1 ? 'w' : sc === 0 ? 'l' : 'd';
+    for (const [uid, r, d, sc] of [[a, ra, da, scoreA], [b, rb, db2, 1 - scoreA]]) {
+      const rp = Math.max(0, r.rp + d); q(`UPDATE rank SET rp=?, best=MAX(best,?), ${col(sc)}=${col(sc)}+1 WHERE uid=? AND season=?`).run(rp, rp, uid, s);
+    }
+    q('INSERT INTO rmatch (at,season,week,a,b,sa,da,db) VALUES (?,?,?,?,?,?,?,?)').run(now, s, weekOf(now), a, b, scoreA, da, db2);
+    return { counted: true, [a]: { delta: da, rp: Math.max(0, ra.rp + da), before: ra.rp }, [b]: { delta: db2, rp: Math.max(0, rb.rp + db2), before: rb.rp } };
+  });
+}
+// Leaderboards. week: 3 per win + 1 per draw this week. season: RP now. all: wins across every season.
+export function board(tab, me = 0, now = Date.now()) {
+  const s = seasonOf(now), wk = weekOf(now);
+  const SQL = {
+    week: `SELECT uid, SUM(p) score, SUM(w) w FROM (SELECT a uid, CASE sa WHEN 1 THEN 3 WHEN 0.5 THEN 1 ELSE 0 END p, sa=1 w FROM rmatch WHERE week=${wk} UNION ALL SELECT b, CASE sa WHEN 0 THEN 3 WHEN 0.5 THEN 1 ELSE 0 END, sa=0 FROM rmatch WHERE week=${wk}) GROUP BY uid`,
+    season: `SELECT uid, rp score, w FROM rank WHERE season=${s}`,
+    all: `SELECT uid, SUM(w) score, MAX(best) w FROM rank GROUP BY uid`,
+  }[tab] || null;
+  if (!SQL) return null;
+  const rows = q(`SELECT t.uid, t.score, t.w, COALESCE(u.name,'') name, RANK() OVER (ORDER BY t.score DESC, t.w DESC) pos FROM (${SQL}) t LEFT JOIN users u ON u.uid=t.uid WHERE t.score > 0 OR '${tab}'='season' ORDER BY pos, t.uid LIMIT 100`).all();
+  const mine = me ? q(`SELECT * FROM (SELECT t.uid, t.score, t.w, RANK() OVER (ORDER BY t.score DESC, t.w DESC) pos FROM (${SQL}) t) WHERE uid=?`).get(me) : null;
+  return { tab, season: s, week: wk, ends: tab === 'week' ? 0 : seasonEnds(s), rows: rows.map(r => ({ name: r.name.slice(0, 20) || 'Pemain', score: r.score, w: r.w, pos: r.pos, me: r.uid === me, tier: tab === 'season' ? tierOf(r.score).id : undefined })), me: mine ? { score: mine.score, pos: mine.pos } : null };
+}
 
 // ── Telegram initData (HMAC, official algorithm) ───────────
 export function verifyInitData(initData, token = BOT_TOKEN, maxAgeS = 86400) {
@@ -137,7 +183,7 @@ export function replayCpuMatch(setup, actions) {
 }
 
 // ── http helpers ───────────────────────────────────────────
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.ico': 'image/x-icon', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.webm': 'video/webm' };
 function serveStatic(req, res) {
   let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html';
   const file = normalize(join(PUBLIC, p));
@@ -150,6 +196,18 @@ function serveStatic(req, res) {
   if (req.headers['if-none-match'] === etag) { res.writeHead(304, headers); return res.end(); }
   res.writeHead(200, headers);
   res.end(readFileSync(file));
+}
+// Shared goal clips/posters: stored on the data volume, 7 days, 8 MB max, 20 per player per day.
+const CLIPS = join(DATA_DIR, 'clips'); mkdirSync(CLIPS, { recursive: true });
+const CLIP_TYPES = { 'video/mp4': '.mp4', 'video/webm': '.webm', 'image/jpeg': '.jpg' }, CLIP_MAX = 8 << 20, CLIP_DAYS = 7;
+const readBuf = (req, max) => new Promise((ok, bad) => { const a = []; let n = 0; req.on('data', c => { n += c.length; if (n > max) { bad(new Error('big')); req.destroy(); } else a.push(c); }); req.on('end', () => ok(Buffer.concat(a))); req.on('error', bad); });
+const pruneClips = () => { const old = Date.now() - CLIP_DAYS * 864e5; for (const f of readdirSync(CLIPS)) try { if (statSync(join(CLIPS, f)).mtimeMs < old) unlinkSync(join(CLIPS, f)); } catch {} };
+export function clipPage(id, ext, base = WEBAPP_URL) {
+  const media = `${base}/clip/${id}${ext}`, video = ext !== '.jpg', poster = `${base}/poster/goal.webp`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bola Kertas: GOL!</title>
+<meta property="og:title" content="GOL! Bola Kertas ⚽"><meta property="og:description" content="Boleh lawan? Main percuma dalam Telegram."><meta property="og:image" content="${video ? poster : media}">${video ? `<meta property="og:video" content="${media}"><meta property="og:type" content="video.other">` : ''}
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0726;font:800 16px system-ui;color:#fff;text-align:center}main{width:min(480px,100%);padding:16px}video,img{width:100%;border-radius:18px;border:3px solid #2a1f5c}a{display:block;margin-top:16px;padding:16px;border-radius:16px;background:#ffc93c;color:#2a1f5c;text-decoration:none;font-size:20px;border:3px solid #2a1f5c}small{display:block;margin-top:14px;color:#9fc6ff}</style></head>
+<body><main>${video ? `<video src="${media}" controls autoplay muted loop playsinline poster="${poster}"></video>` : `<img src="${media}" alt="GOL">`}<a href="https://t.me/BolaKertasBot?start=clip">⚽ MAIN BOLA KERTAS</a><small>Official sponsor: revolixgaming.com</small></main></body></html>`;
 }
 const json = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
 const readBody = (req, max = 65536) => new Promise((ok, bad) => { let b = ''; req.on('data', c => { b += c; if (b.length > max) { bad(new Error('big')); req.destroy(); } }); req.on('end', () => ok(b)); req.on('error', bad); });
@@ -172,6 +230,17 @@ async function api(req, res, path) {
   if (!auth) return json(res, 401, { err: 'auth' });
   getUser(auth.uid, auth.name);
   if (req.method === 'GET' && path === '/api/me') return json(res, 200, profile(auth.uid));
+  if (path === '/api/clip' && req.method === 'POST') {
+    const type = String(req.headers['content-type'] || '').split(';')[0], ext = CLIP_TYPES[type];
+    if (!ext) return json(res, 415, { err: 'type' });
+    if (limited('clip:' + auth.uid, 20, 864e5)) return json(res, 429, { err: 'slow_down' });
+    if (+req.headers['content-length'] > CLIP_MAX) { res.setHeader('Connection', 'close'); return json(res, 413, { err: 'big' }); }
+    let buf; try { buf = await readBuf(req, CLIP_MAX); } catch { return json(res, 413, { err: 'big' }); }
+    const magic = { '.jpg': b => b[0] === 0xff && b[1] === 0xd8, '.mp4': b => b.toString('latin1', 4, 8) === 'ftyp', '.webm': b => b.readUInt32BE(0) === 0x1a45dfa3 }[ext];
+    if (buf.length < 1000 || !magic(buf)) return json(res, 400, { err: 'bad' });
+    const id = randomBytes(9).toString('base64url'); writeFileSync(join(CLIPS, id + ext), buf); pruneClips();
+    return json(res, 200, { url: `/clip/${id}${ext}`, page: `/c/${id}` });
+  }
   let body = {}; try { body = JSON.parse((await readBody(req)) || '{}'); } catch { return json(res, 400, { err: 'bad' }); }
 
   if (path === '/api/equip') {
@@ -180,6 +249,10 @@ async function api(req, res, path) {
     const p = profile(auth.uid); p.equip[item.slot] = item.id;
     q('UPDATE users SET equip=? WHERE uid=?').run(JSON.stringify(p.equip), auth.uid);
     return json(res, 200, profile(auth.uid));
+  }
+  if (path === '/api/rank') { // { tab: week|season|all } -> board + my card
+    const r = rankRow(auth.uid), t = tierOf(r.rp), b = board(body.tab || 'season', auth.uid);
+    return b ? json(res, 200, { ...b, mine: { rp: r.rp, best: r.best, w: r.w, l: r.l, d: r.d, tier: t.id, div: t.div, next: t.next, season: r.season, ends: seasonEnds(r.season) } }) : json(res, 400, { err: 'bad' });
   }
   if (path === '/api/squad') { if (limited('sq:' + auth.uid, 30, 600e3)) return json(res, 429, { err: 'slow_down' }); saveSquad(auth.uid, body); return json(res, 200, profile(auth.uid)); }
   if (path === '/api/shop/buy') { const r = buyWithCoins(auth.uid, body.item); return json(res, r.ok ? 200 : 400, r.ok ? profile(auth.uid) : r); }
@@ -338,12 +411,12 @@ export async function onUpdate(u) {
   if (text.startsWith('/terms')) return say(m.chat.id, botText('terms', { lang }));
 }
 // ── online rooms (server authoritative) ────────────────────
-const rooms = new Map(), queue = [];
+const rooms = new Map(), queue = [], rqueue = [];
 const TURN_MS = 15000 + 1500, GONE_MS = 60000;
 function createRoom(rules) {
   if (rooms.size >= 300) return null;
   let code; do code = makeCode(5); while (rooms.has(code));
-  rooms.set(code, { code, rules: { minutes: MINUTES.includes(+rules?.minutes) ? +rules.minutes : 3 }, players: [], created: Date.now() });
+  rooms.set(code, { code, rules: { minutes: MINUTES.includes(+rules?.minutes) ? +rules.minutes : 3 }, players: [], created: Date.now(), ranked: !!rules?.ranked, uids: rules?.uids || null });
   return code;
 }
 const send = (ws, o) => { if (ws?.readyState === 1) ws.send(JSON.stringify(o)); };
@@ -366,14 +439,24 @@ function act(room, seat, a) {
   if (seat !== null) room.players[seat].idle = 0;
   runToRest(e);
   cast(room, { t: 'act', a, state: e.exportState(), left: TURN_MS });
-  if (e.phase === 'over') { cast(room, { t: 'over', winner: e.winner, score: e.score }); clearTimeout(room.timer); }
+  if (e.phase === 'over') { overCast(room, { t: 'over', winner: e.winner, score: e.score }); clearTimeout(room.timer); }
   else armTurn(room);
   return true;
 }
 function forfeit(room, loser) {
   const e = room.engine; if (!e || e.phase === 'over') return;
   clearTimeout(room.timer); e.phase = 'over'; e.winner = 1 - loser;
-  cast(room, { t: 'over', winner: e.winner, score: e.score, forfeit: true, state: e.exportState() });
+  overCast(room, { t: 'over', winner: e.winner, score: e.score, forfeit: true, state: e.exportState() }, true);
+}
+// Match over: settle ranked once, then tell each player their own points change.
+function overCast(room, msg, forfeited = false) {
+  let res = null;
+  if (room.ranked && !room.settled) {
+    room.settled = true; const [a, b] = room.players.map(p => p.uid), w = room.engine.winner;
+    const fair = room.uids && a === room.uids[0] && b === room.uids[1] || room.uids && a === room.uids[1] && b === room.uids[0];
+    res = fair ? settleRanked(a, b, w === 0 ? 1 : w === 1 ? 0 : 0.5, forfeited ? MIN_RANKED_MS : Date.now() - room.startedAt) : { counted: false, why: 'players' };
+  }
+  room.players.forEach(p => { const r = res?.[p.uid]; send(p.ws, { ...msg, rank: room.ranked ? (r ? { ...r, tier: tierOf(r.rp).id, div: tierOf(r.rp).div } : { counted: false, why: res?.why }) : undefined }); });
 }
 // Seat 0 calls the coin (10s, else auto). Winner kicks off and is home: both players see the winner's venue, pitch and ball.
 function askToss(room) {
@@ -386,12 +469,13 @@ function startMatch(room, call = 'k') {
   const [a, b] = room.players, coin = randomBytes(1)[0] & 1 ? 'b' : 'k', first = tossResult(call, coin) ? 0 : 1;
   const homeEquip = p => p.uid ? profile(p.uid).equip : DEFAULT_EQUIP;
   const setup = buildSetup({ team0: a.profile.team, team1: b.profile.team, kit0: a.profile.kit, kit1: b.profile.kit, formation: a.profile.formation,
-    minutes: room.rules.minutes, seed: randomBytes(4).readUInt32LE(), paper0: paperStats(a.uid), paper1: paperStats(b.uid), cpu: [false, false], squad0: squadOf(a.uid), squad1: squadOf(b.uid),
+    minutes: room.rules.minutes, seed: randomBytes(4).readUInt32LE(), paper0: room.ranked ? null : paperStats(a.uid), paper1: room.ranked ? null : paperStats(b.uid), cpu: [false, false], squad0: squadOf(a.uid), squad1: squadOf(b.uid),
     first, home: homeEquip(room.players[first]) });
   setup.coin = coin; setup.call = call;
   setup.formations[1] = FORMATIONS[b.profile.formation] ? b.profile.formation : '4-4-2';
   setup.names = [a.profile.name, b.profile.name]; setup.paperIds = [a.paperId, b.paperId];
-  room.setup = setup; room.engine = new Engine(setup); runToRest(room.engine); room.rematch = new Set();
+  setup.ranked = room.ranked;
+  room.setup = setup; room.engine = new Engine(setup); runToRest(room.engine); room.rematch = new Set(); room.startedAt = Date.now(); room.settled = false;
   room.players.forEach((p, i) => send(p.ws, { t: 'setup', setup, seat: i, state: room.engine.exportState(), left: TURN_MS }));
   armTurn(room);
 }
@@ -434,18 +518,22 @@ function onRoomSocket(ws, pid, code) {
 function onLobbySocket(ws) {
   ws.on('message', raw => {
     let m; try { m = JSON.parse(String(raw)); } catch { return; }
-    if (m.t === 'queue' && !queue.includes(ws)) {
-      queue.push(ws);
-      while (queue.length >= 2) {
-        const a = queue.shift(), b = queue.shift();
-        if (a.readyState !== 1) { if (b.readyState === 1) queue.unshift(b); continue; }
-        if (b.readyState !== 1) { queue.unshift(a); continue; }
-        const code = createRoom({ minutes: 3 }); send(a, { t: 'matched', code }); send(b, { t: 'matched', code });
+    if (m.t === 'queue' && !queue.includes(ws) && !rqueue.includes(ws)) {
+      const ranked = !!m.ranked, Q = ranked ? rqueue : queue;
+      if (ranked) { ws.uid = verifyInitData(m.initData)?.uid || 0; if (!ws.uid) return send(ws, { t: 'err', msg: 'ranked-guest' }); }
+      Q.push(ws);
+      // ponytail: first-come pairing; sort by RP band once the ranked queue is busy enough to wait
+      while (Q.length >= 2) {
+        const a = Q.shift(), b = Q.shift();
+        if (a.readyState !== 1) { if (b.readyState === 1) Q.unshift(b); continue; }
+        if (b.readyState !== 1) { Q.unshift(a); continue; }
+        if (ranked && a.uid === b.uid) { Q.unshift(a); b.close(4001); continue; } // same account twice
+        const code = createRoom({ minutes: 3, ranked, uids: ranked ? [a.uid, b.uid] : null }); send(a, { t: 'matched', code }); send(b, { t: 'matched', code });
       }
     }
-    if (m.t === 'unqueue') { const i = queue.indexOf(ws); if (i >= 0) queue.splice(i, 1); }
+    if (m.t === 'unqueue') for (const Q of [queue, rqueue]) { const i = Q.indexOf(ws); if (i >= 0) Q.splice(i, 1); }
   });
-  ws.on('close', () => { const i = queue.indexOf(ws); if (i >= 0) queue.splice(i, 1); });
+  ws.on('close', () => { for (const Q of [queue, rqueue]) { const i = Q.indexOf(ws); if (i >= 0) Q.splice(i, 1); } });
 }
 
 // ── server ─────────────────────────────────────────────────
@@ -464,6 +552,13 @@ export const server = createServer(async (req, res) => {
       res.writeHead(204); return res.end();
     }
     if (path.startsWith('/api/')) return await api(req, res, path);
+    const cm = /^\/(clip\/([\w-]{12})(\.mp4|\.webm|\.jpg)|c\/([\w-]{12}))$/.exec(path);
+    if (cm) {
+      const id = cm[2] || cm[4], ext = cm[3] || ['.mp4', '.webm', '.jpg'].find(x => existsSync(join(CLIPS, id + x))), file = ext && join(CLIPS, id + ext);
+      if (!file || !existsSync(file)) { res.writeHead(404); return res.end('Not found'); }
+      if (cm[4]) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }); return res.end(clipPage(id, ext, WEBAPP_URL || `https://${req.headers.host}`)); }
+      res.writeHead(200, { 'Content-Type': MIME[ext], 'Cache-Control': 'public, max-age=604800, immutable', 'X-Content-Type-Options': 'nosniff', 'Content-Length': statSync(file).size }); return res.end(readFileSync(file));
+    }
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
     serveStatic(req, res);
   } catch (e) { console.error('req', e.message); if (!res.headersSent) json(res, 500, { err: 'server' }); }
