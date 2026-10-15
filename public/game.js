@@ -357,7 +357,7 @@ function updatePlayerCard() {
   $('#pc-name').textContent = `${k.name.toUpperCase()}`; $('#pc-name').classList.toggle('rar', k.team === myTeam() && M.myRank >= 1);
   $('#charge').querySelectorAll('i').forEach((el, i) => el.classList.toggle('on', i < k.charge));
   $('#charge').classList.toggle('full', k.charge >= POWER_CHARGE);
-  const who = M.mode === 'cpu' ? (e.turnTeam === 0 ? 'GILIRAN ANDA' : 'GILIRAN CPU') : M.mode === 'online' ? (e.turnTeam === M.seat ? 'GILIRAN ANDA' : 'GILIRAN LAWAN') : `GILIRAN ${M.names[e.turnTeam]}`;
+  const who = M.mode === 'cpu' ? (e.turnTeam === 0 ? 'GILIRAN ANDA' : 'GILIRAN AI') : M.mode === 'online' ? (e.turnTeam === M.seat ? 'GILIRAN ANDA' : 'GILIRAN LAWAN') : `GILIRAN ${M.names[e.turnTeam]}`;
   const sp = { kickoff: 'SEPAK MULA', corner: 'SEPAKAN SUDUT', goalkick: 'SEPAKAN GOL', throw: 'BOLA KELUAR' }[e.setPiece] || 'BOLA HIDUP';
   $('#pc-state').textContent = `${who}  ·  TEPUKAN ${Math.min(MAX_TAPS, (e.lastTapTeam === e.turnTeam ? e.tapsInRow : 0) + 1)}/${MAX_TAPS}  ·  ${sp}`;
   $('#pcard').classList.toggle('opp', !humanTurn());
@@ -516,13 +516,13 @@ function showHome() {
     <section class="hero" style="--c0:${ctx.kit.base};--c1:${ctx.oppKit.base};--rc:${r.color}">
       <div class="hero-img" id="hero-img"></div>
       <div class="hero-txt"><small class="kick">PERLAWANAN SETERUSNYA</small><h1>${esc(ctx.team.short)} <i>VS</i> ${esc(ctx.opp.short)}</h1>
-        <p>CPU ${['Mudah', 'Biasa', 'Pakar'][[0.25, 0.5, 0.8].indexOf(S.skill)] || 'Biasa'}  ·  ${S.minutes} minit  ·  ${esc(S.formation)}</p>
+        <p>AI ${['Mudah', 'Biasa', 'Pakar'][[0.25, 0.5, 0.8].indexOf(S.skill)] || 'Biasa'}  ·  ${S.minutes} minit  ·  ${esc(S.formation)}</p>
         <p class="ptag"><span class="rdot"></span>Kertas ${esc(paper.name)}${paper.rarity !== 'common' ? ` <em>${r.label}</em>` : ''}</p></div>
       <button class="play" id="kick"><b>MAIN</b><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor"/></svg></button>
     </section>
     <section class="modes">
-      ${[['cpu', 'LAWAN CPU', 'Pilih pasukan dan tahap'], ['two', '2 PEMAIN', 'Satu telefon, bergilir'], ['web', 'ONLINE', 'Cari lawan atau jemput kawan', 'BETA'], ['shop', 'LOKER', `Koleksi ${have}/${sellable.length}`], ['studio', 'STUDIO JERSI', 'Corak, warna, nama, nombor', 'BARU'], ['help', 'CARA MAIN', 'Lastik, bidik, gol']]
-        .map(([k, t, s, tag]) => `<button class="mode m-${k}" data-k="${k}"><span class="mi" data-icon="${k}"></span><b>${t}</b><small>${s}</small>${tag ? `<em>${tag}</em>` : ''}</button>`).join('')}
+      ${[['cpu', 'LAWAN AI', 'Pilih pasukan dan tahap AI'], ['two', '2 PEMAIN', 'Satu telefon, bergilir'], ['web', 'ONLINE', 'Cari lawan, jemput kawan', 'BETA'], ['shop', 'LOKER', `Koleksi ${have}/${sellable.length}`], ['studio', 'STUDIO JERSI', 'Corak, warna, nombor', 'BARU'], ['help', 'CARA MAIN', 'Lastik, bidik, gol']]
+        .map(([k, t, s, tag], i) => `<button class="mode m-${k}" data-k="${k}" style="--i:${i}"><span class="mi" data-icon="${k}"></span><span class="mt"><b>${t}</b><small>${s}</small></span>${tag ? `<em>${tag}</em>` : ''}<span class="go"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span></button>`).join('')}
     </section>
   </main><footer class="foot">Bola Kertas  ·  Item kosmetik tiada nilai tunai</footer>`, 'm-home');
   bindHeader(m);
@@ -546,7 +546,7 @@ function showSetup(mode) {
       <div class="opts">
         <label>Jersi<div class="seg" data-k="kit">${teamById(S.team).jerseys.map((j, i) => `<button class="${S.kit === i ? 'on' : ''}" data-v="${i}"><i style="background:${j.base};border-color:${j.accent}"></i>${j.label === 'Home' ? 'Rumah' : j.label === 'Away' ? 'Pelawat' : esc(j.label)}</button>`).join('')}${mySquad().kit ? `<button class="${S.kit === -1 ? 'on' : ''}" data-v="-1"><i style="background:${mySquad().kit.base};border-color:${mySquad().kit.accent}"></i>Studio</button>` : ''}<button data-go="studio">+ Studio</button></div></label>
         <label>Formasi<div class="seg" data-k="formation">${Object.keys(FORMATIONS).map(f => `<button class="${S.formation === f ? 'on' : ''}" data-v="${f}">${f}</button>`).join('')}</div></label>
-        ${mode === 'cpu' ? `<label>Tahap CPU<div class="seg" data-k="skill">${[[0.25, 'Mudah'], [0.5, 'Biasa'], [0.8, 'Pakar']].map(([v, l]) => `<button class="${S.skill === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div></label>` : ''}
+        ${mode === 'cpu' ? `<label>Tahap AI<div class="seg" data-k="skill">${[[0.25, 'Mudah'], [0.5, 'Biasa'], [0.8, 'Pakar']].map(([v, l]) => `<button class="${S.skill === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div></label>` : ''}
         <label>Masa perlawanan<div class="seg" data-k="minutes">${[1, 3, 5].map(v => `<button class="${S.minutes === v ? 'on' : ''}" data-v="${v}">${v} minit</button>`).join('')}</div></label>
         ${mode === 'cpu' ? `<p class="muted">Kertas anda: <b>${esc(itemById(P.equip.paper).name)}</b>. Tukar dalam Loker.</p>` : '<p class="muted">Mod 2 pemain guna kertas A4 untuk kedua-dua pasukan supaya adil.</p>'}
       </div>`}
@@ -636,7 +636,7 @@ async function buyOrEquip(it, act, btn, done) {
   }
   if (P.guest) return toast('Buka Bola Kertas dalam Telegram untuk membeli.');
   if (it.coins) {
-    if (P.coins < it.coins) return toast(`Coins tak cukup. Perlu ${it.coins - P.coins} lagi. Menang lawan CPU untuk kumpul.`);
+    if (P.coins < it.coins) return toast(`Coins tak cukup. Perlu ${it.coins - P.coins} lagi. Menang lawan AI untuk kumpul.`);
     try { P = { ...(await api('/api/shop/buy', { item: it.id })), guest: false }; SFX.buy(); notify(); toast(`${it.name} dibeli!`); done(); } catch (e) { toast(e.code === 'coins' ? 'Coins tak cukup.' : 'Pembelian gagal.'); }
     return;
   }

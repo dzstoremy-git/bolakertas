@@ -373,6 +373,6 @@ if (process.env.NODE_ENV !== 'test') {
     bot('setMyCommands', { commands: [{ command: 'start', description: 'Mula main Bola Kertas' }, { command: 'paysupport', description: 'Bantuan pembelian Stars' }, { command: 'terms', description: 'Terma dan syarat' }] });
     bot('setMyName', { name: 'Bola Kertas' });
     bot('setMyDescription', { description: '⚽ Bola Kertas: bola sepak kertas 3D terus dalam Telegram.\n\nTarik, bidik, tepuk. Lambung melepasi pertahanan, cungkil ke penjuru, atau lepaskan Rembatan Padu terus ke gol.\n\n🏆 70 pasukan: Liga Malaysia, EPL, La Liga, Bundesliga dan negara\n🤖 Lawan CPU 3 tahap, 2 pemain satu telefon, online cabar kawan\n📄 Kumpul kertas, padang dan venue. Ada yang padu, ada yang untuk bergaya\n\nPercuma dimain. Tekan MULA sekarang.' });
-    bot('setMyShortDescription', { short_description: 'Bola sepak kertas 3D dalam Telegram. Tarik, bidik, GOL! Lawan CPU atau cabar kawan. Percuma.' });
+    bot('setMyShortDescription', { short_description: 'Bola sepak kertas 3D dalam Telegram. Tarik, bidik, GOL! Lawan AI atau cabar kawan. Percuma.' });
   }
 }
