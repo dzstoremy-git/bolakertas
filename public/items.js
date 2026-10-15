@@ -58,6 +58,9 @@ export const ITEMS = [
   { id: 'set_gold', slot: 'bundle', rarity: 'myth', name: 'Set Final Emas', desc: 'Kerajang Emas 24K, Emas Final dan Stadium Final. Pakai ketiga-tiga untuk hujan emas setiap gol.', stars: 299, tag: 'JIMAT 30%',
     grants: ['p_gold', 'f_gold', 'v_final'], setFx: ['#ffd45a', '#fff1b8', '#e8a917'] },
 
+  // STUDIO: unlocks premium patterns in the Kit Studio. One-off, cosmetic.
+  { id: 'k_studio', rarity: 'epic', slot: 'studio', name: 'Pek Corak Studio', desc: 'Buka corak Batik, Songket, Belang Harimau dan Prisma dalam Studio Jersi.', stars: 25, tag: 'BARU' },
+
   // PASS
   { id: 'pass_week', rarity: 'rare', slot: 'pass', name: 'Pas Mingguan', desc: '7 hari: coins x2 dan lencana emas.', stars: 30, consumable: true, days: 7 },
 ];

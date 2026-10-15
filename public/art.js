@@ -1,6 +1,6 @@
 // art.js : procedural 2D art drawn on canvas. Jerseys, crests, pitch, ball, net, paper surfaces.
 // Used for 3D textures and for menu thumbnails, so the menu and the match always look the same.
-import { FIELD } from './engine.js?v=19';
+import { FIELD } from './engine.js?v=20';
 
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; };
 export const shade = (hex, k) => { // k<0 darker, k>0 lighter
@@ -12,30 +12,59 @@ export const shade = (hex, k) => { // k<0 darker, k>0 lighter
 const lum = hex => { const n = parseInt(hex.slice(1), 16); return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255; };
 export const ink = hex => lum(hex) > 0.6 ? '#141414' : '#ffffff';
 export function rng(seed) { let s = seed >>> 0 || 1; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
-const F = (w, sz, fam = 'Barlow Condensed') => `${w} ${sz}px "${fam}", "Arial Narrow", Arial, sans-serif`;
+const F = (w, sz, fam = 'Teko') => `${Math.min(700, w)} ${sz}px "${fam}", "Arial Narrow", Arial, sans-serif`;
 
+// Kit patterns: names listed in teams.js (KIT_PATTERNS / PREMIUM_PATTERNS), shared with the server.
 function pattern(g, w, h, k) {
   g.fillStyle = k.base; g.fillRect(0, 0, w, h);
   g.fillStyle = k.accent;
+  const poly = (...pts) => { g.beginPath(); g.moveTo(pts[0] * w, pts[1] * h); for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i] * w, pts[i + 1] * h); g.closePath(); g.fill(); };
   switch (k.pattern) {
     case 'stripes': for (let x = w / 14; x < w; x += w / 3.5) g.fillRect(x, 0, w / 7, h); break;
     case 'pinstripes': for (let x = w / 16; x < w; x += w / 8) g.fillRect(x, 0, w / 40, h); break;
     case 'hoops': for (let y = h * 0.18; y < h; y += h / 4.2) g.fillRect(0, y, w, h / 9); break;
+    case 'thinhoops': for (let y = h * 0.12; y < h; y += h / 9) g.fillRect(0, y, w, h / 30); break;
     case 'halves': g.fillRect(w / 2, 0, w / 2, h); break;
-    case 'sash': g.beginPath(); g.moveTo(-w * 0.1, h * 0.05); g.lineTo(w * 0.2, -h * 0.05); g.lineTo(w * 1.1, h * 0.95); g.lineTo(w * 0.8, h * 1.05); g.fill(); break;
-    case 'chevron': for (const y of [0.38, 0.56]) { g.beginPath(); g.moveTo(0, h * y); g.lineTo(w / 2, h * (y + 0.16)); g.lineTo(w, h * y); g.lineTo(w, h * (y + 0.08)); g.lineTo(w / 2, h * (y + 0.24)); g.lineTo(0, h * (y + 0.08)); g.fill(); } break;
+    case 'quarters': g.fillRect(w / 2, 0, w / 2, h / 2); g.fillRect(0, h / 2, w / 2, h / 2); break;
+    case 'sash': poly(-0.1, 0.05, 0.2, -0.05, 1.1, 0.95, 0.8, 1.05); break;
+    case 'chevron': for (const y of [0.38, 0.56]) poly(0, y, 0.5, y + 0.16, 1, y, 1, y + 0.08, 0.5, y + 0.24, 0, y + 0.08); break;
+    case 'centre': g.fillRect(w * 0.38, 0, w * 0.24, h); break;
+    case 'sides': g.fillRect(0, 0, w * 0.13, h); g.fillRect(w * 0.87, 0, w * 0.13, h); break;
+    case 'shoulders': poly(0, 0, 1, 0, 1, 0.16, 0.62, 0.2, 0.5, 0.26, 0.38, 0.2, 0, 0.16); break;
+    case 'band': g.fillRect(0, h * 0.3, w, h * 0.14); g.fillStyle = k.trim; g.fillRect(0, h * 0.3, w, h * 0.015); g.fillRect(0, h * 0.425, w, h * 0.015); break;
     case 'gradient': { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, k.base); gr.addColorStop(1, k.accent); g.fillStyle = gr; g.fillRect(0, 0, w, h); break; }
+    case 'checkers': { const s = w / 6; for (let y = 0; y < h; y += s) for (let x = 0; x < w; x += s) if (((x + y) / s) % 2 < 1) g.fillRect(x, y, s, s); break; }
+    case 'tiger': { const r = rng(31); // harimau: tapered black stripes from both edges
+      for (let i = 0; i < 9; i++) { const y = h * (0.06 + i * 0.11 + r() * 0.03), L = w * (0.22 + r() * 0.2), t = h * (0.025 + r() * 0.02);
+        for (const side of [0, 1]) { const x0 = side ? w : 0, d = side ? -1 : 1; g.beginPath(); g.moveTo(x0, y - t); g.quadraticCurveTo(x0 + d * L * 0.6, y - t * 0.2 + r() * t, x0 + d * L, y + t * 0.6); g.quadraticCurveTo(x0 + d * L * 0.5, y + t * 0.6, x0, y + t); g.fill(); } } break; }
+    case 'batik': { const r = rng(17), cell = w / 4; // parang slant + bunga raya motif
+      g.globalAlpha = 0.85; for (let x = -h; x < w; x += cell * 0.9) poly(x / w, 0, (x + cell * 0.18) / w, 0, (x + cell * 0.18 + h * 0.5) / w, 1, (x + h * 0.5) / w, 1);
+      g.globalAlpha = 1; for (let y = cell / 2; y < h; y += cell) for (let x = (y / cell) % 2 ? cell : cell / 2; x < w; x += cell) { g.save(); g.translate(x + (r() - 0.5) * 8, y); g.fillStyle = k.trim;
+        for (let i = 0; i < 5; i++) { g.rotate(Math.PI * 2 / 5); g.beginPath(); g.ellipse(0, -cell * 0.17, cell * 0.08, cell * 0.15, 0, 0, 7); g.fill(); }
+        g.fillStyle = k.base; g.beginPath(); g.arc(0, 0, cell * 0.06, 0, 7); g.fill(); g.restore(); } break; }
+    case 'songket': { const s = w / 10; // woven gold diamonds on a band, with fine border rows
+      for (let y = 0; y < h; y += s * 2) { g.fillStyle = k.accent; for (let x = 0; x < w; x += s) { g.beginPath(); g.moveTo(x + s / 2, y); g.lineTo(x + s, y + s / 2); g.lineTo(x + s / 2, y + s); g.lineTo(x, y + s / 2); g.fill(); }
+        g.fillStyle = k.trim; for (let x = 0; x < w; x += s) { g.fillRect(x + s * 0.45, y + s * 0.45, s * 0.1, s * 0.1); } g.fillRect(0, y + s * 1.45, w, s * 0.1); } break; }
+    case 'prism': { const cols = ['#ff2d95', '#7a3cff', '#1e90ff', '#00e0c6', '#7dff3a', '#ffd400', '#ff6a1a'], bw = w / 7; // faceted triangles
+      for (let y = 0, row = 0; y < h; y += bw, row++) for (let x = -bw, i = row; x < w + bw; x += bw / 2, i++) { g.fillStyle = cols[i % cols.length]; g.globalAlpha = 0.55 + (i % 3) * 0.15; const up = i % 2;
+        g.beginPath(); g.moveTo(x, up ? y + bw : y); g.lineTo(x + bw / 2, up ? y : y + bw); g.lineTo(x + bw, up ? y + bw : y); g.fill(); } g.globalAlpha = 1; break; }
     case 'holo': { const cols = ['#d61a8f', '#7a22e0', '#1560d6', '#0aa6c4', '#22b04a', '#e0a400', '#e0441a'], bw = (w + h) / 14;
       for (let i = 0, x = -h; x < w; i++, x += bw) { g.fillStyle = cols[i % cols.length]; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + bw + 1, 0); g.lineTo(x + bw + 1 + h * 0.6, h); g.lineTo(x + h * 0.6, h); g.fill(); }
       const r = rng(5); g.fillStyle = '#ffffff'; for (let i = 0; i < 70; i++) { const x = r() * w, y = r() * h, s = 1 + r() * 2.5; g.globalAlpha = 0.5 + r() * 0.5; g.fillRect(x - s, y - 0.5, s * 2, 1); g.fillRect(x - 0.5, y - s, 1, s * 2); }
       g.globalAlpha = 1; break; }
-    case 'checkers': { const s = w / 6; for (let y = 0; y < h; y += s) for (let x = 0; x < w; x += s) if (((x + y) / s) % 2 < 1) g.fillRect(x, y, s, s); break; }
     default: break;
   }
+  if (k.sleeve) { g.fillStyle = k.sleeve; poly(0, 0, 0.2, 0, 0, 0.3); poly(1, 0, 0.8, 0, 1, 0.3); g.fillStyle = k.trim; g.globalAlpha = 0.9; g.beginPath(); g.moveTo(0, h * 0.3); g.lineTo(w * 0.2, 0); g.lineTo(w * 0.215, 0); g.lineTo(0, h * 0.32); g.fill(); g.beginPath(); g.moveTo(w, h * 0.3); g.lineTo(w * 0.8, 0); g.lineTo(w * 0.785, 0); g.lineTo(w, h * 0.32); g.fill(); g.globalAlpha = 1; }
   // fabric sheen + soft fold shading so it reads as printed card, not flat colour
   const sh = g.createLinearGradient(0, 0, w, 0);
   sh.addColorStop(0, 'rgba(0,0,0,0.10)'); sh.addColorStop(0.5, 'rgba(255,255,255,0.06)'); sh.addColorStop(1, 'rgba(0,0,0,0.12)');
   g.fillStyle = sh; g.fillRect(0, 0, w, h);
+}
+function collar(g, w, h, k) {
+  g.fillStyle = k.trim;
+  if (k.collar === 'round') { g.beginPath(); g.ellipse(w / 2, 0, w * 0.15, h * 0.06, 0, 0, Math.PI); g.ellipse(w / 2, 0, w * 0.12, h * 0.04, 0, Math.PI, 0, true); g.fill(); }
+  else if (k.collar === 'polo') { g.beginPath(); g.moveTo(w * 0.33, 0); g.lineTo(w * 0.44, h * 0.1); g.lineTo(w / 2, h * 0.06); g.lineTo(w * 0.56, h * 0.1); g.lineTo(w * 0.67, 0); g.fill(); g.fillStyle = k.base; g.fillRect(w * 0.485, h * 0.06, w * 0.03, h * 0.08); g.fillStyle = k.trim; for (const y of [0.09, 0.125]) { g.beginPath(); g.arc(w / 2, h * y, w * 0.008, 0, 7); g.fill(); } }
+  else { g.beginPath(); g.moveTo(w * 0.36, 0); g.lineTo(w / 2, h * 0.09); g.lineTo(w * 0.64, 0); g.lineTo(w * 0.58, 0); g.lineTo(w / 2, h * 0.055); g.lineTo(w * 0.42, 0); g.fill(); }
 }
 
 export function crest(g, x, y, s, team) {
@@ -98,17 +127,16 @@ export function printOn(c, look) {
 export function jerseyFront(team, kit, number, w = 512, h = 640, look) {
   if (look?.kind === 'gold' && !look.mask) { const flat = { ...kit, base: '#000000', accent: '#000000', trim: '#ffffff', number: '#ffffff', numberOutline: '#ffffff', pattern: 'none' };
     const m = jerseyFront({ ...team, jerseys: [{ ...team.jerseys[0], accent: '#ffffff', base: '#000000', trim: '#ffffff' }] }, flat, number, w, h, null); look = { ...look, mask: m }; }
-  const [c, g] = mk(w, h); pattern(g, w, h, kit);
-  g.fillStyle = kit.trim; g.beginPath(); g.moveTo(w * 0.36, 0); g.lineTo(w / 2, h * 0.09); g.lineTo(w * 0.64, 0); g.lineTo(w * 0.58, 0); g.lineTo(w / 2, h * 0.055); g.lineTo(w * 0.42, 0); g.fill();
+  const [c, g] = mk(w, h); pattern(g, w, h, kit); collar(g, w, h, kit);
   crest(g, w * 0.3, h * 0.2, w * 0.17, team);
-  g.font = F(800, w * 0.075); g.fillStyle = kit.number; g.globalAlpha = 0.9; g.textAlign = 'center'; g.fillText('BOLA KERTAS', w / 2, h * 0.4); g.globalAlpha = 1;
+  g.font = F(800, w * 0.075); g.fillStyle = Math.abs(lum(kit.number) - lum(kit.base)) < 0.3 ? ink(kit.base) : kit.number; g.globalAlpha = 0.9; g.textAlign = 'center'; g.fillText(String(kit.sponsor || 'BOLA KERTAS').toUpperCase().slice(0, 14), w / 2, h * 0.4); g.globalAlpha = 1;
   g.font = F(800, h * 0.42); g.textBaseline = 'alphabetic'; g.lineWidth = w * 0.025; g.strokeStyle = kit.numberOutline || 'rgba(0,0,0,0.25)';
   g.strokeText(String(number), w / 2, h * 0.88); g.fillStyle = kit.number; g.fillText(String(number), w / 2, h * 0.88);
   printOn(c, look); // paper under the ink
   if (look?.kind === 'holo') { // foil washes light art out: dark plate under crest + wordmark
     g.save(); g.shadowColor = 'rgba(10,0,30,0.9)'; g.shadowBlur = w * 0.03; g.fillStyle = 'rgba(15,5,40,0.55)';
     g.beginPath(); g.roundRect(w * 0.17, h * 0.1, w * 0.27, h * 0.22, w * 0.03); g.fill(); g.beginPath(); g.roundRect(w * 0.15, h * 0.34, w * 0.7, h * 0.08, w * 0.02); g.fill(); g.restore();
-    crest(g, w * 0.3, h * 0.2, w * 0.17, team); g.font = F(800, w * 0.075); g.fillStyle = '#ffffff'; g.textAlign = 'center'; g.fillText('BOLA KERTAS', w / 2, h * 0.4); }
+    crest(g, w * 0.3, h * 0.2, w * 0.17, team); g.font = F(800, w * 0.075); g.fillStyle = '#ffffff'; g.textAlign = 'center'; g.fillText(String(kit.sponsor || 'BOLA KERTAS').toUpperCase().slice(0, 14), w / 2, h * 0.4); }
   if (look?.kind === 'carbon') { g.font = F(800, h * 0.42); g.textAlign = 'center'; g.fillStyle = '#ffffff'; g.fillText(String(number), w / 2, h * 0.88); crest(g, w * 0.3, h * 0.2, w * 0.17, team); }
   return c;
 }
@@ -118,11 +146,11 @@ export function jerseyBack(team, kit, number, name, w = 512, h = 640, look) {
   const [c, g] = mk(w, h); pattern(g, w, h, kit);
   g.fillStyle = kit.trim; g.fillRect(w * 0.38, 0, w * 0.24, h * 0.03);
   g.textAlign = 'center'; g.fillStyle = kit.number;
-  g.font = F(800, w * 0.15); g.fillText(String(name || '').toUpperCase().slice(0, 10), w / 2, h * 0.27);
+  g.font = F(800, w * (String(name || '').length > 9 ? 0.12 : 0.15)); g.fillText(String(name || '').toUpperCase().slice(0, 12), w / 2, h * 0.27);
   g.font = F(800, h * 0.5); g.lineWidth = w * 0.025; g.strokeStyle = kit.numberOutline || 'rgba(0,0,0,0.25)';
   g.strokeText(String(number), w / 2, h * 0.86); g.fillText(String(number), w / 2, h * 0.86);
   printOn(c, look);
-  if (look?.kind === 'carbon') { g.fillStyle = '#ffffff'; g.font = F(800, w * 0.15); g.fillText(String(name || '').toUpperCase().slice(0, 10), w / 2, h * 0.27); g.font = F(800, h * 0.5); g.fillText(String(number), w / 2, h * 0.86); }
+  if (look?.kind === 'carbon') { g.fillStyle = '#ffffff'; g.font = F(800, w * 0.15); g.fillText(String(name || '').toUpperCase().slice(0, 12), w / 2, h * 0.27); g.font = F(800, h * 0.5); g.fillText(String(number), w / 2, h * 0.86); }
   return c;
 }
 

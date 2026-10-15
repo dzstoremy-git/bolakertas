@@ -6,7 +6,7 @@ import { createHmac, createHash, randomBytes, timingSafeEqual } from 'node:crypt
 import { DatabaseSync } from 'node:sqlite';
 import { WebSocketServer } from 'ws';
 import { Engine, runToRest, isRest, makeCode, BASE_STATS, FORMATIONS } from './public/engine.js';
-import { teamById, rosterFor } from './public/teams.js';
+import { teamById, rosterFor, cleanRoster, cleanKit } from './public/teams.js';
 import { ITEMS, itemById, DEFAULT_EQUIP, SLOTS, matchReward, DAILY_COIN_CAP, isOwned } from './public/items.js';
 
 const PORT = +(process.env.PORT || 3000);
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS users (uid INTEGER PRIMARY KEY, name TEXT, coins INTE
 CREATE TABLE IF NOT EXISTS owned (uid INTEGER NOT NULL, item TEXT NOT NULL, src TEXT, at INTEGER, PRIMARY KEY (uid, item));
 CREATE TABLE IF NOT EXISTS payments (charge_id TEXT PRIMARY KEY, uid INTEGER NOT NULL, item TEXT NOT NULL, stars INTEGER NOT NULL, at INTEGER);
 CREATE TABLE IF NOT EXISTS matches (mid TEXT PRIMARY KEY, uid INTEGER NOT NULL, setup TEXT NOT NULL, created INTEGER, done INTEGER NOT NULL DEFAULT 0);`);
+try { db.exec("ALTER TABLE users ADD COLUMN squad TEXT NOT NULL DEFAULT '{}'"); } catch {} // per-team names/numbers + studio kit
 const q = sql => db.prepare(sql);
 const tx = fn => { db.exec('BEGIN IMMEDIATE'); try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; } };
 
@@ -39,8 +40,14 @@ const ownedSet = uid => new Set([...ITEMS.filter(i => i.free).map(i => i.id), ..
 function profile(uid) {
   const u = q('SELECT * FROM users WHERE uid=?').get(uid);
   const equip = { ...DEFAULT_EQUIP, ...JSON.parse(u.equip || '{}') };
-  return { uid, name: u.name, coins: u.coins, equip, owned: [...ownedSet(uid)], passUntil: u.pass_until };
+  return { uid, name: u.name, coins: u.coins, equip, owned: [...ownedSet(uid)], passUntil: u.pass_until, squad: JSON.parse(u.squad || '{}') };
 }
+// Saved squad: { roster:{names,numbers}, kit:{studio kit}|null }. Applied to whichever team the user plays as.
+export function saveSquad(uid, body) {
+  const owned = ownedSet(uid), squad = { roster: body.roster ? cleanRoster(body.roster) : null, kit: cleanKit(body.kit, owned.has('k_studio')) };
+  q('UPDATE users SET squad=? WHERE uid=?').run(JSON.stringify(squad), uid); return squad;
+}
+const squadOf = uid => uid ? JSON.parse(q('SELECT squad FROM users WHERE uid=?').get(uid)?.squad || '{}') : {};
 const paperStats = uid => { if (!uid) return { ...BASE_STATS }; const id = profile(uid).equip.paper; return { ...BASE_STATS, ...(itemById(id)?.stats || {}) }; };
 
 // ── Telegram initData (HMAC, official algorithm) ───────────
@@ -102,12 +109,13 @@ export function buyWithCoins(uid, itemId) {
 
 // ── CPU match setup + server replay for rewards ────────────
 const SKILLS = [0.25, 0.5, 0.8], MINUTES = [1, 3, 5];
-export function buildSetup({ team0, team1, kit0, kit1, formation, skill, minutes, seed, paper0, paper1, cpu = [false, true] }) {
+export function buildSetup({ team0, team1, kit0, kit1, formation, skill, minutes, seed, paper0, paper1, cpu = [false, true], squad0, squad1 }) {
   const t0 = teamById(team0), t1 = teamById(team1);
   return { seed: seed >>> 0, minutes: MINUTES.includes(+minutes) ? +minutes : 3, halves: true, goalsToWin: 0, powerStrike: true,
     layout: 'spread', lockstep: true, turnLimit: 15, cpu, cpuSkill: SKILLS.includes(+skill) ? +skill : 0.5,
     formations: [FORMATIONS[formation] ? formation : '4-4-2', '4-4-2'], teams: [t0.id, t1.id],
-    kits: [kit0 || t0.jerseys[0].id, kit1 || t1.jerseys[0].id], rosters: [rosterFor(t0), rosterFor(t1)],
+    kits: [kit0 || t0.jerseys[0].id, kit1 || t1.jerseys[0].id], rosters: [squad0?.roster ? cleanRoster(squad0.roster, t0) : rosterFor(t0), squad1?.roster ? cleanRoster(squad1.roster, t1) : rosterFor(t1)],
+    custom: [kit0 === 'custom' && squad0?.kit || null, kit1 === 'custom' && squad1?.kit || null],
     paper: [paper0 || { ...BASE_STATS }, paper1 || { ...BASE_STATS }] };
 }
 // Mirrors the client loop exactly: halftime auto, CPU acts from engine RNG, humans act from the log.
@@ -168,6 +176,7 @@ async function api(req, res, path) {
     q('UPDATE users SET equip=? WHERE uid=?').run(JSON.stringify(p.equip), auth.uid);
     return json(res, 200, profile(auth.uid));
   }
+  if (path === '/api/squad') { if (limited('sq:' + auth.uid, 30, 600e3)) return json(res, 429, { err: 'slow_down' }); saveSquad(auth.uid, body); return json(res, 200, profile(auth.uid)); }
   if (path === '/api/shop/buy') { const r = buyWithCoins(auth.uid, body.item); return json(res, r.ok ? 200 : 400, r.ok ? profile(auth.uid) : r); }
   if (path === '/api/shop/invoice') {
     const item = itemById(body.item);
@@ -180,7 +189,7 @@ async function api(req, res, path) {
   }
   if (path === '/api/match/start') {
     if (limited('ms:' + auth.uid, 30, 3600e3)) return json(res, 429, { err: 'slow_down' });
-    const setup = buildSetup({ ...body, seed: randomBytes(4).readUInt32LE(), paper0: paperStats(auth.uid) });
+    const setup = buildSetup({ ...body, seed: randomBytes(4).readUInt32LE(), paper0: paperStats(auth.uid), squad0: squadOf(auth.uid), squad1: null });
     const mid = randomBytes(8).toString('hex');
     q('DELETE FROM matches WHERE created < ?').run(Date.now() - 6 * 3600e3);
     q('INSERT INTO matches (mid,uid,setup,created) VALUES (?,?,?,?)').run(mid, auth.uid, JSON.stringify(setup), Date.now());
@@ -266,7 +275,7 @@ function forfeit(room, loser) {
 function startMatch(room) {
   const [a, b] = room.players;
   const setup = buildSetup({ team0: a.profile.team, team1: b.profile.team, kit0: a.profile.kit, kit1: b.profile.kit, formation: a.profile.formation,
-    minutes: room.rules.minutes, seed: randomBytes(4).readUInt32LE(), paper0: paperStats(a.uid), paper1: paperStats(b.uid), cpu: [false, false] });
+    minutes: room.rules.minutes, seed: randomBytes(4).readUInt32LE(), paper0: paperStats(a.uid), paper1: paperStats(b.uid), cpu: [false, false], squad0: squadOf(a.uid), squad1: squadOf(b.uid) });
   setup.formations[1] = FORMATIONS[b.profile.formation] ? b.profile.formation : '4-4-2';
   setup.names = [a.profile.name, b.profile.name]; setup.paperIds = [a.paperId, b.paperId];
   room.setup = setup; room.engine = new Engine(setup); runToRest(room.engine); room.rematch = new Set();

@@ -70,5 +70,17 @@ ok('coin purchase needs enough coins and never goes negative', () => {
   assert.equal(S.buyWithCoins(8, 'p_gold').err, 'not_for_coins');
   assert.equal(S.db.prepare('SELECT coins FROM users WHERE uid=8').get().coins, 0);
 });
+ok('squad: names cleaned, numbers 1-99 unique, premium pattern needs studio pack', () => {
+  S.db.prepare('INSERT OR IGNORE INTO users (uid,coins,equip) VALUES (21,0,\'{}\')').run();
+  const sq = S.saveSquad(21, { roster: { names: ['Amir', '<script>', 'babi', 'x'.repeat(30)], numbers: [10, 10, 0, 7] }, kit: { pattern: 'batik', base: '#ff0000', sponsor: 'JOM' } });
+  assert.equal(sq.roster.names[0], 'Amir'); assert.equal(sq.roster.names[2], 'Faris'); assert.ok(sq.roster.names[3].length <= 12); assert.ok(!sq.roster.names[1].includes('<'));
+  assert.equal(new Set(sq.roster.numbers).size, 11); assert.ok(sq.roster.numbers.every(x => x >= 1 && x <= 99)); assert.equal(sq.roster.numbers[0], 10);
+  assert.equal(sq.kit.pattern, 'plain');
+  S.db.prepare('INSERT INTO owned (uid,item,src,at) VALUES (21,\'k_studio\',\'test\',0)').run();
+  assert.equal(S.saveSquad(21, { kit: { pattern: 'batik' } }).kit.pattern, 'batik');
+  const st = S.buildSetup({ team0: 'jdt', team1: 'sel', kit0: 'custom', seed: 1, squad0: sq });
+  assert.equal(st.rosters[0].names[0], 'Amir'); assert.equal(st.custom[0].base, '#ff0000'); assert.equal(st.custom[1], null);
+  assert.ok(S.fulfill('ch21', 22, 'k_studio', 25).ok);
+});
 console.log(`\n${n} checks passed`);
 process.exit(0);

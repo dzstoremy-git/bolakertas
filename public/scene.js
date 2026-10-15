@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=19';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=19';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=19';
-import { RARITY } from './items.js?v=19';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=20';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=20';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=20';
+import { RARITY } from './items.js?v=20';
 
 export const Q = (() => { // quality tier. Telegram WebView on mobile gets the lean tier.
   const touch = matchMedia('(pointer:coarse)').matches, low = touch && (navigator.hardwareConcurrency || 4) <= 4;
@@ -52,7 +52,7 @@ const GLOW = (() => { const c = document.createElement('canvas'); c.width = c.he
 
 // One paper player, exactly as it appears in a match. The Locker renders through this same function.
 export function makePlayer({ team, kit, number, name, look }, cache) {
-  const key = `${team.id}|${kit.id}|${number}|${name}|${look.kind}|${look.base}|${look.rarity}`;
+  const key = `${team.id}|${kit.id === 'custom' || kit.id === 'k_studio' ? JSON.stringify(kit) : kit.id}|${number}|${name}|${look.kind}|${look.base}|${look.rarity}`;
   let mats = cache?.get(key);
   if (!mats) {
     const grain = tex(paperSurface(look), false);
@@ -64,7 +64,7 @@ export function makePlayer({ team, kit, number, name, look }, cache) {
   }
   const root = new THREE.Group(), body = new THREE.Mesh(TENT, mats);
   body.castShadow = true; body.receiveShadow = true; root.add(body);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.64, 48), new THREE.MeshBasicMaterial({ color: 0xd4ff2a, transparent: true, opacity: 0, depthWrite: false, depthTest: false }));
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.64, 48), new THREE.MeshBasicMaterial({ color: 0x16e0ff, transparent: true, opacity: 0, depthWrite: false, depthTest: false }));
   ring.renderOrder = 5; ring.rotation.x = -Math.PI / 2; ring.position.y = 0.012; root.add(ring);
   const rank = rankOf(look); let aura = null;
   if (rank >= 2) { // epic+: glowing ring at the feet
@@ -264,20 +264,66 @@ export class World {
       const pos = new Float32Array(n * 3), r = rng(11); for (let i = 0; i < n; i++) { const a = r() * Math.PI * 2, t = r() * 4; pos.set([Math.cos(a) * (rx + t * 1.4), y0 + t * 0.9 + 1, Math.sin(a) * (rz + t * 1.4)], i * 3); }
       const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: '#ffffff', size: 0.9, map: puff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); V.add(pts);
       anim((dt, t) => { pts.material.opacity = 0.35 + Math.abs(Math.sin(t * 7.3)) * 0.65; pts.rotation.y = Math.floor(t * 3) * 0.37; }); };
+    // 360 backdrop: paint(g, w, h) on a 4096x1024 canvas, x = angle (0 = north/-z, clockwise from above), mapped inside a tall cylinder.
+    const pano = (paint, r = 150, h = 90, y0 = -12) => { const c = document.createElement('canvas'); c.width = Q.low ? 2048 : 4096; c.height = Q.low ? 512 : 1024; paint(c.getContext('2d'), c.width, c.height);
+      const t = tex(c, true, 8), m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 96, 1, true), new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide, fog: false, depthWrite: false }));
+      m.position.y = y0 + h / 2; m.rotation.y = Math.PI / 2; m.renderOrder = -1; V.add(m); return m; };
+    const gradBand = (g, w, h, stops) => { const gr = g.createLinearGradient(0, 0, 0, h); stops.forEach(([o, c]) => gr.addColorStop(o, c)); g.fillStyle = gr; g.fillRect(0, 0, w, h); };
+    const ridge = (g, w, h, y, amp, col, seed, f = 6) => { const r = rng(seed); g.fillStyle = col; g.beginPath(); g.moveTo(0, h); for (let x = 0; x <= w; x += w / 256) g.lineTo(x, y - amp * (0.5 + 0.5 * Math.sin(x / w * Math.PI * 2 * f + seed) * Math.sin(x / w * Math.PI * 2 * (f * 0.37) + seed * 2)) - r() * amp * 0.08); g.lineTo(w, h); g.fill(); };
     if (id === 'v_desk' || !id) {
       sky('#4f86c6', '#c9b79a'); table('#e8a917', '#4a3a2c', '#b77f00'); floor('#7a5b3e', 0.7);
       add(new THREE.PlaneGeometry(80, 26), std('#b9ab95', 0.95), 0, 2, -24);
       const board = add(new THREE.BoxGeometry(18, 7, 0.2), std('#1f3b2c', 0.9), 0, 6, -23.8);
       const ct = document.createElement('canvas'); ct.width = 1024; ct.height = 400; const g = ct.getContext('2d'); g.fillStyle = '#1f3b2c'; g.fillRect(0, 0, 1024, 400);
-      g.fillStyle = 'rgba(255,255,255,0.85)'; g.font = '700 64px "Barlow Condensed", Arial'; g.fillText('4-4-2  ->  TEPUK!', 70, 140); g.font = '600 44px "Barlow Condensed", Arial'; g.fillText('Rehat: 10.30 pagi', 70, 260);
+      g.fillStyle = 'rgba(255,255,255,0.85)'; g.font = '700 64px "Teko", Arial'; g.fillText('4-4-2  ->  TEPUK!', 70, 140); g.font = '600 44px "Teko", Arial'; g.fillText('Rehat: 10.30 pagi', 70, 260);
       board.material = [std('#5a4632'), std('#5a4632'), std('#5a4632'), std('#5a4632'), new THREE.MeshStandardMaterial({ map: tex(ct), roughness: 0.95 }), std('#5a4632')];
       for (let i = 0; i < 4; i++) add(new THREE.BoxGeometry(1.4, 0.5, 1), std(['#e8483c', '#3a7be8', '#f2c230', '#33a35a'][i], 0.7), -8 + i * 0.5, 0.25 + i * 0.5, 10.8 - i * 0.2);
       const pencil = add(new THREE.CylinderGeometry(0.09, 0.09, 4.2, 6), std('#f2b705', 0.6), 7.6, 0.1, 4); pencil.rotation.set(Math.PI / 2, 0, 0.3); // pencil + ruler on the desk
       add(new THREE.BoxGeometry(0.7, 0.04, 7), std('#d9e7f2', 0.3), -7.9, 0.02, -3);
+      pano((g, w, h) => { gradBand(g, w, h, [[0, '#cfc3ad'], [0.62, '#b9ab95'], [0.63, '#8a6a4a'], [1, '#6e5238']]); // wall + wood skirting
+        const at = a => (a / 360) * w, win = (cx) => { for (let k = -2; k <= 2; k++) { const x = at(cx) + k * w * 0.028; const gr = g.createLinearGradient(0, h * 0.18, 0, h * 0.52); gr.addColorStop(0, '#7fb6ea'); gr.addColorStop(1, '#d8ecff'); g.fillStyle = '#e9e4d8'; g.fillRect(x - w * 0.012, h * 0.16, w * 0.024, h * 0.38); g.fillStyle = gr; g.fillRect(x - w * 0.01, h * 0.18, w * 0.02, h * 0.34); g.fillStyle = '#e9e4d8'; g.fillRect(x - w * 0.012, h * 0.34, w * 0.024, h * 0.012); g.fillStyle = 'rgba(80,140,60,0.8)'; g.beginPath(); g.arc(x - w * 0.004, h * 0.5, w * 0.008, 0, 7); g.fill(); } };
+        win(90); // east windows with trees outside
+        for (let k = 0; k < 9; k++) { const x = at(244) + k * w * 0.012; g.fillStyle = ['#3d6fb6', '#4a7cc2'][k % 2]; g.fillRect(x, h * 0.3, w * 0.011, h * 0.32); g.fillStyle = '#20406e'; g.fillRect(x + w * 0.002, h * 0.34, w * 0.007, h * 0.006); g.fillRect(x + w * 0.002, h * 0.47, w * 0.007, h * 0.006); } // west lockers
+        g.fillStyle = '#7a4a26'; g.fillRect(at(292), h * 0.22, w * 0.03, h * 0.4); g.fillStyle = '#c9a25a'; g.beginPath(); g.arc(at(292) + w * 0.026, h * 0.43, w * 0.002, 0, 7); g.fill(); // door
+        g.fillStyle = '#b07a3a'; g.fillRect(at(170), h * 0.2, w * 0.06, h * 0.24); g.fillStyle = '#d9c28a'; g.fillRect(at(170) + 6, h * 0.2 + 6, w * 0.06 - 12, h * 0.24 - 12); // south notice board + pinned papers
+        const r = rng(4); for (let k = 0; k < 7; k++) { g.fillStyle = ['#fff', '#ffe27a', '#ffb3c7', '#a8e1ff'][k % 4]; g.save(); g.translate(at(171) + r() * w * 0.05, h * 0.23 + r() * h * 0.15); g.rotate((r() - 0.5) * 0.3); g.fillRect(0, 0, w * 0.012, h * 0.05); g.restore(); }
+        g.fillStyle = '#ffffff'; g.beginPath(); g.arc(at(200), h * 0.16, w * 0.009, 0, 7); g.fill(); g.strokeStyle = '#222'; g.lineWidth = 4; g.stroke(); g.beginPath(); g.moveTo(at(200), h * 0.16); g.lineTo(at(200), h * 0.13); g.moveTo(at(200), h * 0.16); g.lineTo(at(200) + w * 0.005, h * 0.16); g.stroke(); // clock
+        g.fillStyle = '#c0392b'; g.fillRect(at(20), h * 0.06, w * 0.06, h * 0.03); g.fillStyle = '#fff'; g.font = `800 ${h * 0.022}px "Teko", Arial`; g.fillText('BERSIH  CEKAP  AMANAH', at(20) + 10, h * 0.083);
+      }, 60, 40, -10);
+      for (const [x, z] of [[-26, 14], [-26, 4], [26, 14], [26, 4], [-26, -6], [26, -6]]) { add(new THREE.BoxGeometry(6, 0.5, 4), std('#c9a26a', 0.6), x, -1.2, z, true); for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.35, 8, 0.35), std('#3a3a3a', 0.5, 0.5), x + sx * 2.6, -5.4, z); add(new THREE.BoxGeometry(2.2, 0.4, 2.2), std('#2f6fb6', 0.6), x, -5, z + 3.4); } // classmates' desks + chairs
     } else if (id === 'v_field') {
       sky('#ff9e5e', '#ffe2a8'); this.sun.color.set(0xffd0a0); this.sun.position.set(-12, 10, -6); table('#c79b5f', '#6b4a2a', '#9a6e3a'); floor('#5f8f3a', 1);
       for (let i = 0; i < 18; i++) { const a = i / 18 * Math.PI * 2, r = 30 + (i % 3) * 6; palm(Math.cos(a) * r, Math.sin(a) * r, 13); }
-      this.scene.fog = new THREE.Fog('#ffd8a0', 40, 110);
+      pano((g, w, h) => { gradBand(g, w, h, [[0, '#ff9e5e'], [0.55, '#ffe2a8'], [0.56, '#7a9a4a'], [1, '#4f7a2e']]);
+        ridge(g, w, h, h * 0.55, h * 0.16, '#8fae78', 3, 5); ridge(g, w, h, h * 0.57, h * 0.09, '#5f8a42', 7, 9);
+        const r = rng(9); for (let k = 0; k < 26; k++) { const x = r() * w, s = h * (0.035 + r() * 0.02), y = h * 0.57; // rumah kampung on stilts: wood body + zinc roof
+          g.fillStyle = '#5a3a1e'; for (let q = -1; q <= 1; q++) g.fillRect(x + q * s * 0.6, y - s * 0.3, s * 0.08, s * 0.3); g.fillStyle = ['#8a5a30', '#9a6a3a', '#7a4f2a'][k % 3]; g.fillRect(x - s, y - s * 1.1, s * 2, s * 0.8);
+          g.fillStyle = ['#b8b8b8', '#a33', '#9aa'][k % 3]; g.beginPath(); g.moveTo(x - s * 1.3, y - s * 1.05); g.lineTo(x, y - s * 1.9); g.lineTo(x + s * 1.3, y - s * 1.05); g.fill(); g.fillStyle = '#ffd98a'; g.fillRect(x - s * 0.5, y - s * 0.85, s * 0.3, s * 0.3); }
+        const sx = w * 0.62, sy = h * 0.57; g.fillStyle = '#f2efe6'; g.fillRect(sx - h * 0.05, sy - h * 0.09, h * 0.1, h * 0.09); g.fillStyle = '#2f8f5a'; g.beginPath(); g.arc(sx, sy - h * 0.09, h * 0.05, Math.PI, 0); g.fill(); // surau + minaret
+        g.fillStyle = '#f2efe6'; g.fillRect(sx + h * 0.08, sy - h * 0.17, h * 0.02, h * 0.17); g.fillStyle = '#2f8f5a'; g.beginPath(); g.moveTo(sx + h * 0.075, sy - h * 0.17); g.lineTo(sx + h * 0.09, sy - h * 0.2); g.lineTo(sx + h * 0.105, sy - h * 0.17); g.fill();
+        g.fillStyle = 'rgba(255,255,255,0.8)'; for (let k = 0; k < 12; k++) { const x = r() * w, y = h * (0.12 + r() * 0.25); g.beginPath(); g.ellipse(x, y, h * 0.06, h * 0.015, 0, 0, 7); g.fill(); } // clouds
+        g.fillStyle = 'rgba(40,40,40,0.8)'; for (let k = 0; k < 10; k++) { const x = r() * w, y = h * (0.2 + r() * 0.15); g.beginPath(); g.moveTo(x - 8, y); g.quadraticCurveTo(x - 4, y - 5, x, y); g.quadraticCurveTo(x + 4, y - 5, x + 8, y); g.lineWidth = 2; g.strokeStyle = 'rgba(40,40,40,0.8)'; g.stroke(); } // birds
+      });
+      for (const [x, z] of [[-24, -8], [24, 6], [-22, 18], [22, -20]]) { add(new THREE.BoxGeometry(4.2, 2.6, 0.3), std('#6b4a2a', 0.9), x, -8.1, z); add(new THREE.BoxGeometry(4.6, 0.2, 1.4), std('#8a6a3a', 0.9), x, -8.4, z + 0.9); } // kampung benches
+      const goat = (x, z) => { add(new THREE.BoxGeometry(1.6, 1, 0.8), std('#f2efe6', 0.9), x, -7.6, z); add(new THREE.BoxGeometry(0.6, 0.6, 0.5), std('#f2efe6', 0.9), x + 1, -7, z); for (const dx of [-0.6, 0.6]) for (const dz of [-0.3, 0.3]) add(new THREE.BoxGeometry(0.15, 1, 0.15), std('#cfc8b8'), x + dx, -8.6, z + dz); };
+      goat(-28, 26); goat(30, -2);
+      // east: warung with zinc roof; west: rumah kampung on stilts + motorbike; bunting all round
+      { const w0 = new THREE.Group(); const wall = std('#9a6a3a', 0.9), zinc = std('#a9b0b6', 0.4, 0.6);
+        const b = new THREE.Mesh(new THREE.BoxGeometry(9, 4.5, 6), wall); b.position.y = 2.25; w0.add(b); const rf = new THREE.Mesh(new THREE.BoxGeometry(11, 0.3, 8), zinc); rf.position.y = 5; rf.rotation.z = 0.12; w0.add(rf);
+        const sg = cv(512, 128, (g, w, h) => { g.fillStyle = '#ffd400'; g.fillRect(0, 0, w, h); g.fillStyle = '#c0392b'; g.font = '800 84px "Teko", Arial'; g.textAlign = 'center'; g.fillText('WARUNG MAK TEH', w / 2, 96); });
+        const sign = new THREE.Mesh(new THREE.PlaneGeometry(8, 2), new THREE.MeshBasicMaterial({ map: sg })); sign.position.set(-4.56, 3.4, 0); sign.rotation.y = -Math.PI / 2; w0.add(sign);
+        for (const z of [-2, 2]) { const tb = new THREE.Mesh(new THREE.BoxGeometry(3, 0.25, 2), std('#f5f0e6', 0.4)); tb.position.set(-7, 2.4, z); w0.add(tb); const lg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.4, 0.2), std('#333')); lg.position.set(-7, 1.2, z); w0.add(lg); }
+        w0.position.set(34, -9.4, 0); V.add(w0);
+        const h0 = new THREE.Group(); const body = new THREE.Mesh(new THREE.BoxGeometry(8, 4.2, 7), std('#7a4f2a', 0.9)); body.position.y = 5; h0.add(body);
+        for (const x of [-3.5, 0, 3.5]) for (const z of [-3, 3]) { const st = new THREE.Mesh(new THREE.BoxGeometry(0.4, 3, 0.4), std('#4a3020')); st.position.set(x, 1.5, z); h0.add(st); }
+        const rf2 = new THREE.Mesh(new THREE.ConeGeometry(6.8, 3.6, 4, 1), std('#b33a2a', 0.7)); rf2.position.y = 8.9; rf2.rotation.y = Math.PI / 4; rf2.scale.set(1, 1, 1.15); h0.add(rf2);
+        for (const z of [-1.8, 1.8]) { const wn = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.4), new THREE.MeshBasicMaterial({ color: '#ffd98a' })); wn.position.set(4.01, 5.2, z); wn.rotation.y = Math.PI / 2; h0.add(wn); }
+        const stair = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.3, 4), std('#5a3a1e')); stair.position.set(5, 1.6, 0); stair.rotation.z = 0.6; h0.add(stair);
+        h0.position.set(-36, -9.4, 2); V.add(h0);
+        const bike = new THREE.Group(); for (const x of [-1, 1]) { const wh = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.15, 8, 20), std('#111')); wh.position.set(x, 0.6, 0); bike.add(wh); } const bb = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.7, 0.6), std('#c0392b', 0.4, 0.3)); bb.position.y = 1.2; bike.add(bb); bike.position.set(-29, -9.4, 10); bike.rotation.y = 0.5; V.add(bike);
+        const bunt = cv(512, 64, (g, w, h) => { for (let i = 0; i < 16; i++) { g.fillStyle = ['#d71920', '#ffd400', '#1b3f94', '#ffffff'][i % 4]; g.beginPath(); g.moveTo(i * 32, 0); g.lineTo(i * 32 + 32, 0); g.lineTo(i * 32 + 16, 56); g.fill(); } });
+        for (const [x1, z1, x2, z2] of [[-26, -24, 26, -24], [-26, 24, 26, 24], [-26, -24, -26, 24], [26, -24, 26, 24]]) { const len = Math.hypot(x2 - x1, z2 - z1), m = new THREE.Mesh(new THREE.PlaneGeometry(len, 1), new THREE.MeshBasicMaterial({ map: bunt, transparent: true, side: THREE.DoubleSide, alphaTest: 0.1 })); m.position.set((x1 + x2) / 2, 4, (z1 + z2) / 2); m.rotation.y = -Math.atan2(z2 - z1, x2 - x1); bunt.wrapS = THREE.RepeatWrapping; bunt.repeat.set(len / 8, 1); V.add(m); } }
+      this.scene.fog = new THREE.Fog('#ffd8a0', 60, 160);
     } else if (id === 'v_kopitiam') {
       sky('#2a1c14', '#5a3d2a'); this.sun.color.set(0xffe2b8); this.sun.intensity = 1.5; this.hemi.intensity = 0.45; this.r.toneMappingExposure = 0.9;
       const mTop = new THREE.MeshStandardMaterial({ map: marble, roughness: 0.25 }); table(mTop, '#2b2b2b', '#bdbab3');
@@ -287,10 +333,10 @@ export class World {
       const f = add(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ map: flr, roughness: 0.6 }), 0, -9.4, 0, true); f.rotation.x = -Math.PI / 2;
       add(new THREE.PlaneGeometry(120, 12), new THREE.MeshStandardMaterial({ map: tiles, roughness: 0.4 }), 0, -3.4, -46);
       add(new THREE.PlaneGeometry(120, 30), std('#e8d7b0', 0.95), 0, 17.6, -46.1);
-      const sign = cv(1024, 192, (g, w, h) => { g.fillStyle = '#b3201c'; g.fillRect(0, 0, w, h); g.strokeStyle = '#ffd34a'; g.lineWidth = 10; g.strokeRect(10, 10, w - 20, h - 20); g.fillStyle = '#ffd34a'; g.font = '800 104px "Barlow Condensed", Arial'; g.textAlign = 'center'; g.fillText('KEDAI KOPI BOLA KERTAS', w / 2, 132); });
+      const sign = cv(1024, 192, (g, w, h) => { g.fillStyle = '#b3201c'; g.fillRect(0, 0, w, h); g.strokeStyle = '#ffd34a'; g.lineWidth = 10; g.strokeRect(10, 10, w - 20, h - 20); g.fillStyle = '#ffd34a'; g.font = '800 104px "Teko", Arial'; g.textAlign = 'center'; g.fillText('KEDAI KOPI BOLA KERTAS', w / 2, 132); });
       add(new THREE.BoxGeometry(44, 8.2, 0.4), [std('#7a1512'), std('#7a1512'), std('#7a1512'), std('#7a1512'), new THREE.MeshStandardMaterial({ map: sign, emissive: '#ffffff', emissiveMap: sign, emissiveIntensity: 0.35, roughness: 0.5 }), std('#7a1512')], 0, 14.5, -45.6);
-      const menu = cv(512, 640, (g, w, h) => { g.fillStyle = '#16301f'; g.fillRect(0, 0, w, h); g.strokeStyle = '#c9a25a'; g.lineWidth = 12; g.strokeRect(6, 6, w - 12, h - 12); g.fillStyle = '#fff6dc'; g.font = '800 64px "Barlow Condensed", Arial'; g.textAlign = 'center'; g.fillText('MENU', w / 2, 90);
-        g.font = '700 46px "Barlow Condensed", Arial'; [['KOPI O', '1.80'], ['TEH TARIK', '2.20'], ['MILO AIS', '3.00'], ['ROTI BAKAR', '2.50'], ['NASI LEMAK', '3.50'], ['TELUR SEPARUH', '2.00']].forEach(([n, p], i) => { g.textAlign = 'left'; g.fillText(n, 40, 180 + i * 72); g.textAlign = 'right'; g.fillStyle = '#ffd34a'; g.fillText(p, w - 40, 180 + i * 72); g.fillStyle = '#fff6dc'; }); });
+      const menu = cv(512, 640, (g, w, h) => { g.fillStyle = '#16301f'; g.fillRect(0, 0, w, h); g.strokeStyle = '#c9a25a'; g.lineWidth = 12; g.strokeRect(6, 6, w - 12, h - 12); g.fillStyle = '#fff6dc'; g.font = '800 64px "Teko", Arial'; g.textAlign = 'center'; g.fillText('MENU', w / 2, 90);
+        g.font = '700 46px "Teko", Arial'; [['KOPI O', '1.80'], ['TEH TARIK', '2.20'], ['MILO AIS', '3.00'], ['ROTI BAKAR', '2.50'], ['NASI LEMAK', '3.50'], ['TELUR SEPARUH', '2.00']].forEach(([n, p], i) => { g.textAlign = 'left'; g.fillText(n, 40, 180 + i * 72); g.textAlign = 'right'; g.fillStyle = '#ffd34a'; g.fillText(p, w - 40, 180 + i * 72); g.fillStyle = '#fff6dc'; }); });
       for (const x of [-34, 34]) add(new THREE.BoxGeometry(14, 17.5, 0.3), [std('#4a3020'), std('#4a3020'), std('#4a3020'), std('#4a3020'), new THREE.MeshStandardMaterial({ map: menu, roughness: 0.8 }), std('#4a3020')], x, 4, -45.5);
       const stoolM = [std('#d9322b', 0.45), std('#2563c9', 0.45)];
       for (const [tx, tz] of [[-30, -22], [30, -22], [-32, 8], [32, 8]]) { // neighbouring marble tables + plastic stools + cups
@@ -307,6 +353,20 @@ export class World {
       add(new THREE.CylinderGeometry(0.5, 0.38, 1, 24), std('#ffffff', 0.15), 8.6, 0.5, -12.9); add(new THREE.CylinderGeometry(0.46, 0.46, 0.03, 24), std('#2a1408', 0.15), 8.6, 0.98, -12.9); // kopi O + saucer + steam
       add(new THREE.CylinderGeometry(0.95, 0.95, 0.06, 32), std('#ffffff', 0.2), 8.6, 0.03, -12.9); const h = add(new THREE.TorusGeometry(0.25, 0.06, 8, 16, Math.PI), std('#ffffff', 0.2), 9.1, 0.55, -12.9); h.rotation.z = -Math.PI / 2;
       steam(8.6, 1.1, -12.9);
+      pano((g, w, h) => { gradBand(g, w, h, [[0, '#2a1c14'], [0.3, '#e8d7b0'], [0.62, '#e8d7b0'], [0.63, '#d9e3da'], [0.8, '#c9d6cc'], [1, '#8e2f22']]);
+        const at = a => a / 360 * w, r = rng(21);
+        for (let x = 0; x < w; x += w / 160) { g.fillStyle = 'rgba(120,150,130,0.35)'; g.fillRect(x, h * 0.63, 1, h * 0.17); } g.fillStyle = 'rgba(120,150,130,0.35)'; for (let y = h * 0.63; y < h * 0.8; y += h / 40) g.fillRect(0, y, w, 1); // wall tiles
+        const shutter = (a) => { const x = at(a), ww = w * 0.07; g.fillStyle = '#7d8790'; g.fillRect(x, h * 0.3, ww, h * 0.5); g.fillStyle = 'rgba(0,0,0,0.25)'; for (let y = h * 0.3; y < h * 0.8; y += h * 0.012) g.fillRect(x, y, ww, 2); g.fillStyle = '#ffd34a'; g.fillRect(x, h * 0.28, ww, h * 0.025); };
+        shutter(75); shutter(255); // roller shutters east + west
+        const street = (a) => { const x = at(a), ww = w * 0.09; g.fillStyle = '#1a2a3a'; g.fillRect(x, h * 0.32, ww, h * 0.3); for (let k = 0; k < 14; k++) { g.fillStyle = ['#ffd98a', '#9fd7ff', '#ff8a5a'][k % 3]; g.fillRect(x + r() * ww, h * (0.34 + r() * 0.2), 4, 4); } g.fillStyle = '#c0392b'; g.fillRect(x + ww * 0.1, h * 0.52, ww * 0.25, h * 0.06); g.fillStyle = '#222'; g.fillRect(x, h * 0.58, ww, h * 0.04); g.strokeStyle = '#4a3020'; g.lineWidth = 8; g.strokeRect(x, h * 0.32, ww, h * 0.3); };
+        street(150); street(195); // open front to the street, south
+        const poster = (a, c1, c2, txt) => { const x = at(a); g.fillStyle = c1; g.fillRect(x, h * 0.34, w * 0.03, h * 0.16); g.fillStyle = c2; g.font = `800 ${h * 0.03}px "Teko", Arial`; g.textAlign = 'center'; g.fillText(txt, x + w * 0.015, h * 0.43); g.textAlign = 'left'; };
+        poster(100, '#1b3f94', '#ffd400', 'MILO'); poster(110, '#d71920', '#ffffff', '100PLUS'); poster(230, '#0f7a3a', '#ffffff', 'TEH O'); poster(290, '#ffd400', '#d71920', 'ROTI'); poster(130, '#ffffff', '#d71920', 'PIALA');
+        g.fillStyle = '#f2f2f2'; g.fillRect(at(305), h * 0.36, w * 0.04, h * 0.44); g.fillStyle = '#9fd7ff'; g.fillRect(at(305) + 6, h * 0.38, w * 0.04 - 12, h * 0.3); // drinks fridge
+        for (let k = 0; k < 18; k++) { g.fillStyle = ['#d71920', '#ffd400', '#1b3f94', '#0f7a3a'][k % 4]; g.fillRect(at(305) + 10 + (k % 6) * w * 0.006, h * (0.4 + Math.floor(k / 6) * 0.09), w * 0.004, h * 0.06); }
+        g.fillStyle = '#fff'; g.beginPath(); g.arc(at(240), h * 0.24, h * 0.03, 0, 7); g.fill(); g.strokeStyle = '#333'; g.lineWidth = 5; g.stroke(); // wall clock west
+        g.fillStyle = '#fff'; g.fillRect(at(60), h * 0.33, w * 0.02, h * 0.1); g.fillStyle = '#c0392b'; g.fillRect(at(60), h * 0.33, w * 0.02, h * 0.025); // calendar east
+      }, 52, 34, -9.4);
       this.scene.fog = new THREE.Fog('#3a2618', 70, 150);
     } else if (id === 'v_night') {
       sky('#030712', '#14203d'); this.sun.intensity = 0.55; this.hemi.intensity = 0.2; this.r.toneMappingExposure = 1.0;
@@ -317,6 +377,10 @@ export class World {
       const led = add(new THREE.TorusGeometry(27.4, 0.18, 6, 96), new THREE.MeshBasicMaterial({ color: '#39a0ff' }), 0, 2.9, 0); led.rotation.x = Math.PI / 2; led.scale.x = 0.69;
       crowd(Q.low ? 500 : 1300, 20, ['#d71920', '#1b3f94', '#ffffff', '#ffd400', '#111111'], -2);
       crowdFlash(Q.low ? 40 : 110, 12.4, 20, -2);
+      const sb = cv(512, 256, (g, w, h) => { g.fillStyle = '#060a14'; g.fillRect(0, 0, w, h); g.fillStyle = '#ffd400'; g.font = '800 64px "Teko", Arial'; g.textAlign = 'center'; g.fillText('LIGA MALAM', w / 2, 80); g.fillStyle = '#ffffff'; g.font = '800 110px "Teko", Arial'; g.fillText('0 - 0', w / 2, 200); });
+      for (const sx of [-1, 1]) { const b = add(new THREE.BoxGeometry(10, 5, 0.5), [std('#111'), std('#111'), std('#111'), std('#111'), new THREE.MeshBasicMaterial({ map: sb }), std('#111')], sx * 23, 9, 0); b.lookAt(0, 6, 0); add(new THREE.BoxGeometry(0.5, 12, 0.5), std('#555', 0.5, 0.5), sx * 23, 1, 0); }
+      const flag = cv(512, 128, (g, w, h) => { for (let i = 0; i < 8; i++) { g.fillStyle = ['#d71920', '#ffffff', '#1b3f94', '#ffd400'][i % 4]; g.fillRect(i * w / 8, 0, w / 8, h); } g.fillStyle = '#111'; g.font = '800 70px "Teko", Arial'; g.textAlign = 'center'; g.fillText('ULTRAS KERTAS', w / 2, 92); });
+      for (const z of [-1, 1]) { const f = add(new THREE.PlaneGeometry(16, 4), new THREE.MeshStandardMaterial({ map: flag, side: THREE.DoubleSide, roughness: 0.8 }), 0, 3.6, z * 28.5); f.rotation.y = z > 0 ? Math.PI : 0; } // tifo banners behind both goals
       for (const x of [-1, 1]) for (const z of [-1, 1]) {
         add(new THREE.CylinderGeometry(0.22, 0.34, 20, 8), std('#8a8f99', 0.4, 0.6), x * 17, 2, z * 24);
         const hp = new THREE.Vector3(x * 17, 12.5, z * 24); const head = add(new THREE.BoxGeometry(4, 2.4, 0.4), new THREE.MeshBasicMaterial({ map: cv(128, 96, (g, w, h) => { g.fillStyle = '#20242c'; g.fillRect(0, 0, w, h); for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) { const gr = g.createRadialGradient(16 + c * 32, 16 + r * 32, 1, 16 + c * 32, 16 + r * 32, 14); gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.6, '#fff1c0'); gr.addColorStop(1, '#3a3a3a'); g.fillStyle = gr; g.fillRect(c * 32 + 2, r * 32 + 2, 28, 28); } }) }), hp.x, hp.y, hp.z); head.lookAt(0, 0, 0);
@@ -366,9 +430,9 @@ export class World {
       crowdFlash(Q.low ? 60 : 160, 12.6, 20, -2);
       // hanging screens in the far corners
       const scr = cv(512, 288, (g, w, h) => { g.fillStyle = '#0b0718'; g.fillRect(0, 0, w, h); const gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, '#3a1d7a'); gr.addColorStop(1, '#120a2a'); g.fillStyle = gr; g.fillRect(8, 8, w - 16, h - 16);
-        g.fillStyle = '#ffd45a'; g.font = '800 96px "Barlow Condensed", Arial'; g.textAlign = 'center'; g.fillText('FINAL', w / 2, 128); g.fillStyle = '#ffffff'; g.font = '700 46px "Barlow Condensed", Arial'; g.fillText('BOLA KERTAS 2026', w / 2, 200); g.fillStyle = '#ff4fd8'; g.fillRect(40, 236, w - 80, 8); });
-      for (const sx of [-1, 1]) { const sc = add(new THREE.BoxGeometry(8, 4.5, 0.4), [std('#111'), std('#111'), std('#111'), std('#111'), new THREE.MeshBasicMaterial({ map: scr }), std('#111')], sx * 13, 10.2, -24); sc.lookAt(0, 4, 0);
-        add(new THREE.CylinderGeometry(0.05, 0.05, 2.6, 4), std('#888'), sx * 13, 13.6, -24); halo('#8f6bff', 12, sx * 13, 10.2, -24.4, 0.3); }
+        g.fillStyle = '#ffd45a'; g.font = '800 96px "Teko", Arial'; g.textAlign = 'center'; g.fillText('FINAL', w / 2, 128); g.fillStyle = '#ffffff'; g.font = '700 46px "Teko", Arial'; g.fillText('BOLA KERTAS 2026', w / 2, 200); g.fillStyle = '#ff4fd8'; g.fillRect(40, 236, w - 80, 8); });
+      for (const [x, z] of [[-13, -24], [13, -24], [-24, 0], [24, 0], [-13, 24], [13, 24]]) { const sc = add(new THREE.BoxGeometry(8, 4.5, 0.4), [std('#111'), std('#111'), std('#111'), std('#111'), new THREE.MeshBasicMaterial({ map: scr }), std('#111')], x, 10.2, z); sc.lookAt(0, 4, 0);
+        add(new THREE.CylinderGeometry(0.05, 0.05, 2.6, 4), std('#888'), x, 13.6, z); halo('#8f6bff', 12, x, 10.2, z, 0.3); } // six hanging screens, every side
       // trophy on a lit stage
       add(new THREE.CylinderGeometry(1.1, 1.3, 0.5, 32), std('#1a1228', 0.4, 0.4), -7.7, 0.25, -11.95); const rim = add(new THREE.TorusGeometry(1.15, 0.05, 8, 48), gold, -7.7, 0.5, -11.95); rim.rotation.x = Math.PI / 2;
       const tro = add(new THREE.LatheGeometry([[0, 0], [0.55, 0], [0.55, 0.12], [0.3, 0.22], [0.16, 0.5], [0.12, 0.95], [0.22, 1.05], [0.5, 1.25], [0.62, 1.7], [0.6, 2.05], [0.52, 2.08], [0.46, 1.75], [0, 1.6]].map(([a, b]) => new THREE.Vector2(a, b)), 48), gold, -7.7, 0.5, -11.95);
@@ -402,7 +466,23 @@ export class World {
       for (const [x, z, c] of [[-15, -19, 0], [16, -24, 1], [-30, 6, 2], [30, 4, 0]]) { add(new THREE.CylinderGeometry(0.15, 0.15, 14, 6), std('#eeeeee', 0.4), x, -2.4, z); const u = add(new THREE.ConeGeometry(6, 2.2, 16, 1, true), new THREE.MeshStandardMaterial({ map: umb, side: THREE.DoubleSide, roughness: 0.7 }), x, 4.6, z); u.rotation.y = c;
         const ch = add(new THREE.BoxGeometry(3.6, 0.4, 8), std(['#2a8fd6', '#e8483c', '#f2c230'][c], 0.6), x + 5, -7.4, z + 4); ch.rotation.x = -0.18; const bk = add(new THREE.BoxGeometry(3.6, 4.5, 0.4), std(['#2a8fd6', '#e8483c', '#f2c230'][c], 0.6), x + 5, -5.6, z + 0.2); bk.rotation.x = -0.5;
         add(new THREE.CylinderGeometry(1.2, 1.2, 0.3, 20), std('#ffffff', 0.4), x - 3, -9.1, z + 4); }
-      for (const [x, z] of [[-24, -30], [-34, -18], [26, -34], [36, -22], [-10, -44], [12, -50]]) palm(x, z, 18);
+      for (const [x, z] of [[-24, -30], [-34, -18], [26, -34], [36, -22], [-10, -44], [12, -50], [-38, 8], [40, 12], [-30, 32], [34, 34], [-8, 42], [10, 46]]) palm(x, z, 18);
+      pano((g, w, h) => { gradBand(g, w, h, [[0, '#ff6a4a'], [0.84, '#ffd3a1'], [0.85, '#2b7ab0'], [1, '#1f5d8a']]);
+        const r = rng(5), at = a => a / 360 * w;
+        for (const [a, wd] of [[40, 0.07], [300, 0.05], [325, 0.03]]) { g.fillStyle = '#3f6a4a'; g.beginPath(); g.ellipse(at(a), h * 0.85, w * wd, h * 0.05, 0, Math.PI, 0); g.fill(); } // islands
+        for (let k = 0; k < 16; k++) { g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 3; const y = h * (0.86 + r() * 0.12), x = r() * w; g.beginPath(); g.moveTo(x, y); g.lineTo(x + w * 0.02, y); g.stroke(); }
+        for (let k = 0; k < 5; k++) { const x = at(140 + k * 22), y = h * 0.85; g.fillStyle = '#8a5a30'; g.fillRect(x - h * 0.05, y - h * 0.06, h * 0.1, h * 0.06); g.fillStyle = '#d9b05a'; g.beginPath(); g.moveTo(x - h * 0.07, y - h * 0.055); g.lineTo(x, y - h * 0.12); g.lineTo(x + h * 0.07, y - h * 0.055); g.fill();
+          g.fillStyle = ['#e8483c', '#2a8fd6', '#f2c230'][k % 3]; g.fillRect(x - h * 0.04, y - h * 0.045, h * 0.08, h * 0.012); } // beach huts / kedai south
+        g.fillStyle = '#ffffff'; for (const a of [60, 280]) { const x = at(a); g.beginPath(); g.moveTo(x, h * 0.85); g.lineTo(x + h * 0.03, h * 0.78); g.lineTo(x + h * 0.03, h * 0.85); g.fill(); g.fillStyle = '#6a3a1a'; g.fillRect(x - h * 0.01, h * 0.85, h * 0.05, h * 0.008); g.fillStyle = '#ffffff'; } // sailboats
+        for (let k = 0; k < 8; k++) { g.strokeStyle = 'rgba(60,30,20,0.7)'; g.lineWidth = 2; const x = r() * w, y = h * (0.15 + r() * 0.2); g.beginPath(); g.moveTo(x - 8, y); g.quadraticCurveTo(x - 4, y - 5, x, y); g.quadraticCurveTo(x + 4, y - 5, x + 8, y); g.stroke(); }
+      }, 210, 110, -50);
+      const ball2 = add(new THREE.SphereGeometry(1, 20, 14), new THREE.MeshStandardMaterial({ map: cv(256, 128, (g, w, h) => { ['#e8483c', '#ffffff', '#2a8fd6', '#f2c230', '#ffffff', '#33a35a'].forEach((c, i) => { g.fillStyle = c; g.fillRect(i * w / 6, 0, w / 6, h); }); }), roughness: 0.5 }), 32, -8.4, -6); // beach ball
+      for (const [x, z] of [[-34, 22], [36, 24]]) { add(new THREE.CylinderGeometry(0.12, 0.12, 6, 6), std('#eee'), x, -6.4, z); add(new THREE.CylinderGeometry(0.12, 0.12, 6, 6), std('#eee'), x + 8, -6.4, z); const net = add(new THREE.PlaneGeometry(8, 1.6), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.6, side: THREE.DoubleSide }), x + 4, -4.4, z); } // volleyball nets E/W
+      add(new THREE.BoxGeometry(6, 0.6, 3), std('#c9a26a'), -6, -9.1, 34);
+      { const st = cv(512, 128, (g, w, h) => { g.fillStyle = '#2a8fd6'; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.font = '800 80px "Teko", Arial'; g.textAlign = 'center'; g.fillText('AIS KRIM', w / 2, 96); });
+        add(new THREE.BoxGeometry(9, 5, 4), std('#f5f0e6', 0.7), 14, -6.9, 40); add(new THREE.BoxGeometry(9.6, 2, 0.3), [std('#2a8fd6'), std('#2a8fd6'), std('#2a8fd6'), std('#2a8fd6'), std('#2a8fd6'), new THREE.MeshBasicMaterial({ map: st })], 14, -3.4, 37.9);
+        const roof = add(new THREE.ConeGeometry(7, 2.5, 4, 1), std('#e8483c', 0.6), 14, -2.5, 40); roof.rotation.y = Math.PI / 4;
+        const mat = add(new THREE.PlaneGeometry(5, 3), std('#f2c230', 0.9), -18, -9.35, 30); mat.rotation.x = -Math.PI / 2; } const surf = add(new THREE.BoxGeometry(1.4, 0.2, 7), std('#2a8fd6', 0.4), 4, -9.2, 32); surf.rotation.y = 0.4; // sand castle base + surfboard south
       for (const [x, z, r] of [[-60, -110, 0.2], [70, -130, -0.1]]) { const boat = add(new THREE.ConeGeometry(2.4, 6, 4), std('#f5f0e6', 0.6), x, -6, z); boat.rotation.set(0, r, 0); add(new THREE.BoxGeometry(5, 1, 2), std('#8a4a2a', 0.7), x, -8.6, z); }
       this.scene.fog = new THREE.Fog('#ffb38a', 70, 220);
     } else if (id === 'v_rooftop') {
@@ -430,7 +510,7 @@ export class World {
       add(new THREE.BoxGeometry(TW + 10, 0.12, 0.12), std('#c9ced8', 0.3, 0.8), 0, -4.2, -(TL / 2 + 8));
       const tank = add(new THREE.CylinderGeometry(3.2, 3.2, 5.5, 24), std('#7c8796', 0.5, 0.5), -22, -1.5, -26); for (const [dx, dz] of [[-2, -2], [2, -2], [-2, 2], [2, 2]]) add(new THREE.BoxGeometry(0.3, 5, 0.3), std('#333'), -22 + dx, -6.9, -26 + dz);
       for (const [x, z] of [[22, -20], [26, -12]]) { add(new THREE.BoxGeometry(5, 3.4, 3.4), std('#d5d8de', 0.6), x, -7.7, z); const g = add(new THREE.CircleGeometry(1.2, 20), std('#2b2f36', 0.8), x, -7.7, z + 1.71); }
-      const hp = add(new THREE.CircleGeometry(9, 48), new THREE.MeshStandardMaterial({ map: cv(256, 256, (g, w, h) => { g.fillStyle = '#2e333c'; g.fillRect(0, 0, w, h); g.strokeStyle = '#ffd34a'; g.lineWidth = 10; g.beginPath(); g.arc(128, 128, 110, 0, 7); g.stroke(); g.fillStyle = '#ffffff'; g.font = '800 150px "Barlow Condensed", Arial'; g.textAlign = 'center'; g.fillText('H', 128, 182); }), roughness: 0.8 }), 26, -9.35, 18); hp.rotation.x = -Math.PI / 2;
+      const hp = add(new THREE.CircleGeometry(9, 48), new THREE.MeshStandardMaterial({ map: cv(256, 256, (g, w, h) => { g.fillStyle = '#2e333c'; g.fillRect(0, 0, w, h); g.strokeStyle = '#ffd34a'; g.lineWidth = 10; g.beginPath(); g.arc(128, 128, 110, 0, 7); g.stroke(); g.fillStyle = '#ffffff'; g.font = '800 150px "Teko", Arial'; g.textAlign = 'center'; g.fillText('H', 128, 182); }), roughness: 0.8 }), 26, -9.35, 18); hp.rotation.x = -Math.PI / 2;
       this.scene.fog = new THREE.Fog('#0a1022', 70, 190);
     }
   }
@@ -465,10 +545,10 @@ export class World {
     const dotGeo = new THREE.SphereGeometry(0.07, 10, 8), dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1, depthWrite: false, depthTest: false });
     this.dots = []; const rim = new THREE.MeshBasicMaterial({ color: 0x06100a, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false, side: THREE.BackSide });
     for (let i = 0; i < 40; i++) { const d = new THREE.Mesh(dotGeo, dotMat.clone()); d.renderOrder = 8; const o = new THREE.Mesh(dotGeo, rim); o.scale.setScalar(1.35); o.renderOrder = 7; d.add(o); d.visible = false; this.aimGroup.add(d); this.dots.push(d); }
-    this.landRing = new THREE.Mesh(new THREE.RingGeometry(0.26, 0.42, 32), new THREE.MeshBasicMaterial({ color: 0xd4ff2a, transparent: true, opacity: 0.95, depthWrite: false, depthTest: false })); this.landRing.renderOrder = 6;
+    this.landRing = new THREE.Mesh(new THREE.RingGeometry(0.26, 0.42, 32), new THREE.MeshBasicMaterial({ color: 0x16e0ff, transparent: true, opacity: 0.95, depthWrite: false, depthTest: false })); this.landRing.renderOrder = 6;
     this.landRing.rotation.x = -Math.PI / 2; this.landRing.visible = false; this.aimGroup.add(this.landRing);
     const shape = new THREE.Shape(); shape.moveTo(-0.07, 0); shape.lineTo(0.07, 0); shape.lineTo(0.07, 0.8); shape.lineTo(0.18, 0.8); shape.lineTo(0, 1.1); shape.lineTo(-0.18, 0.8); shape.lineTo(-0.07, 0.8);
-    this.arrow = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: 0xd4ff2a, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+    this.arrow = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: 0x16e0ff, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
     this.arrow.renderOrder = 8; const outline = new THREE.Mesh(this.arrow.geometry, new THREE.MeshBasicMaterial({ color: 0x06100a, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
     outline.scale.set(1.35, 1.12, 1); outline.position.set(0, -0.04, -0.001); outline.renderOrder = 7; this.arrow.add(outline);
     this.arrow.rotation.x = -Math.PI / 2; this.arrow.visible = false; this.aimGroup.add(this.arrow);
@@ -479,7 +559,7 @@ export class World {
     this.arrow.visible = show; this.landRing.visible = show && !!target;
     this.dots.forEach(d => d.visible = false);
     if (!show) return;
-    const col = ps ? 0xff5a1f : power > 0.85 ? 0xffb02e : 0xd4ff2a;
+    const col = ps ? 0xff5a1f : power > 0.85 ? 0xffc23d : 0x16e0ff;
     this.arrow.material.color.set(col); this.landRing.material.color.set(col);
     // ShapeGeometry points +y; after -90deg about x that is -z, so yaw by atan2(-dx,-dz) to point along (dx,dz).
     this.arrow.position.set(ball.x + dx * 0.3, 0.03, ball.z + dz * 0.3);

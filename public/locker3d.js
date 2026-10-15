@@ -1,8 +1,8 @@
 // locker3d.js : Locker and menu art rendered by the match renderer itself.
 // Every thumbnail is a real World (scene.js) with the item applied, so what the shop shows is what the match shows.
 import * as THREE from 'three';
-import { World, makePlayer, makeBall } from './scene.js?v=19';
-import { itemById, DEFAULT_EQUIP } from './items.js?v=19';
+import { World, makePlayer, makeBall } from './scene.js?v=20';
+import { itemById, DEFAULT_EQUIP } from './items.js?v=20';
 
 // HD: thumbnails render at 2x their on-screen size (min 512), live preview at device pixel ratio up to 1024px.
 const DPR = Math.min(2, Math.max(1, devicePixelRatio || 1));
@@ -47,11 +47,12 @@ function shotFor(it, ctx) {
   if (s === 'venue') return { ...base, equip: { ...base.equip, venue: it.id }, players: [[0, 6, 0], [-2, 8, 0, 0, 7], [1.6, 4.2, Math.PI, 1]], ball: [0.2, 6.6], cam: [[0, 6.5, 19], [0, 0.5, -1], 52] };
   if (s === 'ball') return { ...base, equip: { ...base.equip, ball: it.id }, players: [[-0.55, -0.55, 0.5]], ball: [0.15, 0.2], cam: [[0.75, 0.42, 0.95], [0.12, 0.17, 0.18], 34] };
   if (s === 'fx') return { ...base, players: [[0, 0, 0]], ball: [0.6, -0.4], cam: [[0, 1.2, 10.5], [0, 4.6, 0], 62], fx: { kind: it.id, colors: [ctx.kit.base, ctx.kit.accent], steps: it.id === 'x_fireworks' ? 40 : it.id === 'x_confetti' ? 22 : 10 } };
+  if (s === 'studio') return { ...base, kit: { ...ctx.kit, id: 'k_studio', pattern: 'batik', base: '#7a1f2b', accent: '#e8b84a', trim: '#ffd45a', number: '#ffffff', collar: 'polo' }, players: [[-0.5, 0, 0.7], [0.5, 0, -0.7]], ball: [0, 0.9], cam: [[0, 0.95, 2.4], [0, 0.34, 0], 40] };
   return { ...base, players: [[0, 0, 0.35]], ball: [-0.62, 0.42], cam: HERO }; // pass
 }
 
 const snap = w => { sizeTo(THUMB); w.render(); return w.r.domElement.toDataURL('image/webp', 0.95); };
-const sig = ctx => `${ctx.team.id}|${ctx.kit.id}|${Object.values(ctx.equip).join(',')}`;
+const sig = ctx => `${ctx.team.id}|${ctx.kit.id === 'custom' ? JSON.stringify(ctx.kit) : ctx.kit.id}|${Object.values(ctx.equip).join(',')}`;
 const frame = () => new Promise(r => requestAnimationFrame(r));
 
 // Thumbnails, one per frame so the menu never freezes. onEach(id, dataURL).
@@ -76,6 +77,7 @@ export async function icon(kind, ctx) {
     two: { ...b, players: [[-0.55, 0, 0.6], [0.55, 0, -0.6, 1]], ball: [0, 0.55], cam: [[0, 0.9, 2.3], [0, 0.3, 0], 40] },
     web: { ...b, players: [[-0.9, -0.6, 0.5], [0.9, -0.6, -0.5, 1], [0, -1.8, 0, 0, 7]], ball: [0, 0.3], cam: [[0, 1.6, 2.6], [0, 0.2, -0.7], 46] },
     shop: { ...b, equip: { ...b.equip, paper: 'p_gold' }, players: [[0, 0, 0.35]], ball: [-0.62, 0.42], cam: HERO, tap: true },
+    studio: { ...b, players: [[-0.5, 0, 0.7], [0.5, 0, -0.7]], ball: [0, 0.9], cam: [[0, 0.95, 2.4], [0, 0.34, 0], 40] },
     help: { ...b, players: [[0, 0, 0.2]], ball: [0.2, 0.7], cam: [[1.35, 1.0, 1.9], [0, 0.3, 0.2], 40], tap: true },
   }[kind];
   do await frame(); while (previewOpen);
