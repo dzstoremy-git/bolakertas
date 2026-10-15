@@ -82,5 +82,15 @@ ok('squad: names cleaned, numbers 1-99 unique, premium pattern needs studio pack
   assert.equal(st.rosters[0].names[0], 'Amir'); assert.equal(st.custom[0].base, '#ff0000'); assert.equal(st.custom[1], null);
   assert.ok(S.fulfill('ch21', 22, 'k_studio', 25).ok);
 });
+ok('coin toss: winner kicks off and is home; AI home skins are deterministic; replay still matches', () => {});
+{
+  const { aiEquip, tossResult } = await import('./public/items.js');
+  const away = S.buildSetup({ team0: 'jdt', team1: 'sel', seed: 5, minutes: 1, first: 1, home: aiEquip(5) });
+  const e = new Engine(away); assert.equal(e.turnTeam, 1); const ae = aiEquip(5); assert.deepEqual(away.home, { pitch: ae.pitch, venue: ae.venue, ball: ae.ball }); assert.deepEqual(aiEquip(5), aiEquip(5));
+  const homeSt = S.buildSetup({ team0: 'jdt', team1: 'sel', seed: 5, minutes: 1, first: 0, home: { pitch: 'f_gold', venue: 'v_final', ball: 'b_crumple', paper: 'p_gold' } });
+  assert.equal(new Engine(homeSt).turnTeam, 0); assert.deepEqual(homeSt.home, { pitch: 'f_gold', venue: 'v_final', ball: 'b_crumple' });
+  assert.equal(tossResult('k', 'k'), true); assert.equal(tossResult('k', 'b'), false);
+  const played = playOut(S.buildSetup({ team0: 'jdt', team1: 'sel', seed: 9, minutes: 1, cpu: [true, true], first: 1 })); assert.equal(played.phase, 'over');
+}
 console.log(`\n${n} checks passed`);
 process.exit(0);

@@ -1,8 +1,8 @@
 // locker3d.js : Locker and menu art rendered by the match renderer itself.
 // Every thumbnail is a real World (scene.js) with the item applied, so what the shop shows is what the match shows.
 import * as THREE from 'three';
-import { World, makePlayer, makeBall } from './scene.js?v=20';
-import { itemById, DEFAULT_EQUIP } from './items.js?v=20';
+import { World, makePlayer, makeBall } from './scene.js?v=21';
+import { itemById, DEFAULT_EQUIP } from './items.js?v=21';
 
 // HD: thumbnails render at 2x their on-screen size (min 512), live preview at device pixel ratio up to 1024px.
 const DPR = Math.min(2, Math.max(1, devicePixelRatio || 1));
@@ -87,7 +87,7 @@ export async function icon(kind, ctx) {
 // Live, touch-rotatable preview inside the item sheet. Returns { tap(), close() }.
 export function preview(host, it, ctx) {
   const w = studio(), o = shotFor(it, ctx); delete o.fx; delete o.tap; stage(o); previewOpen = true;
-  sizeTo(Math.min(1024, Math.ceil(Math.min(innerWidth, 420) * DPR / 64) * 64));
+  sizeTo(Math.min(1024, Math.ceil((host.clientWidth || Math.min(innerWidth, 440)) * DPR / 64) * 64));
   const c = w.r.domElement; host.append(c); c.style.cssText = 'width:100%;height:100%;display:block;touch-action:none';
   const [pos, look] = o.cam, tgt = new THREE.Vector3(...look), off = new THREE.Vector3(...pos).sub(tgt);
   let yaw = 0, drag = null, alive = true, t = 0, last = performance.now(), auto = true;

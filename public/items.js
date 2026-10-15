@@ -45,6 +45,10 @@ export const ITEMS = [
   { id: 'b_classic', rarity: 'common', slot: 'ball', name: 'Bola Klasik', desc: 'Hitam putih tradisi.', free: true, look: { a: '#ffffff', b: '#151515', kind: 'classic' } },
   { id: 'b_candy', rarity: 'rare', slot: 'ball', name: 'Gula Gula', desc: 'Jalur merah jambu manis.', coins: 400, look: { a: '#ffffff', b: '#ef4f7a', kind: 'candy' } },
   { id: 'b_fire', rarity: 'epic', slot: 'ball', name: 'Bola Api', desc: 'Meninggalkan jejak bara.', stars: 15, look: { a: '#ffb02e', b: '#e8320c', kind: 'fire', trail: '#ff7a1a' } },
+  { id: 'b_crumple', rarity: 'rare', slot: 'ball', name: 'Kertas Ronyok', desc: 'Kertas latihan dironyok, dibalut selotep jernih. Bola sekolah sebenar.', coins: 500, look: { a: '#f3efe2', b: '#4670c8', kind: 'crumple' } },
+  { id: 'b_rubber', rarity: 'rare', slot: 'ball', name: 'Bola Gelang Getah', desc: 'Ratusan gelang getah dililit. Main kampung tahun 90an.', coins: 700, look: { a: '#c94a2a', b: '#f2a51a', kind: 'rubber' } },
+  { id: 'b_origami', rarity: 'epic', slot: 'ball', name: 'Origami Bersegi', desc: 'Dilipat tangan, segi demi segi.', stars: 15, look: { a: '#ff6b6b', b: '#ffd93d', kind: 'origami' } },
+  { id: 'b_disco', rarity: 'legend', slot: 'ball', name: 'Bola Disko', desc: 'Jubin cermin memantul lampu stadium.', stars: 25, look: { a: '#cfd6e6', b: '#ffffff', kind: 'disco' } },
   { id: 'b_galaxy', rarity: 'legend', slot: 'ball', name: 'Galaksi', desc: 'Bintang di hujung kaki.', stars: 25, look: { a: '#2a1b5e', b: '#8f6bff', kind: 'galaxy', trail: '#9f8bff' } },
 
   // GOAL FX
@@ -80,6 +84,13 @@ export const isOwned = (owned, it) => it.grants ? it.grants.every(g => owned.has
 export const completeSet = equip => ITEMS.find(i => i.grants && i.grants.every(g => Object.values(equip).includes(g))) || null;
 
 export const DEFAULT_EQUIP = { paper: 'p_a4', pitch: 'f_stripes', venue: 'v_desk', ball: 'b_classic', fx: 'x_basic' };
+// AI side's skins when it wins the toss and plays at home: deterministic from the match seed, so the server replay agrees.
+export function aiEquip(seed) {
+  const pick = (slot, k) => { const l = ITEMS.filter(i => i.slot === slot); return l[((seed >>> k) ^ (seed >>> (k + 11))) % l.length].id; };
+  return { ...DEFAULT_EQUIP, pitch: pick('pitch', 1), venue: pick('venue', 5), ball: pick('ball', 9) };
+}
+// Toss: the caller wins if the coin lands on their call. Winner kicks off and is home (their venue, pitch, ball).
+export const tossResult = (call, coin) => call === coin;
 export const itemById = id => ITEMS.find(i => i.id === id) || null;
 export const freeItems = () => ITEMS.filter(i => i.free).map(i => i.id);
 

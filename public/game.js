@@ -1,14 +1,14 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=20';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=20';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet } from './items.js?v=20';
-import { World, Q } from './scene.js?v=20';
-import { crest, ink } from './art.js?v=20';
-import * as L3 from './locker3d.js?v=20';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=21';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=21';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=21';
+import { World, Q } from './scene.js?v=21';
+import { crest, ink } from './art.js?v=21';
+import * as L3 from './locker3d.js?v=21';
 
 const tg = window.Telegram?.WebApp;
-const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 20, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
+const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
 addEventListener('error', e => beacon({ err: e.message, at: `${e.filename?.split('/').pop()}:${e.lineno}` }));
 addEventListener('unhandledrejection', e => beacon({ err: String(e.reason?.stack || e.reason).slice(0, 300) }));
 const initData = tg?.initData || '';
@@ -104,7 +104,7 @@ function stageWorld(setup, paperIds, equip) {
 function startMatch({ setup, mode, seat = 0, mid = null, paperIds, names }) {
   closeAllOverlays();
   const e = new Engine(setup);
-  const art = stageWorld(setup, paperIds, P.equip);
+  const art = stageWorld(setup, paperIds, { ...P.equip, ...(setup.home || {}) }); // home side's venue, pitch and ball for everyone
   world.setTeams(e, art.teams, art.kits, art.looks, art.keepers);
   M = { e, setup, mode, seat, mid, art, names: names || [art.teams[0].short, art.teams[1].short], actions: [], shot: 0, ps: false,
     aim: null, cpuWait: 0, turnLeft: null, turnDeadline: 0, halfWait: 0, lastMsg: 0, shake: 0, pending: null, over: false, paused: false,
@@ -112,7 +112,7 @@ function startMatch({ setup, mode, seat = 0, mid = null, paperIds, names }) {
   world.pieces.forEach(p => { p.x = p.data.x; p.z = p.data.z; p.drop = p.rank >= 4 ? 1.2 + p.data.id * 0.05 : 0; });
   $('#menu').hidden = true; $('#hud').hidden = false; document.body.classList.add('playing');
   buildHud(); onTurnStart(); SFX.whistle(false);
-  setTimeout(() => { if (M && S.hints) toast(S.ctrl === 'sling' ? 'Seret ke belakang macam lastik. Tarik pendek, tendang perlahan. Tarik jauh, tendang padu.' : 'Tahan untuk cas, lepas untuk tepuk. Lepas awal, tendang perlahan.', 5200); }, 600);
+  setTimeout(() => { if (M && S.hints) toast(S.ctrl === 'sling' ? 'Seret ke belakang macam lastik. Tarik pendek, tendang perlahan. Tarik jauh, tendang padu.' : 'Tahan untuk cas, lepas untuk tepuk. Lepas awal, tendang perlahan.', 5200); }, setup.coin ? 4000 : 600);
 }
 const humanTurn = () => M && !M.over && !M.queued && M.e.phase === 'aim' && (M.mode === 'local' || (M.mode === 'cpu' && M.e.turnTeam === 0) || (M.mode === 'online' && M.e.turnTeam === M.seat && !M.pending && !M.sent));
 const myTeam = () => M.mode === 'online' ? M.seat : M.mode === 'local' ? M.e.turnTeam : 0;
@@ -433,16 +433,45 @@ function localSetup(cpu) {
     paper: [itemById(P.equip.paper)?.stats || BASE_STATS, BASE_STATS] };
 }
 async function beginCpu() {
+  const call = await pickSide(true); if (!call) return;
   let setup = localSetup([false, true]), mid = null;
   if (!P.guest) {
-    try { const r = await api('/api/match/start', { team0: S.team, team1: setup.teams[1], kit0: setup.kits[0], kit1: setup.kits[1], formation: S.formation, skill: S.skill, minutes: S.minutes }); setup = r.setup; mid = r.mid; }
+    try { const r = await api('/api/match/start', { team0: S.team, team1: setup.teams[1], kit0: setup.kits[0], kit1: setup.kits[1], formation: S.formation, skill: S.skill, minutes: S.minutes, call }); setup = r.setup; mid = r.mid; }
     catch (e) { toast('Mod luar talian: coins tidak dikira untuk perlawanan ini.'); }
   }
+  if (!setup.coin) { setup.call = call; setup.coin = Math.random() < 0.5 ? 'k' : 'b'; const won = setup.coin === call; setup.first = won ? 0 : 1; setup.home = won ? { pitch: P.equip.pitch, venue: P.equip.venue, ball: P.equip.ball } : aiEquip(setup.seed); }
   startMatch({ setup, mode: 'cpu', mid, paperIds: [P.equip.paper, 'p_a4'], names: [teamById(setup.teams[0]).short, teamById(setup.teams[1]).short] });
+  revealToss(setup.coin, setup.first === 0, 'AI');
 }
-function beginLocal() {
-  const setup = localSetup([false, false]); setup.paper = [BASE_STATS, BASE_STATS];
+async function beginLocal() {
+  const call = await pickSide(true); if (!call) return;
+  const setup = localSetup([false, false]); setup.paper = [BASE_STATS, BASE_STATS]; setup.call = call; setup.coin = Math.random() < 0.5 ? 'k' : 'b'; setup.first = setup.coin === call ? 0 : 1;
   startMatch({ setup, mode: 'local', paperIds: ['p_a4', 'p_a4'], names: [teamById(setup.teams[0]).short, teamById(setup.teams[1]).short] });
+  revealToss(setup.coin, setup.first === 0, teamById(setup.teams[1]).short);
+}
+
+// ── coin toss: KEPALA (k) or BUNGA (b). Winner kicks off and plays at home (their venue, pitch, ball) ──
+const COIN = `<div class="coin3d" id="coin"><i class="cf k"><b>K</b><small>KEPALA</small></i><i class="cf b"><b>B</b><small>BUNGA</small></i></div>`;
+function pickSide(caller, online = false) {
+  return new Promise(res => {
+    const o = overlay(`<div class="toss"><small class="kick">PENGADIL</small><h2>LAMBUNG SYILING</h2>${COIN}
+      ${caller ? `<p class="muted">Pilih sisi. Pemenang mula dulu dan jadi <b>HOME</b>: venue, padang dan bola dia dipakai.</p>
+      <div class="row2"><button class="btn lime big" data-s="k">KEPALA</button><button class="btn lime big" data-s="b">BUNGA</button></div>${online ? '' : '<button class="btn ghost" id="cx">Batal</button>'}`
+      : `<p class="muted">Lawan sedang memilih sisi syiling...</p><div class="spinner"></div>`}</div>`);
+    o.classList.add('ov-toss');
+    o.querySelectorAll('[data-s]').forEach(b => b.onclick = () => { SFX.ui(); haptic('medium'); o.querySelectorAll('[data-s]').forEach(x => x.disabled = true); b.classList.add('picked'); o.querySelector('#coin').classList.add('spin'); setTimeout(() => res(b.dataset.s), 450); });
+    o.querySelector('#cx')?.addEventListener('click', () => { closeAllOverlays(); res(null); });
+    if (!caller) res(null);
+  });
+}
+function revealToss(coin, iWon, oppName) {
+  if (M && M.mode !== 'online') M.paused = true;
+  const o = overlay(`<div class="toss"><small class="kick">PENGADIL</small><h2>LAMBUNG SYILING</h2>${COIN}<p class="tres" id="tres">&nbsp;</p></div>`); o.classList.add('ov-toss');
+  const c = o.querySelector('#coin'); c.classList.add('flip', coin === 'b' ? 'land-b' : 'land-k'); SFX.whistle(false);
+  setTimeout(() => { const r = o.querySelector('#tres'); if (!r) return;
+    r.innerHTML = `<b>${coin === 'k' ? 'KEPALA' : 'BUNGA'}!</b> ${iWon ? 'Anda menang. Anda <em>HOME</em> dan mula dulu.' : `${esc(oppName)} menang. Anda <em>AWAY</em>, guna venue ${esc(oppName === 'AI' ? 'AI' : 'lawan')}.`}`;
+    iWon ? (notify('success'), SFX.buy()) : haptic('rigid'); }, 1500);
+  setTimeout(() => { o.remove(); if (M) M.paused = false; }, 3600);
 }
 
 // ── online ─────────────────────────────────────────────────
@@ -461,10 +490,12 @@ function joinRoom(code) {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     if (m.t === 'waiting') { const s = $('#rstat'); if (s) s.textContent = 'Menunggu lawan masuk. Kongsi kod atau pautan.'; }
     else if (m.t === 'err') { toast(m.msg === 'room-full' ? 'Bilik itu sudah penuh.' : m.msg === 'no-room' ? 'Bilik tidak wujud atau sudah tamat.' : 'Ralat.'); if (m.state && M) { M.e.importState(m.state); M.sent = false; } if (!M) closeAllOverlays(); }
+    else if (m.t === 'toss') { if (M) { M.closing = false; } pickSide(m.caller, true).then(side => { if (m.caller && side) ws.send(JSON.stringify({ t: 'call', side })); }); }
     else if (m.t === 'setup') {
-      state = 'play';
+      const fresh = state !== 'play'; state = 'play';
       startMatch({ setup: m.setup, mode: 'online', seat: m.seat, paperIds: m.setup.paperIds || ['p_a4', 'p_a4'], names: m.setup.names });
       M.ws = ws; M.e.importState(m.state); M.turnDeadline = performance.now() + (m.left || 0); M.turnFlag = true;
+      if (m.setup.coin && (fresh || m.state?.clock === 0)) revealToss(m.setup.coin, m.setup.first === m.seat, 'Lawan');
     }
     else if (!M) return;
     else if (m.t === 'act') { M.sent = false; if (!M.e._applyAction(m.a)) M.e.importState(m.state); else M.pending = m.state; M.turnDeadline = performance.now() + (m.left || 0); }

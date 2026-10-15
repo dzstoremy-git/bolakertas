@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { WebSocketServer } from 'ws';
 import { Engine, runToRest, isRest, makeCode, BASE_STATS, FORMATIONS } from './public/engine.js';
 import { teamById, rosterFor, cleanRoster, cleanKit } from './public/teams.js';
-import { ITEMS, itemById, DEFAULT_EQUIP, SLOTS, matchReward, DAILY_COIN_CAP, isOwned } from './public/items.js';
+import { ITEMS, itemById, DEFAULT_EQUIP, SLOTS, matchReward, DAILY_COIN_CAP, isOwned, aiEquip, tossResult } from './public/items.js';
 
 const PORT = +(process.env.PORT || 3000);
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
@@ -109,13 +109,15 @@ export function buyWithCoins(uid, itemId) {
 
 // ── CPU match setup + server replay for rewards ────────────
 const SKILLS = [0.25, 0.5, 0.8], MINUTES = [1, 3, 5];
-export function buildSetup({ team0, team1, kit0, kit1, formation, skill, minutes, seed, paper0, paper1, cpu = [false, true], squad0, squad1 }) {
+const skins = e => ({ pitch: e.pitch, venue: e.venue, ball: e.ball });
+export function buildSetup({ team0, team1, kit0, kit1, formation, skill, minutes, seed, paper0, paper1, cpu = [false, true], squad0, squad1, first = 0, home = null }) {
   const t0 = teamById(team0), t1 = teamById(team1);
   return { seed: seed >>> 0, minutes: MINUTES.includes(+minutes) ? +minutes : 3, halves: true, goalsToWin: 0, powerStrike: true,
     layout: 'spread', lockstep: true, turnLimit: 15, cpu, cpuSkill: SKILLS.includes(+skill) ? +skill : 0.5,
     formations: [FORMATIONS[formation] ? formation : '4-4-2', '4-4-2'], teams: [t0.id, t1.id],
     kits: [kit0 || t0.jerseys[0].id, kit1 || t1.jerseys[0].id], rosters: [squad0?.roster ? cleanRoster(squad0.roster, t0) : rosterFor(t0), squad1?.roster ? cleanRoster(squad1.roster, t1) : rosterFor(t1)],
     custom: [kit0 === 'custom' && squad0?.kit || null, kit1 === 'custom' && squad1?.kit || null],
+    first: first ? 1 : 0, home: skins(home || aiEquip(seed >>> 0)),
     paper: [paper0 || { ...BASE_STATS }, paper1 || { ...BASE_STATS }] };
 }
 // Mirrors the client loop exactly: halftime auto, CPU acts from engine RNG, humans act from the log.
@@ -189,7 +191,9 @@ async function api(req, res, path) {
   }
   if (path === '/api/match/start') {
     if (limited('ms:' + auth.uid, 30, 3600e3)) return json(res, 429, { err: 'slow_down' });
-    const setup = buildSetup({ ...body, seed: randomBytes(4).readUInt32LE(), paper0: paperStats(auth.uid), squad0: squadOf(auth.uid), squad1: null });
+    const seed = randomBytes(4).readUInt32LE(), call = body.call === 'b' ? 'b' : 'k', coin = randomBytes(1)[0] & 1 ? 'b' : 'k', won = tossResult(call, coin);
+    const setup = buildSetup({ ...body, seed, paper0: paperStats(auth.uid), squad0: squadOf(auth.uid), squad1: null, first: won ? 0 : 1, home: won ? profile(auth.uid).equip : aiEquip(seed) });
+    setup.coin = coin; setup.call = call;
     const mid = randomBytes(8).toString('hex');
     q('DELETE FROM matches WHERE created < ?').run(Date.now() - 6 * 3600e3);
     q('INSERT INTO matches (mid,uid,setup,created) VALUES (?,?,?,?)').run(mid, auth.uid, JSON.stringify(setup), Date.now());
@@ -272,10 +276,20 @@ function forfeit(room, loser) {
   clearTimeout(room.timer); e.phase = 'over'; e.winner = 1 - loser;
   cast(room, { t: 'over', winner: e.winner, score: e.score, forfeit: true, state: e.exportState() });
 }
-function startMatch(room) {
-  const [a, b] = room.players;
+// Seat 0 calls the coin (10s, else auto). Winner kicks off and is home: both players see the winner's venue, pitch and ball.
+function askToss(room) {
+  clearTimeout(room.tossTimer); room.call = null;
+  send(room.players[0].ws, { t: 'toss', caller: true }); send(room.players[1].ws, { t: 'toss', caller: false });
+  room.tossTimer = setTimeout(() => startMatch(room, 'k'), 10000);
+}
+function startMatch(room, call = 'k') {
+  clearTimeout(room.tossTimer); room.tossTimer = null; if (room.engine && room.engine.phase !== 'over') return;
+  const [a, b] = room.players, coin = randomBytes(1)[0] & 1 ? 'b' : 'k', first = tossResult(call, coin) ? 0 : 1;
+  const homeEquip = p => p.uid ? profile(p.uid).equip : DEFAULT_EQUIP;
   const setup = buildSetup({ team0: a.profile.team, team1: b.profile.team, kit0: a.profile.kit, kit1: b.profile.kit, formation: a.profile.formation,
-    minutes: room.rules.minutes, seed: randomBytes(4).readUInt32LE(), paper0: paperStats(a.uid), paper1: paperStats(b.uid), cpu: [false, false], squad0: squadOf(a.uid), squad1: squadOf(b.uid) });
+    minutes: room.rules.minutes, seed: randomBytes(4).readUInt32LE(), paper0: paperStats(a.uid), paper1: paperStats(b.uid), cpu: [false, false], squad0: squadOf(a.uid), squad1: squadOf(b.uid),
+    first, home: homeEquip(room.players[first]) });
+  setup.coin = coin; setup.call = call;
   setup.formations[1] = FORMATIONS[b.profile.formation] ? b.profile.formation : '4-4-2';
   setup.names = [a.profile.name, b.profile.name]; setup.paperIds = [a.paperId, b.paperId];
   room.setup = setup; room.engine = new Engine(setup); runToRest(room.engine); room.rematch = new Set();
@@ -299,12 +313,14 @@ function onRoomSocket(ws, pid, code) {
       me.profile = { name: String(auth?.name || pr.name || 'Pemain').slice(0, 20), team: teamById(pr.team).id, kit: String(pr.kit || ''), formation: String(pr.formation || '4-4-2') };
       if (room.engine) return send(ws, { t: 'setup', setup: room.setup, seat: me.seat, state: room.engine.exportState(), left: Math.max(0, (room.deadline || 0) - Date.now()) });
       const other = room.players.find(p => p !== me);
-      if (other?.profile) startMatch(room); else send(ws, { t: 'waiting', code });
+      if (other?.profile) askToss(room); else send(ws, { t: 'waiting', code });
       if (other) send(other.ws, { t: 'opp', here: true });
-    } else if (m.t === 'act') { if (!act(room, me.seat, m.a)) send(ws, { t: 'err', msg: 'bad-act', state: room.engine?.exportState() }); }
+    } else if (m.t === 'call' && me.seat === 0 && !room.engine?.phase && room.tossTimer) { startMatch(room, m.side === 'b' ? 'b' : 'k'); }
+    else if (m.t === 'call' && me.seat === 0 && room.engine?.phase === 'over' && room.tossTimer) { startMatch(room, m.side === 'b' ? 'b' : 'k'); }
+    else if (m.t === 'act') { if (!act(room, me.seat, m.a)) send(ws, { t: 'err', msg: 'bad-act', state: room.engine?.exportState() }); }
     else if (m.t === 'rematch' && room.engine?.phase === 'over') {
       room.rematch.add(me.seat); cast(room, { t: 'rematch', seats: [...room.rematch] });
-      if (room.rematch.size === 2) startMatch(room);
+      if (room.rematch.size === 2) askToss(room);
     }
   });
   ws.on('close', () => {

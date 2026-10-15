@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=20';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=20';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=20';
-import { RARITY } from './items.js?v=20';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=21';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=21';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=21';
+import { RARITY } from './items.js?v=21';
 
 export const Q = (() => { // quality tier. Telegram WebView on mobile gets the lean tier.
   const touch = matchMedia('(pointer:coarse)').matches, low = touch && (navigator.hardwareConcurrency || 4) <= 4;
@@ -74,10 +74,26 @@ export function makePlayer({ team, kit, number, name, look }, cache) {
   return { root, body, ring, aura, rank, color: look.kind === 'gold' ? '#ffc23a' : rcolOf(look) };
 }
 const SOFT = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return tex(c); })();
+// Crumpled paper: a sphere pushed in and out by random creases (deterministic so every client sees the same ball).
+function crumpleGeo(seed, amt) {
+  const g = new THREE.IcosahedronGeometry(BALL_R, 3), p = g.attributes.position, r = rng(seed), dents = Array.from({ length: 22 }, () => new THREE.Vector3(r() - 0.5, r() - 0.5, r() - 0.5).normalize().multiplyScalar(r() < 0.5 ? -1 : 1)), v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).normalize(); let d = 0; for (const n of dents) d += Math.max(0, v.dot(n) - 0.8) * (dents.indexOf(n) % 2 ? 1 : -1); v.multiplyScalar(BALL_R * (1 + d * amt)); p.setXYZ(i, v.x, v.y, v.z); }
+  g.computeVertexNormals(); return g;
+}
 export function makeBall(look) {
   const t = tex(ballTexture(look), true, 16), k = look.kind;
-  const m = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 48, 32), new THREE.MeshPhysicalMaterial({ map: t, roughness: k === 'candy' ? 0.15 : 0.35, clearcoat: k === 'candy' ? 1 : 0.6, clearcoatRoughness: 0.1,
-    ...(k === 'fire' || k === 'galaxy' ? { emissive: '#ffffff', emissiveMap: t, emissiveIntensity: k === 'fire' ? 0.9 : 0.6 } : {}) }));
+  const geo = k === 'crumple' ? crumpleGeo(7, 1.6) : k === 'origami' ? new THREE.IcosahedronGeometry(BALL_R * 1.05, 1) : k === 'disco' ? new THREE.SphereGeometry(BALL_R, 24, 14) : new THREE.SphereGeometry(BALL_R, 48, 32);
+  const m = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ map: t, roughness: k === 'candy' ? 0.15 : k === 'crumple' || k === 'origami' ? 0.85 : k === 'rubber' ? 0.6 : k === 'disco' ? 0.08 : 0.35,
+    metalness: k === 'disco' ? 0.35 : 0, clearcoat: k === 'candy' ? 1 : k === 'crumple' || k === 'origami' || k === 'rubber' ? 0 : 0.6, clearcoatRoughness: 0.1, flatShading: k === 'origami' || k === 'disco' || k === 'crumple',
+    ...(k === 'fire' || k === 'galaxy' || k === 'disco' ? { emissive: '#ffffff', emissiveMap: t, emissiveIntensity: k === 'fire' ? 0.9 : k === 'disco' ? 0.45 : 0.6 } : {}) }));
+  if (k === 'crumple') { // clear sellotape wrapped round the paper ball: glossy, slightly yellow, see-through
+    const tt = document.createElement('canvas'); tt.width = 256; tt.height = 64; const tg2 = tt.getContext('2d'); // tape: glossy film, yellowed edges, wrinkles
+    tg2.fillStyle = 'rgba(255,248,215,0.5)'; tg2.fillRect(0, 0, 256, 64); tg2.fillStyle = 'rgba(235,215,150,0.9)'; tg2.fillRect(0, 0, 256, 5); tg2.fillRect(0, 59, 256, 5);
+    for (let i = 0; i < 26; i++) { tg2.strokeStyle = `rgba(255,255,255,${0.35 + (i % 3) * 0.2})`; tg2.lineWidth = 1 + (i % 2); tg2.beginPath(); tg2.moveTo(i * 10, 6); tg2.lineTo(i * 10 + 6 + (i % 4) * 3, 58); tg2.stroke(); }
+    const tmap = new THREE.CanvasTexture(tt); tmap.colorSpace = THREE.SRGBColorSpace; tmap.wrapS = THREE.RepeatWrapping; tmap.repeat.set(3, 1);
+    const tape = new THREE.MeshPhysicalMaterial({ map: tmap, transparent: true, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02, side: THREE.DoubleSide, depthWrite: false, specularIntensity: 1 });
+    for (const [rx, rz] of [[0, 0], [Math.PI / 2, 0.4], [0.7, Math.PI / 2]]) { const b = new THREE.Mesh(new THREE.CylinderGeometry(BALL_R * 1.07, BALL_R * 1.07, BALL_R * 0.6, 48, 1, true), tape); b.rotation.set(rx, 0, rz); m.add(b); } }
+  if (k === 'rubber') m.scale.set(1, 0.97, 1.02);
   m.castShadow = true; m.userData.spin = [];
   const halo = (c, s, op) => { const h = new THREE.Sprite(new THREE.SpriteMaterial({ map: SOFT, color: c, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false })); h.scale.setScalar(s); m.add(h); return h; };
   if (k === 'fire') { m.userData.glow = halo('#ff6a10', BALL_R * 6, 0.55); // flame tongues + embers flicker around the ball
@@ -86,6 +102,7 @@ export function makeBall(look) {
     const ring = new THREE.Mesh(new THREE.TorusGeometry(BALL_R * 1.6, BALL_R * 0.05, 8, 64), new THREE.MeshBasicMaterial({ color: '#c9b8ff', transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false })); ring.rotation.x = 1.2; m.add(ring); m.userData.ring = ring;
     for (let i = 0; i < 6; i++) { const st = halo(['#ffffff', '#9fefff', '#ff9fe8'][i % 3], BALL_R * 0.9, 1); st.userData.a = i / 6 * 6.28; st.userData.r = BALL_R * (1.5 + (i % 2) * 0.4); m.userData.spin.push(st); } }
   if (k === 'candy') m.userData.glow = halo('#ff7fb0', BALL_R * 4, 0.25);
+  if (k === 'disco') { m.userData.glow = halo('#cfe6ff', BALL_R * 4, 0.3); for (let i = 0; i < 7; i++) { const st = halo(['#ffffff', '#9fefff', '#ff9fe8', '#fff1a0'][i % 4], BALL_R * 0.8, 1); st.userData.a = i / 7 * 6.28; st.userData.r = BALL_R * 1.02; m.userData.spin.push(st); } }
   return m;
 }
 export function animBall(m, t) { const u = m.userData; if (!u.spin) return;

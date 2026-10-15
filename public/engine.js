@@ -64,7 +64,7 @@ export class Engine {
     this.lastTapper = null; this.setPiece = 'kickoff'; this.clock = 0; this.half = 1; this.swapped = false;
     this.message = null; this.winner = null; this.lastGoal = null; this.nextAfterDead = null;
     this.turnT = 0; this.shotIgnore = null; this.events = []; this.acc = 0; this.shots = 0;
-    this.buildPieces(); this.applyLayout(); this.kickoff(0);
+    this.buildPieces(); this.applyLayout(); this.kickoff(this.opts.first ? 1 : 0); // coin toss winner kicks off
   }
 
   attackSign(t) { return (t === 0 ? 1 : -1) * (this.swapped ? -1 : 1); }
@@ -174,7 +174,7 @@ export class Engine {
       if (this.phase !== 'halftime') return false;
       this.half = 2; this.swapped = !this.swapped;
       for (const p of this.pieces) { p.kickoffHome = { x: -p.kickoffHome.x, z: -p.kickoffHome.z }; }
-      this.kickoff(1); return true;
+      this.kickoff(this.opts.first ? 0 : 1); return true;
     }
     if (this.phase !== 'aim') return false;
     if (a.t === 'skip') { this.turnTimeUp(); return true; }

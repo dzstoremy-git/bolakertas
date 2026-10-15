@@ -1,6 +1,6 @@
 // art.js : procedural 2D art drawn on canvas. Jerseys, crests, pitch, ball, net, paper surfaces.
 // Used for 3D textures and for menu thumbnails, so the menu and the match always look the same.
-import { FIELD } from './engine.js?v=20';
+import { FIELD } from './engine.js?v=21';
 
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; };
 export const shade = (hex, k) => { // k<0 darker, k>0 lighter
@@ -284,6 +284,23 @@ export function ballTexture(look, w = 1024, h = 512) {
     for (const [c1, n] of [['rgba(143,107,255,0.25)', 26], ['rgba(57,246,255,0.16)', 16], ['rgba(255,95,210,0.16)', 14]]) for (let i = 0; i < n; i++) { const x = r() * w, y = r() * h, s = 40 + r() * 140, gg = g.createRadialGradient(x, y, 0, x, y, s); gg.addColorStop(0, c1); gg.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gg; g.fillRect(x - s, y - s, s * 2, s * 2); }
     for (let i = 0; i < 1400; i++) { const b = r(); g.fillStyle = `rgba(255,255,255,${0.3 + b * 0.7})`; g.fillRect(r() * w, r() * h, b > 0.96 ? 3 : 1.5, b > 0.96 ? 3 : 1.5); }
     for (let i = 0; i < 18; i++) { const x = r() * w, y = r() * h; g.strokeStyle = 'rgba(255,255,255,0.9)'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x - 7, y); g.lineTo(x + 7, y); g.moveTo(x, y - 7); g.lineTo(x, y + 7); g.stroke(); }
+  } else if (look.kind === 'crumple') { // scrunched exercise-book page: ruled lines, red margin, crease shading, a bit of handwriting
+    g.fillStyle = '#f3efe2'; g.fillRect(0, 0, w, h);
+    g.strokeStyle = 'rgba(70,110,200,0.55)'; g.lineWidth = 2; for (let y = 18; y < h; y += 22) { g.beginPath(); g.moveTo(0, y + Math.sin(y) * 3); g.lineTo(w, y + Math.cos(y) * 3); g.stroke(); }
+    g.strokeStyle = 'rgba(220,60,60,0.7)'; g.lineWidth = 3; for (const x of [w * 0.12, w * 0.62]) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x + 6, h); g.stroke(); }
+    g.font = 'italic 34px "Rajdhani", Arial'; g.fillStyle = 'rgba(30,40,120,0.55)'; ['Latihan 3', 'GOL!!', '4-4-2', 'Ali 10'].forEach((s, i) => g.fillText(s, w * (0.16 + (i % 2) * 0.5), h * (0.25 + i * 0.18)));
+    for (let i = 0; i < 160; i++) { const x = r() * w, y = r() * h, l = 30 + r() * 120, a = r() * 6.28; g.strokeStyle = `rgba(${r() < 0.5 ? '0,0,0,0.12' : '255,255,255,0.5'})`; g.lineWidth = 1 + r() * 2; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
+  } else if (look.kind === 'origami') { // folded facets: each triangle a slightly different tone of the two papers
+    for (let y = 0, row = 0; y < h; y += h / 6, row++) for (let x = -w / 16, i = row; x < w; x += w / 16, i++) { const up = i % 2;
+      g.fillStyle = shade(i % 3 ? look.a : look.b, (r() - 0.5) * 0.35); g.beginPath(); g.moveTo(x, up ? y + h / 6 : y); g.lineTo(x + w / 16, up ? y : y + h / 6); g.lineTo(x + w / 8, up ? y + h / 6 : y); g.fill(); }
+    g.strokeStyle = 'rgba(0,0,0,0.15)'; g.lineWidth = 1.5; for (let y = 0; y < h; y += h / 6) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
+  } else if (look.kind === 'rubber') { // gelang getah: hundreds of overlapping coloured bands
+    g.fillStyle = '#c94a2a'; g.fillRect(0, 0, w, h); const cols = ['#e8452c', '#f2a51a', '#2f8fe0', '#2fb35a', '#e84fa0', '#f5e04a', '#8a4fe0'];
+    for (let i = 0; i < 260; i++) { const y = r() * h, a = (r() - 0.5) * 0.9, c = cols[i % cols.length]; g.save(); g.translate(r() * w, y); g.rotate(a); g.fillStyle = shade(c, -0.25); g.fillRect(-w, -7, w * 2, 14); g.fillStyle = c; g.fillRect(-w, -6, w * 2, 9); g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(-w, -5, w * 2, 2); g.restore(); }
+  } else if (look.kind === 'disco') { // mirror tiles with varied tone
+    g.fillStyle = '#20232c'; g.fillRect(0, 0, w, h); const n = 40, m = 20; for (let j = 0; j < m; j++) for (let i = 0; i < n; i++) { const v = 160 + r() * 95, tint = r() < 0.08 ? ['#9fefff', '#ff9fe8', '#fff1a0'][j % 3] : null;
+      g.fillStyle = tint || `rgb(${v},${v},${v + 10})`; g.fillRect(i * w / n + 1.5, j * h / m + 1.5, w / n - 3, h / m - 3); }
+    for (let i = 0; i < 60; i++) { const x = r() * w, y = r() * h, s = 6 + r() * 14; g.fillStyle = '#ffffff'; g.fillRect(x - s, y - 1.5, s * 2, 3); g.fillRect(x - 1.5, y - s, 3, s * 2); } // star glints
   }
   return c;
 }
