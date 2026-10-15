@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=27';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=27';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=27';
-import { World, Q } from './scene.js?v=27';
-import { crest, ink } from './art.js?v=27';
-import * as L3 from './locker3d.js?v=27';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=27';
-import { tierOf, TIERS } from './rank.js?v=27';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=28';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=28';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=28';
+import { World, Q } from './scene.js?v=28';
+import { crest, ink } from './art.js?v=28';
+import * as L3 from './locker3d.js?v=28';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=28';
+import { tierOf, TIERS } from './rank.js?v=28';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -418,7 +418,7 @@ async function finishMatch() {
     const title = M.mode === 'local' ? (draw ? T('draw') : T('x_wins', { name: esc(M.names[e.winner]) })) : T(draw ? 'draw' : won ? 'win' : 'lose');
     const o = overlay(`<div class="res ${won ? 'win' : draw ? 'draw' : 'lose'}"><small>${T('fulltime')}</small><h2>${title}</h2>
       <div class="final"><span>${esc(M.names[0])}</span><b>${e.score[0]}</b><i>:</i><b>${e.score[1]}</b><span>${esc(M.names[1])}</span></div>
-      <div class="reward" id="reward">${M.mode === 'cpu' ? T(P.guest ? 'reward_guest' : 'reward_wait') : M.mode === 'online' && M.forfeit ? T('opp_left') : ''}</div>${rankLine(M.rank)}</div>
+      <div class="reward" id="reward">${M.mode === 'cpu' ? T(P.guest ? 'reward_guest' : 'reward_wait') : M.mode === 'online' && M.forfeit ? T('opp_left') : ''}</div>${rankLine(M.rank)}${M.league?.counted ? `<p class="rk-nc">🏆 ${T('lg_counted')}</p>` : M.league ? `<p class="rk-nc">${T(M.league.why === 'pair' ? 'rk_nc_pair' : M.league.why === 'short' ? 'rk_nc_short' : 'rk_nc')}</p>` : ''}</div>
       ${M.goals.length ? `<div class="rp-row"><button class="btn" id="rp-watch">▶ ${T('rp_watch')}</button><button class="btn" id="rp-poster">🖼 ${T('rp_poster')}</button></div>` : ''}
       <button class="btn lime" id="again">${T(M.mode === 'online' ? 'rematch' : 'play_again')}</button><button class="btn" id="shop2">${T('locker_btn')}</button><button class="btn ghost" id="home">${T('main_menu')}</button>`);
     o.querySelector('#home').onclick = quitMatch;
@@ -448,13 +448,14 @@ function rankLine(r) {
   return `<div class="rk-res ${r.delta >= 0 ? 'up' : 'down'}" style="--tc:${tierOf(r.rp).color}"><b>${T(r.delta >= 0 ? 'rk_gain' : 'rk_loss', { n: r.delta })}</b><span>${up ? `${T('rk_up')} ` : ''}${tierName(r.tier, r.div)}  ·  ${T('rk_rp', { n: num(r.rp) })}</span></div>`;
 }
 async function showRanked(tab = 'season') {
-  const m = screen(`${header(true)}<main class="ranked"><h2 class="ttl">${T('ranked')}</h2><div id="rk-card" class="rk-card"><div class="spinner"></div></div>
+  const m = screen(`${header(true)}<main class="ranked"><div class="seg2"><button class="on">🏆 ${T('ranked')}</button><button id="to-lg">👥 ${T('lg')}</button></div><div id="rk-card" class="rk-card"><div class="spinner"></div></div>
     <button class="play" id="rk-go"><b>${T('rk_play')}</b><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke-linejoin="round"/></svg></button>
     <p class="rk-fair">⚖️ ${T('rk_fair')}</p>
     <h3 class="rk-h">${T('rk_board')}</h3><div class="tabs rk-tabs">${['week', 'season', 'all'].map(k => `<button class="tab ${k === tab ? 'on' : ''}" data-t="${k}">${T('rk_' + k)}</button>`).join('')}</div>
     <div id="rk-list" class="rk-list"></div><p class="rk-fair">🎁 ${T('rk_reward')}</p></main>`);
   bindHeader(m);
   m.querySelector('#rk-go').onclick = () => { SFX.ui(); if (P.guest) return toast(T('rk_guest')); findMatch(true); };
+  m.querySelector('#to-lg').onclick = () => { SFX.ui(); showLeagues(); };
   m.querySelectorAll('.rk-tabs .tab').forEach(b => b.onclick = () => { SFX.ui(); showRanked(b.dataset.t); });
   if (P.guest) { m.querySelector('#rk-card').innerHTML = `<p class="muted">${T('rk_guest')}</p>`; m.querySelector('#rk-list').innerHTML = ''; return; }
   let r; try { r = await api('/api/rank', { tab }); } catch { m.querySelector('#rk-card').innerHTML = `<p class="muted">${T('no_server')}</p>`; return; }
@@ -467,6 +468,63 @@ async function showRanked(tab = 'season') {
   const col = T('rk_col_' + tab), rows = r.rows.map(x => `<li class="${x.me ? 'me' : ''} ${x.pos <= 3 ? 'p' + x.pos : ''}"><em>${x.pos}</em><b>${esc(x.name)}${x.me ? ` <i>${T('rk_you')}</i>` : ''}</b>${x.tier ? `<span class="tchip" style="--tc:${TIERS.find(z => z.id === x.tier).color}">${T('t_' + x.tier)}</span>` : ''}<strong>${num(x.score)}</strong></li>`).join('');
   const mine = r.me && !r.rows.some(x => x.me) ? `<li class="me sticky"><em>${num(r.me.pos)}</em><b>${T('rk_you')}</b><strong>${num(r.me.score)}</strong></li>` : '';
   m.querySelector('#rk-list').innerHTML = `<div class="rk-hd"><span>${tab === 'week' ? T('rk_week_reset') : ''}</span><span>${col}</span></div><ol>${rows || `<li class="empty">${T('rk_empty')}</li>`}${mine}</ol>`;
+}
+
+// ── friend leagues ─────────────────────────────────────────
+const lgErr = e => T({ name: 'lg_err_name', limit: 'lg_err_limit', full: 'lg_err_full', no_league: 'lg_err_none' }[e] || 'oops');
+async function lgApi(body) { const r = await fetch('/api/league', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Init-Data': initData }, body: JSON.stringify(body) }); const j = await r.json().catch(() => ({})); if (!r.ok) throw j.err || 'oops'; return j; }
+async function joinLeagueCode(code, by = 0) {
+  if (P.guest) return toast(T('rk_guest'));
+  try { const r = await lgApi({ op: 'join', code, by }); const t = await lgApi({ op: 'get', id: r.id }); notify('success'); toast(T('lg_joined', { name: t.name }), 3500); showLeague(r.id); }
+  catch (e) { toast(lgErr(e)); }
+}
+async function showLeagues() {
+  const m = screen(`${header(true)}<main class="ranked"><div class="seg2"><button id="to-rk">🏆 ${T('ranked')}</button><button class="on">👥 ${T('lg')}</button></div>
+    <h3 class="rk-h">${T('lg_mine')}</h3><div id="lg-list" class="lg-list"><div class="spinner"></div></div>
+    <button class="play" id="lg-new"><b>${T('lg_new')}</b></button>
+    <div class="join"><input id="lg-code" maxlength="6" placeholder="${T('lg_join')}" autocomplete="off"><button class="btn lime" id="lg-join">${T('join')}</button></div>
+    <p class="rk-fair">🎁 ${T('lg_reward', { n: 100 })}</p></main>`);
+  bindHeader(m);
+  m.querySelector('#to-rk').onclick = () => { SFX.ui(); showRanked(); };
+  const inp = m.querySelector('#lg-code'); inp.oninput = () => inp.value = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  m.querySelector('#lg-join').onclick = () => inp.value.length === 6 ? joinLeagueCode(inp.value) : toast(T('lg_err_none'));
+  m.querySelector('#lg-new').onclick = () => { SFX.ui(); if (P.guest) return toast(T('rk_guest')); newLeagueSheet(); };
+  if (P.guest) { m.querySelector('#lg-list').innerHTML = `<p class="muted lg-empty">${T('rk_guest')}</p>`; return; }
+  let r; try { r = await lgApi({ op: 'list' }); } catch { m.querySelector('#lg-list').innerHTML = `<p class="muted lg-empty">${T('no_server')}</p>`; return; }
+  if (!m.isConnected) return;
+  m.querySelector('#lg-list').innerHTML = r.leagues.length ? r.leagues.map(l => `<button class="lg-row" data-id="${l.id}" style="--lc:${l.color}"><span class="lg-badge">${esc(l.name[0] || '?')}</span><span class="mt"><b>${esc(l.name)}</b><small>${T('lg_members', { n: l.n, m: r.free.members })}${l.own ? '  ·  ' + T('lg_owner') : ''}</small></span><span class="go"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span></button>`).join('') : `<p class="muted lg-empty">${T('lg_none')}</p>`;
+  m.querySelectorAll('.lg-row').forEach(b => b.onclick = () => { SFX.ui(); showLeague(+b.dataset.id); });
+  window.__lgColors = r.colors;
+}
+function newLeagueSheet() {
+  const cols = window.__lgColors || ['#4fb3ff', '#ff5d73', '#3fd1a2', '#ffc93c', '#9d85ff', '#ff9f66']; let col = cols[0];
+  const o = overlay(`<h2>${T('lg_new').replace('+ ', '')}</h2><label class="lg-f">${T('lg_name')}<input id="lg-n" maxlength="24" autocomplete="off"></label>
+    <label class="lg-f">${T('lg_color')}<div class="lg-cols">${cols.map((c, i) => `<button class="${i ? '' : 'on'}" data-c="${c}" style="background:${c}"></button>`).join('')}</div></label>
+    <button class="btn lime" id="lg-ok">${T('lg_create')}</button><button class="btn ghost" id="lg-cx">${T('cancel')}</button>`);
+  o.querySelectorAll('.lg-cols button').forEach(b => b.onclick = () => { col = b.dataset.c; o.querySelectorAll('.lg-cols button').forEach(x => x.classList.toggle('on', x === b)); });
+  o.querySelector('#lg-cx').onclick = closeAllOverlays;
+  o.querySelector('#lg-ok').onclick = async () => { try { const r = await lgApi({ op: 'create', name: o.querySelector('#lg-n').value, color: col }); closeAllOverlays(); notify('success'); showLeague(r.id); } catch (e) { toast(lgErr(e)); } };
+  setTimeout(() => o.querySelector('#lg-n').focus(), 100);
+}
+async function showLeague(id) {
+  const m = screen(`${header(true)}<main class="ranked"><div id="lg-body"><div class="spinner"></div></div></main>`); bindHeader(m, showLeagues);
+  let t; try { t = await lgApi({ op: 'get', id }); } catch (e) { toast(lgErr(e)); return showLeagues(); }
+  if (!m.isConnected) return;
+  const days = Math.max(0, Math.ceil((t.ends - Date.now()) / 864e5)), me = t.table.find(r => r.me);
+  const rows = t.table.map(r => `<li class="${r.me ? 'me' : ''} ${r.pos === 1 && r.p ? 'p1' : ''}"><em>${r.pos}</em><b>${esc(r.name)}${r.me ? ` <i>${T('rk_you')}</i>` : ''}</b><span class="lg-n">${r.p}</span><span class="lg-n">${r.w}</span><span class="lg-n">${r.d}</span><span class="lg-n">${r.l}</span><span class="lg-n">${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</span><strong>${r.pts}</strong></li>`).join('');
+  const recent = t.recent.map(x => `<li><b>${esc(x.a)}</b><em>${x.ga} : ${x.gb}</em><b>${esc(x.b)}</b></li>`).join('');
+  m.querySelector('#lg-body').innerHTML = `<div class="lg-head" style="--lc:${t.color}"><span class="lg-badge big">${esc(t.name[0] || '?')}</span><div><h2 class="ttl">${esc(t.name)}</h2><small>${T('rk_season_n', { n: t.season })}  ·  ${T('lg_members', { n: t.table.length, m: t.max })}  ·  <code>${t.code}</code></small></div></div>
+    <div class="rp-row"><button class="play" id="lg-ch"><b>${T('lg_challenge')}</b></button><button class="btn lime" id="lg-inv">📨 ${T('lg_invite')}</button></div>
+    <p class="rk-fair">🏆 ${T('lg_season_ends', { d: days })}</p>
+    <h3 class="rk-h">${T('lg_table')}</h3><div class="rk-list lg-table"><div class="rk-hd"><span></span><span class="lg-cols-h">${T('lg_cols').split('  ').map(c => `<i>${c}</i>`).join('')}</span></div><ol>${rows}</ol><p class="lg-legend">${T('lg_legend')}</p></div>
+    ${recent ? `<h3 class="rk-h">${T('lg_recent')}</h3><ul class="lg-recent">${recent}</ul>` : ''}
+    <button class="btn ghost" id="lg-leave">${T('lg_leave')}</button>`;
+  const invite = () => { const link = `https://t.me/BolaKertasBot?start=lg_${t.code.toLowerCase()}_${P.uid || 0}`, text = T('lg_share', { name: t.name });
+    if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`); else navigator.clipboard?.writeText(link).then(() => toast(T('link_copied'))); };
+  m.querySelector('#lg-inv').onclick = () => { SFX.ui(); invite(); };
+  m.querySelector('#lg-ch').onclick = async () => { SFX.ui(); try { const r = await lgApi({ op: 'room', id }); toast(T('lg_wait'), 3500); joinRoom(r.code); } catch (e) { toast(lgErr(e)); } };
+  m.querySelector('#lg-leave').onclick = () => { const o = overlay(`<h2>${T('lg_leave')}</h2><p class="muted">${T('lg_leave_q')}</p><button class="btn" id="y" style="--f:var(--red);--d:var(--red-d);--c:#fff">${T('lg_leave')}</button><button class="btn ghost" id="n">${T('cancel')}</button>`);
+    o.querySelector('#n').onclick = closeAllOverlays; o.querySelector('#y').onclick = async () => { await lgApi({ op: 'leave', id }).catch(() => {}); closeAllOverlays(); showLeagues(); }; };
 }
 
 // ── goal replay ────────────────────────────────────────────
@@ -494,7 +552,7 @@ function replayCam(clip, f, k) {
 function playReplays(idx, record = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=27" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=28" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -546,7 +604,7 @@ const loadImg = src => new Promise((ok, bad) => { const i = new Image(); i.onloa
 async function sharePoster(clip) {
   if (!clip) return toast(T('rp_none'));
   const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
-  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=27'), loadImg('/sponsor/revolix.png?v=27').catch(() => null)]);
+  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=28'), loadImg('/sponsor/revolix.png?v=28').catch(() => null)]);
   const sc = Math.max(W / art.width, H / art.height); g.drawImage(art, (W - art.width * sc) / 2, (H - art.height * sc) / 2, art.width * sc, art.height * sc);
   let gr = g.createLinearGradient(0, H * 0.5, 0, H); gr.addColorStop(0, 'rgba(5,10,30,0)'); gr.addColorStop(0.45, 'rgba(5,10,30,.82)'); gr.addColorStop(1, 'rgba(5,10,30,.96)'); g.fillStyle = gr; g.fillRect(0, H * 0.5, W, H * 0.5);
   gr = g.createLinearGradient(0, 0, 0, 220); gr.addColorStop(0, 'rgba(5,10,30,.85)'); gr.addColorStop(1, 'rgba(5,10,30,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, 220);
@@ -642,7 +700,7 @@ function joinRoom(code) {
     }
     else if (!M) return;
     else if (m.t === 'act') { M.sent = false; if (!M.e._applyAction(m.a)) M.e.importState(m.state); else M.pending = m.state; M.turnDeadline = performance.now() + (m.left || 0); }
-    else if (m.t === 'over') { M.forfeit = !!m.forfeit; M.rank = m.rank || null; if (m.state) M.e.importState(m.state); M.e.phase = 'over'; M.e.winner = m.winner; }
+    else if (m.t === 'over') { M.forfeit = !!m.forfeit; M.rank = m.rank || null; M.league = m.league || null; if (m.state) M.e.importState(m.state); M.e.phase = 'over'; M.e.winner = m.winner; }
     else if (m.t === 'opp') toast(T(m.here ? 'opp_back' : 'opp_gone'), 3500);
     else if (m.t === 'rematch') toast(T(m.seats.length < 2 ? 'rematch_asked' : 'rematch_go'));
   };
@@ -955,9 +1013,11 @@ async function boot() {
   await document.fonts?.ready;
   await loadProfile();
   stageMenuScene(); requestAnimationFrame(loop);
-  const room = new URLSearchParams(location.search).get('room') || (tg?.initDataUnsafe?.start_param || '').replace(/^room_/, '');
+  const qs = new URLSearchParams(location.search), sp = tg?.initDataUnsafe?.start_param || '';
+  const room = qs.get('room') || (/^room_/.test(sp) ? sp.slice(5) : ''), lgc = qs.get('league') || (/^lg_/.test(sp) ? sp.slice(3).split('_')[0] : ''), by = +(qs.get('by') || sp.split('_')[2] || 0);
   showHome();
   if (/^[A-Z0-9]{4,8}$/.test(room || '')) joinRoom(room);
+  else if (/^[A-Z0-9]{6}$/i.test(lgc || '')) joinLeagueCode(lgc, by);
   $('#boot')?.classList.add('gone');
 }
 boot();

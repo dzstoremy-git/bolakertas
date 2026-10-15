@@ -34,6 +34,11 @@ try { db.exec("ALTER TABLE users ADD COLUMN squad TEXT NOT NULL DEFAULT '{}'"); 
 db.exec(`CREATE TABLE IF NOT EXISTS rank (uid INTEGER NOT NULL, season INTEGER NOT NULL, rp INTEGER NOT NULL, best INTEGER NOT NULL, w INTEGER NOT NULL DEFAULT 0, l INTEGER NOT NULL DEFAULT 0, d INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (uid, season));
 CREATE TABLE IF NOT EXISTS rmatch (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, season INTEGER NOT NULL, week INTEGER NOT NULL, a INTEGER NOT NULL, b INTEGER NOT NULL, sa REAL NOT NULL, da INTEGER NOT NULL, db INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS rmatch_week ON rmatch (week); CREATE INDEX IF NOT EXISTS rmatch_pair ON rmatch (a, b, at);`);
+// Friend leagues: members play each other; table per season; inviter earns coins when the invitee plays their first league match.
+db.exec(`CREATE TABLE IF NOT EXISTS league (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL, color TEXT NOT NULL, owner INTEGER NOT NULL, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS league_member (lid INTEGER NOT NULL, uid INTEGER NOT NULL, by INTEGER, rewarded INTEGER NOT NULL DEFAULT 0, joined INTEGER NOT NULL, PRIMARY KEY (lid, uid));
+CREATE TABLE IF NOT EXISTS league_match (id INTEGER PRIMARY KEY AUTOINCREMENT, lid INTEGER NOT NULL, season INTEGER NOT NULL, a INTEGER NOT NULL, b INTEGER NOT NULL, ga INTEGER NOT NULL, gb INTEGER NOT NULL, at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS lm_lid ON league_match (lid, season);`);
 const q = sql => db.prepare(sql);
 const tx = fn => { db.exec('BEGIN IMMEDIATE'); try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; } };
 
@@ -84,6 +89,58 @@ export function settleRanked(a, b, scoreA, durationMs, now = Date.now()) {
     return { counted: true, [a]: { delta: da, rp: Math.max(0, ra.rp + da), before: ra.rp }, [b]: { delta: db2, rp: Math.max(0, rb.rp + db2), before: rb.rp } };
   });
 }
+// ── friend leagues ─────────────────────────────────────────
+export const LEAGUE_FREE = { own: 1, members: 8 }, LEAGUE_COLORS = ['#4fb3ff', '#ff5d73', '#3fd1a2', '#ffc93c', '#9d85ff', '#ff9f66'], INVITE_REWARD = 100;
+const cleanName = s => String(s || '').replace(/[<>&"'\u0000-\u001f]/g, '').trim().slice(0, 24);
+const isMember = (lid, uid) => !!q('SELECT 1 FROM league_member WHERE lid=? AND uid=?').get(lid, uid);
+export function createLeague(uid, name, color) {
+  name = cleanName(name); if (name.length < 3) return { ok: false, err: 'name' };
+  if (q('SELECT COUNT(*) n FROM league WHERE owner=?').get(uid).n >= LEAGUE_FREE.own) return { ok: false, err: 'limit' };
+  let code; do code = makeCode(6); while (q('SELECT 1 FROM league WHERE code=?').get(code));
+  return tx(() => { const id = q('INSERT INTO league (code,name,color,owner,created) VALUES (?,?,?,?,?)').run(code, name, LEAGUE_COLORS.includes(color) ? color : LEAGUE_COLORS[0], uid, Date.now()).lastInsertRowid;
+    q('INSERT INTO league_member (lid,uid,joined) VALUES (?,?,?)').run(id, uid, Date.now()); return { ok: true, id: Number(id), code }; });
+}
+export function joinLeague(uid, code, by = 0) {
+  const lg = q('SELECT * FROM league WHERE code=?').get(String(code || '').toUpperCase()); if (!lg) return { ok: false, err: 'no_league' };
+  if (isMember(lg.id, uid)) return { ok: true, id: lg.id, already: true };
+  if (q('SELECT COUNT(*) n FROM league_member WHERE lid=?').get(lg.id).n >= LEAGUE_FREE.members) return { ok: false, err: 'full' };
+  const inviter = by && by !== uid && isMember(lg.id, by) ? by : lg.owner !== uid ? lg.owner : null;
+  q('INSERT INTO league_member (lid,uid,by,joined) VALUES (?,?,?,?)').run(lg.id, uid, inviter, Date.now()); return { ok: true, id: lg.id };
+}
+export function leaveLeague(uid, lid) {
+  const lg = q('SELECT * FROM league WHERE id=?').get(lid); if (!lg || !isMember(lid, uid)) return { ok: false, err: 'no_league' };
+  tx(() => { q('DELETE FROM league_member WHERE lid=? AND uid=?').run(lid, uid);
+    const next = q('SELECT uid FROM league_member WHERE lid=? ORDER BY joined LIMIT 1').get(lid);
+    if (!next) { q('DELETE FROM league WHERE id=?').run(lid); q('DELETE FROM league_match WHERE lid=?').run(lid); } else if (lg.owner === uid) q('UPDATE league SET owner=? WHERE id=?').run(next.uid, lid); });
+  return { ok: true };
+}
+// Record a finished league game. Same pair counts 3 times a day; under a minute does not count. Pays the inviter once per invitee.
+export function recordLeague(lid, a, b, ga, gb, durationMs, now = Date.now()) {
+  if (!a || !b || a === b || !isMember(lid, a) || !isMember(lid, b)) return { counted: false, why: 'players' };
+  if (durationMs < MIN_RANKED_MS) return { counted: false, why: 'short' };
+  return tx(() => {
+    const n = q('SELECT COUNT(*) n FROM league_match WHERE lid=? AND ((a=? AND b=?) OR (a=? AND b=?)) AND at>?').get(lid, a, b, b, a, now - 864e5).n;
+    if (n >= PAIR_DAILY) return { counted: false, why: 'pair' };
+    q('INSERT INTO league_match (lid,season,a,b,ga,gb,at) VALUES (?,?,?,?,?,?,?)').run(lid, seasonOf(now), a, b, ga, gb, now);
+    const paid = [];
+    for (const uid of [a, b]) { const m = q('SELECT by, rewarded FROM league_member WHERE lid=? AND uid=?').get(lid, uid);
+      if (m.by && !m.rewarded) { q('UPDATE league_member SET rewarded=1 WHERE lid=? AND uid=?').run(lid, uid); q('UPDATE users SET coins=coins+? WHERE uid=?').run(INVITE_REWARD, m.by); paid.push(m.by); } }
+    return { counted: true, paid };
+  });
+}
+// Table: 3 points a win, 1 a draw; ties on goal difference, then goals scored. Members who have not played sit at the bottom.
+export function leagueTable(lid, me = 0, now = Date.now()) {
+  const lg = q('SELECT * FROM league WHERE id=?').get(lid); if (!lg || (me && !isMember(lid, me))) return null;
+  const season = seasonOf(now), rows = new Map();
+  for (const m of q('SELECT lm.uid, COALESCE(u.name, \'\') name FROM league_member lm LEFT JOIN users u ON u.uid=lm.uid WHERE lid=? ORDER BY joined').all(lid)) rows.set(m.uid, { uid: m.uid, name: m.name.slice(0, 20) || 'Pemain', p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 });
+  for (const x of q('SELECT * FROM league_match WHERE lid=? AND season=?').all(lid, season))
+    for (const [uid, f, ag] of [[x.a, x.ga, x.gb], [x.b, x.gb, x.ga]]) { const r = rows.get(uid); if (!r) continue; r.p++; r.gf += f; r.ga += ag; if (f > ag) { r.w++; r.pts += 3; } else if (f === ag) { r.d++; r.pts++; } else r.l++; }
+  const table = [...rows.values()].sort((x, y) => y.pts - x.pts || (y.gf - y.ga) - (x.gf - x.ga) || y.gf - x.gf || y.p - x.p).map((r, i) => ({ ...r, pos: i + 1, me: r.uid === me, uid: undefined }));
+  const recent = q('SELECT lm.ga, lm.gb, lm.at, COALESCE(ua.name,\'\') an, COALESCE(ub.name,\'\') bn FROM league_match lm LEFT JOIN users ua ON ua.uid=lm.a LEFT JOIN users ub ON ub.uid=lm.b WHERE lid=? ORDER BY at DESC LIMIT 5').all(lid);
+  return { id: lg.id, code: lg.code, name: lg.name, color: lg.color, owner: lg.owner === me, season, ends: seasonEnds(season), max: LEAGUE_FREE.members, table, recent: recent.map(r => ({ a: r.an.slice(0, 20), b: r.bn.slice(0, 20), ga: r.ga, gb: r.gb, at: r.at })) };
+}
+export const myLeagues = uid => q('SELECT l.id, l.code, l.name, l.color, l.owner=? own, (SELECT COUNT(*) FROM league_member x WHERE x.lid=l.id) n FROM league l JOIN league_member m ON m.lid=l.id AND m.uid=? ORDER BY m.joined').all(uid, uid).map(r => ({ ...r, own: !!r.own }));
+
 // Leaderboards. week: 3 per win + 1 per draw this week. season: RP now. all: wins across every season.
 export function board(tab, me = 0, now = Date.now()) {
   const s = seasonOf(now), wk = weekOf(now);
@@ -250,6 +307,16 @@ async function api(req, res, path) {
     q('UPDATE users SET equip=? WHERE uid=?').run(JSON.stringify(p.equip), auth.uid);
     return json(res, 200, profile(auth.uid));
   }
+  if (path === '/api/league') { // ops: list | create | join | get | leave | room
+    const op = body.op, lid = +body.id || 0;
+    if (op === 'list') return json(res, 200, { leagues: myLeagues(auth.uid), free: LEAGUE_FREE, colors: LEAGUE_COLORS });
+    if (op === 'create') { if (limited('lgc:' + auth.uid, 5, 3600e3)) return json(res, 429, { err: 'slow_down' }); const r = createLeague(auth.uid, body.name, body.color); return json(res, r.ok ? 200 : 400, r); }
+    if (op === 'join') { if (limited('lgj:' + auth.uid, 20, 3600e3)) return json(res, 429, { err: 'slow_down' }); const r = joinLeague(auth.uid, body.code, +body.by || 0); return json(res, r.ok ? 200 : 400, r); }
+    if (op === 'leave') { const r = leaveLeague(auth.uid, lid); return json(res, r.ok ? 200 : 400, r); }
+    if (op === 'get') { const t = leagueTable(lid, auth.uid); return t ? json(res, 200, t) : json(res, 404, { err: 'no_league' }); }
+    if (op === 'room') { if (!isMember(lid, auth.uid)) return json(res, 403, { err: 'no_league' }); const code = createRoom({ minutes: 3, league: lid }); return code ? json(res, 200, { code }) : json(res, 503, { err: 'full' }); }
+    return json(res, 400, { err: 'bad' });
+  }
   if (path === '/api/rank') { // { tab: week|season|all } -> board + my card
     const r = rankRow(auth.uid), t = tierOf(r.rp), b = board(body.tab || 'season', auth.uid);
     return b ? json(res, 200, { ...b, mine: { rp: r.rp, best: r.best, w: r.w, l: r.l, d: r.d, tier: t.id, div: t.div, next: t.next, season: r.season, ends: seasonEnds(r.season) } }) : json(res, 400, { err: 'bad' });
@@ -314,6 +381,8 @@ const BT = {
     support: 'Bantuan Pembelian', support_b: 'Hantar dalam chat ini:\n1. <b>ID resit</b> dari mesej bayaran (bermula dengan <code>stxt</code>)\n2. Nama item atau pek coins yang anda beli', support_n: 'Kami akan balas dalam masa 48 jam. Bayaran berganda akan dipulangkan.',
     terms: 'Terma', terms_b: '• Semua item hanya untuk gaya dalam permainan. Kertas mahal tidak menjadikan anda lebih kuat.\n• Coins dan item tidak boleh ditukar kepada wang tunai atau dipindahkan.\n• Pembelian dengan Stars adalah muktamad, kecuali jika item tidak diterima. Hubungi /paysupport.\n• Coins dari permainan terhad 1,500 sehari. Coins yang dibeli tiada had.',
     owns: n => `Anda dah ada <b>${n}</b>.`, cant_buy: 'Item ini tidak boleh dibeli sekarang.',
+    inv_room: c => `🎮 <b>Anda dicabar!</b>\nKawan anda tunggu dalam bilik <code>${c}</code>. Tekan butang di bawah untuk masuk terus.`,
+    inv_league: c => `🏆 <b>Jemputan Liga</b>\nAnda dijemput sertai liga <code>${c}</code>. Lawan kawan, kumpul mata, rebut piala musim ini.`,
     b_play: '⚽ MAIN SEKARANG', b_coins: '🪙 Beli Coins', b_profile: '👤 Profil', b_help: '📖 Cara Main', b_locker: '🎒 Buka Loker', b_more: '🪙 Beli lagi', coins_w: 'coins',
   },
   en: {
@@ -330,6 +399,8 @@ const BT = {
     support: 'Purchase Help', support_b: 'Send us in this chat:\n1. The <b>receipt ID</b> from your payment message (it starts with <code>stxt</code>)\n2. The item or coin pack you bought', support_n: "We'll reply within 48 hours. Double payments are refunded.",
     terms: 'Terms', terms_b: "• All items are cosmetic. Expensive paper doesn't make you stronger.\n• Coins and items can't be exchanged for cash or transferred.\n• Stars purchases are final unless the item doesn't arrive. Contact /paysupport.\n• Coins from playing are capped at 1,500 a day. Bought coins have no limit.",
     owns: n => `You already own <b>${n}</b>.`, cant_buy: "This item can't be bought right now.",
+    inv_room: c => `🎮 <b>You have been challenged!</b>\nYour friend is waiting in room <code>${c}</code>. Tap the button below to jump in.`,
+    inv_league: c => `🏆 <b>League invite</b>\nYou are invited to league <code>${c}</code>. Play your friends, collect points, win this season's trophy.`,
     b_play: '⚽ PLAY NOW', b_coins: '🪙 Buy Coins', b_profile: '👤 Profile', b_help: '📖 How to Play', b_locker: '🎒 Open Locker', b_more: '🪙 Buy more', coins_w: 'coins',
   },
   ru: {
@@ -346,6 +417,8 @@ const BT = {
     support: 'Помощь с покупкой', support_b: 'Отправь в этот чат:\n1. <b>ID чека</b> из сообщения об оплате (начинается с <code>stxt</code>)\n2. Название предмета или набора монет', support_n: 'Ответим в течение 48 часов. Двойные платежи возвращаем.',
     terms: 'Условия', terms_b: '• Все предметы только для внешнего вида. Дорогая бумага не делает тебя сильнее.\n• Монеты и предметы нельзя обменять на деньги или передать.\n• Покупки за звёзды окончательны, если предмет получен. Пиши в /paysupport.\n• Монеты за игру ограничены 1 500 в день. У купленных монет лимита нет.',
     owns: n => `У тебя уже есть <b>${n}</b>.`, cant_buy: 'Этот предмет сейчас нельзя купить.',
+    inv_room: c => `🎮 <b>Тебе бросили вызов!</b>\nДруг ждёт в комнате <code>${c}</code>. Нажми кнопку ниже, чтобы войти.`,
+    inv_league: c => `🏆 <b>Приглашение в лигу</b>\nТебя пригласили в лигу <code>${c}</code>. Играй с друзьями, набирай очки, бери кубок сезона.`,
     b_play: '⚽ ИГРАТЬ', b_coins: '🪙 Купить монеты', b_profile: '👤 Профиль', b_help: '📖 Как играть', b_locker: '🎒 Открыть шкаф', b_more: '🪙 Купить ещё', coins_w: 'монет',
   },
 };
@@ -368,6 +441,8 @@ export function botText(kind, d = {}) {
   if (kind === 'support') return `<b>🛟 ${x.support}</b>\n\n<blockquote>${x.support_b}</blockquote>\n\n<i>${x.support_n}</i>`;
   if (kind === 'terms') return `<b>📜 ${x.terms}</b>\n\n<blockquote expandable>${x.terms_b}</blockquote>`;
   if (kind === 'owns') return x.owns(nm(d.item));
+  if (kind === 'invite_room') return x.inv_room(h(d.code));
+  if (kind === 'invite_league') return x.inv_league(h(d.code));
   return '';
 }
 function userSnap(uid, name, lang = 'ms') { getUser(uid, name); const p = profile(uid); return { lang, name: name || p.name, coins: p.coins, owned: p.owned.length, items: ITEMS.filter(i => !['coins', 'pass', 'bundle'].includes(i.slot)).length, equip: p.equip, pass: p.passUntil > Date.now() ? new Date(p.passUntil).toLocaleDateString(lang === 'ru' ? 'ru-RU' : lang === 'en' ? 'en-GB' : 'ms-MY') : '' }; }
@@ -403,6 +478,9 @@ export async function onUpdate(u) {
   }
   if (m.chat.type !== 'private') return;
   const text = (m.text || '').trim().toLowerCase(), uid = m.from.id, name = (m.from.first_name || '').slice(0, 40), lang = langFrom(m.from.language_code), x = L(lang);
+  const sp = /^\/start (room|lg)_([a-z0-9]{4,8})(?:_(\d+))?$/.exec(text);
+  if (sp) { const code = sp[2].toUpperCase(), q2 = sp[1] === 'room' ? `room=${code}` : `league=${code}${sp[3] ? '&by=' + sp[3] : ''}`;
+    return say(m.chat.id, botText(sp[1] === 'room' ? 'invite_room' : 'invite_league', { lang, code }), kb([[{ text: x.b_play, web_app: { url: `${WEBAPP_URL}/?${q2}` } }]])); }
   if (text.startsWith('/start')) return say(m.chat.id, botText('start', userSnap(uid, name, lang)), kb([[playBtn(lang)], [{ text: x.b_coins, callback_data: 'menu:coins' }, { text: x.b_profile, callback_data: 'menu:profil' }], [{ text: x.b_help, callback_data: 'menu:help' }]]));
   if (text.startsWith('/coins')) return say(m.chat.id, botText('coins', userSnap(uid, name, lang)), packsKb(lang));
   if (text.startsWith('/profil')) return say(m.chat.id, botText('profile', userSnap(uid, name, lang)), kb([[playBtn(lang)], [{ text: x.b_coins, callback_data: 'menu:coins' }]]));
@@ -416,7 +494,7 @@ const TURN_MS = 15000 + 1500, GONE_MS = 60000;
 function createRoom(rules) {
   if (rooms.size >= 300) return null;
   let code; do code = makeCode(5); while (rooms.has(code));
-  rooms.set(code, { code, rules: { minutes: MINUTES.includes(+rules?.minutes) ? +rules.minutes : 3 }, players: [], created: Date.now(), ranked: !!rules?.ranked, uids: rules?.uids || null });
+  rooms.set(code, { code, rules: { minutes: MINUTES.includes(+rules?.minutes) ? +rules.minutes : 3 }, players: [], created: Date.now(), ranked: !!rules?.ranked, uids: rules?.uids || null, league: +rules?.league || 0 });
   return code;
 }
 const send = (ws, o) => { if (ws?.readyState === 1) ws.send(JSON.stringify(o)); };
@@ -456,6 +534,10 @@ function overCast(room, msg, forfeited = false) {
     const fair = room.uids && a === room.uids[0] && b === room.uids[1] || room.uids && a === room.uids[1] && b === room.uids[0];
     res = fair ? settleRanked(a, b, w === 0 ? 1 : w === 1 ? 0 : 0.5, forfeited ? MIN_RANKED_MS : Date.now() - room.startedAt) : { counted: false, why: 'players' };
   }
+  let lres = null;
+  if (room.league && !room.leagueDone) { room.leagueDone = true; const [a, b] = room.players, sc = room.engine.score;
+    lres = recordLeague(room.league, a.uid, b.uid, sc[0], sc[1], forfeited ? MIN_RANKED_MS : Date.now() - room.startedAt); }
+  if (lres) msg = { ...msg, league: { counted: lres.counted, why: lres.why } };
   room.players.forEach(p => { const r = res?.[p.uid]; send(p.ws, { ...msg, rank: room.ranked ? (r ? { ...r, tier: tierOf(r.rp).id, div: tierOf(r.rp).div } : { counted: false, why: res?.why }) : undefined }); });
 }
 // Seat 0 calls the coin (10s, else auto). Winner kicks off and is home: both players see the winner's venue, pitch and ball.
@@ -475,7 +557,7 @@ function startMatch(room, call = 'k') {
   setup.formations[1] = FORMATIONS[b.profile.formation] ? b.profile.formation : '4-4-2';
   setup.names = [a.profile.name, b.profile.name]; setup.paperIds = [a.paperId, b.paperId];
   setup.ranked = room.ranked;
-  room.setup = setup; room.engine = new Engine(setup); runToRest(room.engine); room.rematch = new Set(); room.startedAt = Date.now(); room.settled = false;
+  room.setup = setup; room.engine = new Engine(setup); runToRest(room.engine); room.rematch = new Set(); room.startedAt = Date.now(); room.settled = false; room.leagueDone = false;
   room.players.forEach((p, i) => send(p.ws, { t: 'setup', setup, seat: i, state: room.engine.exportState(), left: TURN_MS }));
   armTurn(room);
 }

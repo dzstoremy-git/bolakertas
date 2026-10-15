@@ -159,6 +159,34 @@ ok('ranked: elo points, pair cap, short games, boards, season soft reset', () =>
   const all = S.board('all', C, T0 + 6); assert.ok(all.rows.find(r => r.me).score === 1); assert.equal(S.board('bogus'), null);
   const s2 = S.rankRow(A, 2); assert.equal(s2.rp, K.softReset(ra.rp)); assert.equal(s2.w, 0); // next season: half way back, record cleared
 });
+ok('friend leagues: create/limit, invite/full, table order, invite reward once, leave hands over, bot invite text', () => {
+  const O = 7401, mk = u => S.db.prepare('INSERT OR IGNORE INTO users (uid,name,equip,created,coins) VALUES (?,?,?,?,0)').run(u, 'L' + u, '{}', 0);
+  for (let u = O; u < O + 10; u++) mk(u);
+  assert.equal(S.createLeague(O, 'ab').err, 'name');
+  const lg = S.createLeague(O, 'Geng <b>Pejabat</b>', '#ff5d73'); assert.ok(lg.ok); assert.match(lg.code, /^[A-Z0-9]{6}$/);
+  assert.equal(S.createLeague(O, 'Kedua', '#fff').err, 'limit'); // free: 1 own league
+  assert.equal(S.joinLeague(O + 1, 'NOPE00').err, 'no_league');
+  for (let u = O + 1; u < O + 8; u++) assert.ok(S.joinLeague(u, lg.code.toLowerCase(), u === O + 2 ? O + 1 : 0).ok); // 8 members
+  assert.equal(S.joinLeague(O + 8, lg.code).err, 'full');
+  assert.equal(S.joinLeague(O + 1, lg.code).already, true);
+  const T0 = K.seasonEnds(1) - 5 * 864e5;
+  assert.equal(S.recordLeague(lg.id, O, O + 9, 2, 0, 90e3, T0).why, 'players'); // not a member
+  assert.equal(S.recordLeague(lg.id, O, O + 1, 2, 0, 20e3, T0).why, 'short');
+  const coins = u => S.db.prepare('SELECT coins FROM users WHERE uid=?').get(u).coins;
+  const r1 = S.recordLeague(lg.id, O + 2, O + 3, 3, 1, 90e3, T0); assert.ok(r1.counted);
+  assert.equal(coins(O + 1), S.INVITE_REWARD); assert.equal(coins(O), S.INVITE_REWARD); // O+2 invited by O+1, O+3 by owner
+  S.recordLeague(lg.id, O + 2, O + 3, 0, 0, 90e3, T0 + 1); S.recordLeague(lg.id, O + 2, O + 3, 1, 0, 90e3, T0 + 2);
+  assert.equal(S.recordLeague(lg.id, O + 3, O + 2, 5, 0, 90e3, T0 + 3).why, 'pair');
+  assert.equal(coins(O + 1), S.INVITE_REWARD); // paid once only
+  S.recordLeague(lg.id, O + 4, O + 5, 1, 1, 90e3, T0 + 4);
+  const tb = S.leagueTable(lg.id, O + 2, T0 + 5);
+  assert.equal(tb.name, 'Geng bPejabat/b'); assert.equal(tb.table[0].me, true); assert.equal(tb.table[0].pts, 7); assert.equal(tb.table[0].p, 3);
+  assert.equal(tb.table.at(-1).pts, 0); assert.ok(tb.table.every(r => r.uid === undefined)); assert.equal(tb.table.length, 8);
+  assert.equal(S.leagueTable(lg.id, O + 9), null); // outsiders cannot read it
+  assert.equal(S.myLeagues(O)[0].n, 8); assert.equal(S.myLeagues(O)[0].own, true);
+  assert.ok(S.leaveLeague(O, lg.id).ok); assert.equal(S.myLeagues(O + 1)[0].own, true); // first joiner takes over
+  for (const lang of ['ms', 'en', 'ru']) for (const k of ['invite_room', 'invite_league']) { const x = S.botText(k, { lang, code: '<X>' }); assert.ok(x.includes('&lt;X&gt;') && !x.includes('—')); }
+});
 // async checks run after the sync ones
 const aok = async (name, fn) => { await fn(); n++; console.log('ok', name); };
 await aok('goal clips: only signed players, real jpg/mp4 bytes, size cap, share page serves it', async () => {

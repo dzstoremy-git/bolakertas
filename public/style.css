@@ -365,3 +365,21 @@ body.playing #menu{display:none}
 .rp-list{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;width:100%;margin-top:6px}
 .rp-goal{display:flex;flex-direction:column;align-items:center;min-width:110px;padding:8px 10px;border-radius:14px;background:var(--paper);border:2.5px solid var(--ink);box-shadow:0 3px 0 var(--ink)}.rp-goal b{font:400 22px var(--disp)}.rp-goal span{font:900 13px var(--sans);color:var(--ink2);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rp-goal.on{background:var(--yel)}
 @keyframes rpblink{to{opacity:.65}}
+
+/* leagues */
+.seg2{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:5px;border-radius:18px;background:var(--paper);border:var(--st) solid var(--ink);box-shadow:var(--lift)}
+.seg2 button{padding:10px 6px 9px;border-radius:13px;font:400 18px/1 var(--disp);color:var(--ink2)}.seg2 button.on{background:var(--vio);color:#fff;-webkit-text-stroke:1.5px var(--ink);paint-order:stroke fill;box-shadow:inset 0 -3px 0 #0003}
+.lg-list{display:grid;gap:10px}.lg-empty{padding:16px;text-align:center;background:var(--paper);border-radius:18px;border:2.5px dashed var(--ink2)}
+.lg-row{position:relative;display:flex;align-items:center;gap:12px;width:100%;padding:12px 54px 12px 12px;border-radius:20px;background:var(--paper);border:var(--st) solid var(--ink);box-shadow:var(--lift);text-align:left}
+.lg-row .mt b{display:block;font:400 21px/1.05 var(--disp);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lg-row .mt{min-width:0}.lg-row .mt small{font:900 12px var(--sans);color:var(--ink2)}
+.lg-row .go{position:absolute;right:12px;top:50%;translate:0 -50%;width:32px;height:32px;display:grid;place-items:center;border-radius:11px;background:var(--yel);border:2.5px solid var(--ink)}.lg-row .go svg{width:17px}
+.lg-badge{flex:none;width:46px;height:46px;display:grid;place-items:center;border-radius:14px 14px 22px 22px;background:var(--lc);border:2.5px solid var(--ink);box-shadow:0 3px 0 var(--ink);font:400 24px var(--disp);color:#fff;-webkit-text-stroke:1.5px var(--ink);paint-order:stroke fill;text-transform:uppercase}.lg-badge.big{width:64px;height:64px;font-size:34px}
+.ranked .join{margin-top:12px}.ranked .play{margin-top:14px}
+.lg-f{display:block;width:100%;margin-top:12px;text-align:left;font:900 13px var(--sans);color:var(--ink2)}.lg-f input{display:block;width:100%;margin-top:6px;padding:12px 14px;border-radius:14px;border:2.5px solid var(--ink);background:#fff;font:800 17px var(--sans);color:var(--ink)}
+.lg-cols{display:flex;gap:10px;margin-top:8px}.lg-cols button{width:40px;height:40px;border-radius:12px;border:2.5px solid var(--ink);box-shadow:0 3px 0 var(--ink)}.lg-cols button.on{outline:3px solid var(--ink);outline-offset:3px}
+.lg-head{display:flex;align-items:center;gap:12px;margin-top:4px}.lg-head .ttl{margin:0;font-size:30px;overflow-wrap:anywhere}.lg-head small{font:900 12px var(--sans);color:#fff;text-shadow:0 1px 0 var(--ink)}.lg-head code{padding:1px 6px;border-radius:6px;background:var(--paper);color:var(--ink);font:900 12px monospace;text-shadow:none}
+.ranked .rp-row{align-items:stretch}.ranked .rp-row .play{margin-top:10px;min-height:52px}.ranked .rp-row .play b{font-size:20px}
+.lg-table li{gap:4px}.lg-n,.lg-cols-h i{width:24px;text-align:center;font:900 13px var(--sans);font-style:normal;color:var(--ink2)}.lg-table li strong{width:34px;text-align:right}
+.lg-cols-h{display:flex;gap:4px;padding-right:0}.lg-legend{padding:8px 14px;font:800 11px/1.35 var(--sans);color:var(--ink2);background:var(--paper2)}.ranked{padding-bottom:calc(40px + var(--sab))}.lg-cols-h i:last-child{width:34px;text-align:right}
+.lg-recent{list-style:none;border-radius:18px;background:var(--paper);border:var(--st) solid var(--ink);overflow:hidden}.lg-recent li{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;padding:9px 12px;border-bottom:1.5px solid var(--line);font:900 14px var(--sans)}.lg-recent li b:last-child{text-align:right}.lg-recent li em{font:400 18px var(--disp);font-style:normal;color:var(--ink)}
+.lg-recent li b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
