@@ -153,6 +153,7 @@ ok('ranked: elo points, pair cap, short games, boards, season soft reset', () =>
   assert.equal(S.settleRanked(A, B, 1, 90e3, T0 + 864e5 + 10).counted, true); // next day counts again
   S.settleRanked(C, A, 1, 90e3, T0 + 5);
   const ra = S.rankRow(A, 1), rb = S.rankRow(B, 1); assert.equal(ra.w, 3); assert.equal(ra.d, 1); assert.equal(ra.l, 1); assert.ok(ra.rp > 1000 && rb.rp < 1000 && ra.best >= ra.rp);
+  S.rankRow(7104, 1); assert.ok(!S.board('season', 0, T0 + 6).rows.some(r => r.name === 'P7104')); // viewed but never played: not listed
   const sb = S.board('season', A, T0 + 6); assert.equal(sb.rows[0].me, true); assert.equal(sb.me.pos, 1); assert.ok(sb.rows.every(r => !('uid' in r)));
   const wk = S.board('week', B, T0 + 6), top = wk.rows[0]; assert.ok(top.score >= wk.rows.at(-1).score); assert.ok(wk.me.score >= 1);
   const all = S.board('all', C, T0 + 6); assert.ok(all.rows.find(r => r.me).score === 1); assert.equal(S.board('bogus'), null);

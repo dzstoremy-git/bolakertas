@@ -89,11 +89,11 @@ export function board(tab, me = 0, now = Date.now()) {
   const s = seasonOf(now), wk = weekOf(now);
   const SQL = {
     week: `SELECT uid, SUM(p) score, SUM(w) w FROM (SELECT a uid, CASE sa WHEN 1 THEN 3 WHEN 0.5 THEN 1 ELSE 0 END p, sa=1 w FROM rmatch WHERE week=${wk} UNION ALL SELECT b, CASE sa WHEN 0 THEN 3 WHEN 0.5 THEN 1 ELSE 0 END, sa=0 FROM rmatch WHERE week=${wk}) GROUP BY uid`,
-    season: `SELECT uid, rp score, w FROM rank WHERE season=${s}`,
+    season: `SELECT uid, rp score, w FROM rank WHERE season=${s} AND w+l+d>0`, // only players who have played this season
     all: `SELECT uid, SUM(w) score, MAX(best) w FROM rank GROUP BY uid`,
   }[tab] || null;
   if (!SQL) return null;
-  const rows = q(`SELECT t.uid, t.score, t.w, COALESCE(u.name,'') name, RANK() OVER (ORDER BY t.score DESC, t.w DESC) pos FROM (${SQL}) t LEFT JOIN users u ON u.uid=t.uid WHERE t.score > 0 OR '${tab}'='season' ORDER BY pos, t.uid LIMIT 100`).all();
+  const rows = q(`SELECT t.uid, t.score, t.w, COALESCE(u.name,'') name, RANK() OVER (ORDER BY t.score DESC, t.w DESC) pos FROM (${SQL}) t LEFT JOIN users u ON u.uid=t.uid WHERE t.score > 0 ORDER BY pos, t.uid LIMIT 100`).all();
   const mine = me ? q(`SELECT * FROM (SELECT t.uid, t.score, t.w, RANK() OVER (ORDER BY t.score DESC, t.w DESC) pos FROM (${SQL}) t) WHERE uid=?`).get(me) : null;
   return { tab, season: s, week: wk, ends: tab === 'week' ? 0 : seasonEnds(s), rows: rows.map(r => ({ name: r.name.slice(0, 20) || 'Pemain', score: r.score, w: r.w, pos: r.pos, me: r.uid === me, tier: tab === 'season' ? tierOf(r.score).id : undefined })), me: mine ? { score: mine.score, pos: mine.pos } : null };
 }
