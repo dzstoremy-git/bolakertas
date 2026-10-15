@@ -48,6 +48,7 @@ export const ITEMS = [
   { id: 'b_crumple', rarity: 'rare', slot: 'ball', name: 'Kertas Ronyok', desc: 'Kertas latihan dironyok dan dibalut selotep. Bola sekolah yang sebenar.', coins: 500, look: { a: '#f3efe2', b: '#4670c8', kind: 'crumple' } },
   { id: 'b_rubber', rarity: 'rare', slot: 'ball', name: 'Bola Gelang Getah', desc: 'Ratusan gelang getah dililit ketat. Permainan kampung tahun 90an.', coins: 700, look: { a: '#c94a2a', b: '#f2a51a', kind: 'rubber' } },
   { id: 'b_origami', rarity: 'epic', slot: 'ball', name: 'Origami Bersegi', desc: 'Dilipat tangan, segi demi segi.', stars: 15, look: { a: '#ff6b6b', b: '#ffd93d', kind: 'origami' } },
+  { id: 'b_champion', rarity: 'myth', slot: 'ball', name: 'Juara Liga', desc: 'Hanya untuk juara Liga Rasmi. Tidak dijual.', exclusive: true, look: { a: '#ffd23a', b: '#2a1f5c', kind: 'galaxy', trail: '#ffd23a' } },
   { id: 'b_disco', rarity: 'legend', slot: 'ball', name: 'Bola Disko', desc: 'Jubin cermin yang memantulkan lampu stadium.', stars: 25, look: { a: '#cfd6e6', b: '#ffffff', kind: 'disco' } },
   { id: 'b_galaxy', rarity: 'legend', slot: 'ball', name: 'Galaksi', desc: 'Bintang di hujung kaki anda.', stars: 25, look: { a: '#2a1b5e', b: '#8f6bff', kind: 'galaxy', trail: '#9f8bff' } },
 

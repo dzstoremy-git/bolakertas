@@ -39,6 +39,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS league (id INTEGER PRIMARY KEY AUTOINCREMENT
 CREATE TABLE IF NOT EXISTS league_member (lid INTEGER NOT NULL, uid INTEGER NOT NULL, by INTEGER, rewarded INTEGER NOT NULL DEFAULT 0, joined INTEGER NOT NULL, PRIMARY KEY (lid, uid));
 CREATE TABLE IF NOT EXISTS league_match (id INTEGER PRIMARY KEY AUTOINCREMENT, lid INTEGER NOT NULL, season INTEGER NOT NULL, a INTEGER NOT NULL, b INTEGER NOT NULL, ga INTEGER NOT NULL, gb INTEGER NOT NULL, at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS lm_lid ON league_match (lid, season);`);
+// Official league: sign-ups per season, opens only once OL.min players signed up. Daily 1v1 at 21:00 MYT, 10 minutes to show up.
+db.exec(`CREATE TABLE IF NOT EXISTS ol_player (uid INTEGER NOT NULL, season INTEGER NOT NULL, div INTEGER NOT NULL DEFAULT 0, lang TEXT NOT NULL DEFAULT 'ms', pts INTEGER NOT NULL DEFAULT 0, p INTEGER NOT NULL DEFAULT 0, w INTEGER NOT NULL DEFAULT 0, d INTEGER NOT NULL DEFAULT 0, l INTEGER NOT NULL DEFAULT 0, gf INTEGER NOT NULL DEFAULT 0, ga INTEGER NOT NULL DEFAULT 0, miss INTEGER NOT NULL DEFAULT 0, out INTEGER NOT NULL DEFAULT 0, joined INTEGER NOT NULL, PRIMARY KEY (uid, season));
+CREATE TABLE IF NOT EXISTS ol_match (id INTEGER PRIMARY KEY AUTOINCREMENT, season INTEGER NOT NULL, day TEXT NOT NULL, div INTEGER NOT NULL, a INTEGER NOT NULL, b INTEGER NOT NULL, room TEXT, state TEXT NOT NULL DEFAULT 'sched', ga INTEGER, gb INTEGER, how TEXT);
+CREATE TABLE IF NOT EXISTS ol_day (day TEXT PRIMARY KEY, paired INTEGER NOT NULL DEFAULT 0, opened INTEGER NOT NULL DEFAULT 0, closed INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS ol_season (season INTEGER PRIMARY KEY, started INTEGER NOT NULL DEFAULT 0, paid INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS olm_day ON ol_match (day, state);`);
 const q = sql => db.prepare(sql);
 const tx = fn => { db.exec('BEGIN IMMEDIATE'); try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; } };
 
@@ -140,6 +146,136 @@ export function leagueTable(lid, me = 0, now = Date.now()) {
   return { id: lg.id, code: lg.code, name: lg.name, color: lg.color, owner: lg.owner === me, season, ends: seasonEnds(season), max: LEAGUE_FREE.members, table, recent: recent.map(r => ({ a: r.an.slice(0, 20), b: r.bn.slice(0, 20), ga: r.ga, gb: r.gb, at: r.at })) };
 }
 export const myLeagues = uid => q('SELECT l.id, l.code, l.name, l.color, l.owner=? own, (SELECT COUNT(*) FROM league_member x WHERE x.lid=l.id) n FROM league l JOIN league_member m ON m.lid=l.id AND m.uid=? ORDER BY m.joined').all(uid, uid).map(r => ({ ...r, own: !!r.own }));
+
+// ── official league ────────────────────────────────────────
+// ponytail: one fixed daily slot for everybody; add a second slot when players outside UTC+8 ask for it
+export const OL = { min: +(process.env.OL_MIN || 32), kickUTC: 13, joinMin: 10, warnMin: 30, divSize: 64, outAfter: 3,
+  prize: [3000, 1500, 1000, 500, 500, 500, 500, 500, 500, 500], loyal: { games: 20, coins: 300 }, champBall: 'b_champion' };
+const mytDay = t => new Date(t + 8 * 3600e3).toISOString().slice(0, 10);
+const kickAt = day => Date.parse(day + 'T00:00:00Z') + OL.kickUTC * 3600e3;
+export const olOut = []; // bot messages captured in tests
+async function olSay(uid, lang, kind, d = {}, button) {
+  const text = botText(kind, { lang, ...d }); if (process.env.NODE_ENV === 'test') return olOut.push({ uid, kind, text });
+  return say(uid, text, button ? kb([[{ text: L(lang).b_play, web_app: { url: WEBAPP_URL + button } }]]) : undefined);
+}
+const olCount = s => q('SELECT COUNT(*) n FROM ol_player WHERE season=?').get(s).n;
+const olStarted = s => !!q('SELECT started FROM ol_season WHERE season=?').get(s)?.started;
+const nameOf = uid => (q('SELECT name FROM users WHERE uid=?').get(uid)?.name || 'Pemain').slice(0, 20);
+export function olJoin(uid, lang = 'ms', now = Date.now()) {
+  const s = seasonOf(now); if (q('SELECT 1 FROM ol_player WHERE uid=? AND season=?').get(uid, s)) return { ok: true, already: true };
+  q('INSERT INTO ol_player (uid,season,lang,joined,div) VALUES (?,?,?,?,?)').run(uid, s, LANGS.includes(lang) ? lang : 'ms', now, olStarted(s) ? olLastDiv(s) : 0);
+  olMaybeStart(s, now); return { ok: true };
+}
+const olLastDiv = s => q('SELECT MAX(div) d FROM ol_player WHERE season=?').get(s).d || 0; // late joiners start in the lowest division
+// Opens the season once enough players signed up: divisions of OL.divSize ordered by last season's finish (newcomers last).
+function olMaybeStart(s, now) {
+  q('INSERT OR IGNORE INTO ol_season (season) VALUES (?)').run(s);
+  if (olStarted(s) || olCount(s) < OL.min) return false;
+  const prev = new Map(q('SELECT uid, div, pts, gf-ga gd FROM ol_player WHERE season=? ORDER BY div, pts DESC, gd DESC').all(s - 1).map((r, i) => [r.uid, i]));
+  const ids = q('SELECT uid, lang FROM ol_player WHERE season=? ORDER BY joined').all(s).sort((a, b) => (prev.get(a.uid) ?? 1e9) - (prev.get(b.uid) ?? 1e9));
+  tx(() => { ids.forEach((r, i) => q('UPDATE ol_player SET div=? WHERE uid=? AND season=?').run(Math.floor(i / OL.divSize), r.uid, s)); q('UPDATE ol_season SET started=? WHERE season=?').run(now, s); });
+  for (const r of ids) olSay(r.uid, r.lang, 'ol_started', { time: '21:00' }, '/?official=1');
+  return true;
+}
+// Swiss pairing: closest points first, never the same opponent twice a season when avoidable. Odd count: lowest without a bye rests (+1 pt).
+export function pairSwiss(players, played, byes = new Set()) {
+  const left = [...players], pairs = []; let bye = null;
+  if (left.length % 2) { const i = left.map(p => p.uid).reverse().findIndex(u => !byes.has(u)); bye = left.splice(i < 0 ? left.length - 1 : left.length - 1 - i, 1)[0].uid; }
+  // backtracking: nearest-in-standings first; ponytail: exponential worst case, fine for 64-player divisions, cap tries and fall back to greedy
+  let tries = 0;
+  const go = rest => { if (!rest.length) return []; const [x, ...others] = rest;
+    for (let j = 0; j < others.length && tries++ < 20000; j++) { if (played.has(x.uid + ':' + others[j].uid)) continue; const sub = go(others.filter((_, k) => k !== j)); if (sub) return [[x.uid, others[j].uid], ...sub]; }
+    return null; };
+  const best = go(left);
+  if (best) return { pairs: best, bye };
+  while (left.length) { const a = left.shift(); let j = left.findIndex(b => !played.has(a.uid + ':' + b.uid)); if (j < 0) j = 0; pairs.push([a.uid, left.splice(j, 1)[0].uid]); }
+  return { pairs, bye };
+}
+function olPair(s, day) {
+  const divs = q('SELECT DISTINCT div FROM ol_player WHERE season=? AND out=0').all(s).map(r => r.div);
+  for (const div of divs) {
+    const ps = q('SELECT uid FROM ol_player WHERE season=? AND div=? AND out=0 ORDER BY pts DESC, gf-ga DESC, gf DESC, joined').all(s, div);
+    if (ps.length < 2) continue;
+    const played = new Set(), byes = new Set();
+    for (const m of q('SELECT a, b FROM ol_match WHERE season=? AND div=?').all(s, div)) { if (m.b) { played.add(m.a + ':' + m.b); played.add(m.b + ':' + m.a); } else byes.add(m.a); }
+    const { pairs, bye } = pairSwiss(ps, played, byes);
+    for (const [a, b] of pairs) q('INSERT INTO ol_match (season,day,div,a,b) VALUES (?,?,?,?,?)').run(s, day, div, a, b);
+    if (bye) { q("INSERT INTO ol_match (season,day,div,a,b,state,how) VALUES (?,?,?,?,0,'done','bye')").run(s, day, div, bye); q('UPDATE ol_player SET pts=pts+1 WHERE uid=? AND season=?').run(bye, s); }
+  }
+}
+// Result: real game (ga:gb), forfeit (no-show loses 0:3), or both absent (both lose, no goals). Three misses in a row and you are out.
+export function olRecord(id, ga, gb, how = 'play') {
+  return tx(() => {
+    const m = q('SELECT * FROM ol_match WHERE id=?').get(id); if (!m || m.state === 'done') return false;
+    q("UPDATE ol_match SET state='done', ga=?, gb=?, how=? WHERE id=?").run(ga, gb, how, id);
+    const row = (uid, f, ag, showed) => {
+      const won = how !== 'both' && f > ag, draw = how === 'play' && f === ag;
+      q(`UPDATE ol_player SET p=p+1, gf=gf+?, ga=ga+?, pts=pts+?, w=w+?, d=d+?, l=l+?, miss=CASE WHEN ? THEN 0 ELSE miss+1 END, out=CASE WHEN ? THEN out WHEN miss+1>=? THEN 1 ELSE out END WHERE uid=? AND season=?`)
+        .run(f, ag, won ? 3 : draw ? 1 : 0, won ? 1 : 0, draw ? 1 : 0, won || draw ? 0 : 1, showed ? 1 : 0, showed ? 1 : 0, OL.outAfter, uid, m.season);
+    };
+    row(m.a, ga, gb, how === 'play' || how === 'forfeit_b'); row(m.b, gb, ga, how === 'play' || how === 'forfeit_a');
+    return true;
+  });
+}
+const olPresent = m => { const r = rooms.get(m.room); return r ? r.players.filter(p => p.uid && p.profile && p.ws?.readyState === 1).map(p => p.uid) : []; };
+// Season end: coins by finish (lower divisions half), exclusive ball for the top division champion, loyalty coins. Paid once.
+function olPay(s) {
+  const st = q('SELECT * FROM ol_season WHERE season=?').get(s); if (!st?.started || st.paid) return;
+  q('UPDATE ol_season SET paid=1 WHERE season=?').run(s);
+  for (const { div } of q('SELECT DISTINCT div FROM ol_player WHERE season=?').all(s)) {
+    q('SELECT uid, lang, p FROM ol_player WHERE season=? AND div=? ORDER BY pts DESC, gf-ga DESC, gf DESC, joined').all(s, div).forEach((r, i) => {
+      const coins = Math.round((OL.prize[i] || 0) / (div ? 2 : 1)) + (r.p >= OL.loyal.games ? OL.loyal.coins : 0), ball = i === 0 && div === 0;
+      if (coins) q('UPDATE users SET coins=coins+? WHERE uid=?').run(coins, r.uid);
+      if (ball) q("INSERT OR IGNORE INTO owned (uid,item,src,at) VALUES (?,?,'official',?)").run(r.uid, OL.champBall, Date.now());
+      if (coins || ball) olSay(r.uid, r.lang, 'ol_prize', { pos: i + 1, coins, ball, season: s, div });
+    });
+  }
+}
+export function olTick(now = Date.now(), present = olPresent) {
+  const s = seasonOf(now);
+  if (s > 1 && !q('SELECT 1 FROM ol_season WHERE season=?').get(s)) { // new season: pay the old one, carry active players over
+    olPay(s - 1); q('INSERT OR IGNORE INTO ol_season (season) VALUES (?)').run(s);
+    for (const r of q('SELECT uid, lang FROM ol_player WHERE season=? AND out=0').all(s - 1)) q('INSERT OR IGNORE INTO ol_player (uid,season,lang,joined) VALUES (?,?,?,?)').run(r.uid, s, r.lang, now);
+  }
+  olMaybeStart(s, now); if (!olStarted(s)) return;
+  const day = mytDay(now), k = kickAt(day); q('INSERT OR IGNORE INTO ol_day (day) VALUES (?)').run(day);
+  const D = q('SELECT * FROM ol_day WHERE day=?').get(day), deadline = k + OL.joinMin * 60e3;
+  if (!D.paired && now >= k - OL.warnMin * 60e3 && now < deadline && q('SELECT started FROM ol_season WHERE season=?').get(s).started < k - OL.warnMin * 60e3) {
+    q('UPDATE ol_day SET paired=1 WHERE day=?').run(day); olPair(s, day);
+    for (const m of q("SELECT * FROM ol_match WHERE day=? AND state='sched'").all(day)) for (const [me, op] of [[m.a, m.b], [m.b, m.a]]) {
+      const p = q('SELECT lang FROM ol_player WHERE uid=? AND season=?').get(me, s); olSay(me, p.lang, 'ol_soon', { opp: nameOf(op), time: '21:00' }, '/?official=1'); }
+  }
+  if (D.paired && !D.opened && now >= k && now < deadline) {
+    q('UPDATE ol_day SET opened=1 WHERE day=?').run(day);
+    for (const m of q("SELECT * FROM ol_match WHERE day=? AND state='sched'").all(day)) {
+      const code = process.env.NODE_ENV === 'test' ? 'T' + m.id : createRoom({ minutes: 3, official: m.id, uids: [m.a, m.b] }); if (!code) continue;
+      q("UPDATE ol_match SET room=?, state='open' WHERE id=?").run(code, m.id);
+      for (const [me, op] of [[m.a, m.b], [m.b, m.a]]) { const p = q('SELECT lang FROM ol_player WHERE uid=? AND season=?').get(me, s); olSay(me, p.lang, 'ol_open', { opp: nameOf(op), min: OL.joinMin }, `/?room=${code}`); }
+    }
+  }
+  if (D.opened && !D.closed && now >= deadline) {
+    q('UPDATE ol_day SET closed=1 WHERE day=?').run(day);
+    for (const m of q("SELECT * FROM ol_match WHERE day=? AND state IN ('sched','open')").all(day)) {
+      if (rooms.get(m.room)?.engine) continue; // playing: the final whistle records it
+      const here = present(m), A = here.includes(m.a), B = here.includes(m.b);
+      if (A && B) continue; // both in, toss pending: let them play
+      olRecord(m.id, A ? 3 : 0, B ? 3 : 0, A ? 'forfeit_b' : B ? 'forfeit_a' : 'both');
+      for (const [me, f] of [[m.a, A], [m.b, B]]) { const p = q('SELECT lang FROM ol_player WHERE uid=? AND season=?').get(me, s); olSay(me, p.lang, f ? 'ol_walkover' : 'ol_missed'); }
+    }
+  }
+}
+export function olStatus(uid, now = Date.now()) {
+  const s = seasonOf(now), me = uid ? q('SELECT * FROM ol_player WHERE uid=? AND season=?').get(uid, s) : null, started = olStarted(s);
+  const div = me?.div || 0, day = mytDay(now), k = kickAt(day), nextAt = now < k + OL.joinMin * 60e3 ? k : kickAt(mytDay(now + 864e5));
+  const table = q('SELECT o.uid, o.pts, o.p, o.w, o.d, o.l, o.gf, o.ga, o.out, COALESCE(u.name,\'\') name FROM ol_player o LEFT JOIN users u ON u.uid=o.uid WHERE season=? AND div=? ORDER BY pts DESC, gf-ga DESC, gf DESC, joined LIMIT 100').all(s, div)
+    .map((r, i) => ({ pos: i + 1, name: r.name.slice(0, 20) || 'Pemain', pts: r.pts, p: r.p, w: r.w, d: r.d, l: r.l, gd: r.gf - r.ga, out: !!r.out, me: r.uid === uid }));
+  const m = me ? q("SELECT * FROM ol_match WHERE season=? AND (a=? OR b=?) AND day=? ORDER BY id DESC LIMIT 1").get(s, uid, uid, day) : null;
+  const opp = m && m.b ? (m.a === uid ? m.b : m.a) : 0;
+  return { season: s, ends: seasonEnds(s), started, count: olCount(s), min: OL.min, divs: (q('SELECT MAX(div) d FROM ol_player WHERE season=?').get(s).d || 0) + 1, nextAt, joinMin: OL.joinMin,
+    me: me ? { div, pts: me.pts, p: me.p, out: !!me.out, miss: me.miss, pos: table.find(r => r.me)?.pos || null } : null,
+    match: m ? { state: m.state, how: m.how, bye: !m.b, opp: opp ? nameOf(opp) : '', room: m.state === 'open' ? m.room : null, mine: m.a === uid ? [m.ga, m.gb] : [m.gb, m.ga] } : null,
+    table: started ? table : [], prize: OL.prize, loyal: OL.loyal };
+}
 
 // Leaderboards. week: 3 per win + 1 per draw this week. season: RP now. all: wins across every season.
 export function board(tab, me = 0, now = Date.now()) {
@@ -317,6 +453,10 @@ async function api(req, res, path) {
     if (op === 'room') { if (!isMember(lid, auth.uid)) return json(res, 403, { err: 'no_league' }); const code = createRoom({ minutes: 3, league: lid }); return code ? json(res, 200, { code }) : json(res, 503, { err: 'full' }); }
     return json(res, 400, { err: 'bad' });
   }
+  if (path === '/api/official') {
+    if (body.op === 'join') { if (limited('olj:' + auth.uid, 10, 3600e3)) return json(res, 429, { err: 'slow_down' }); olJoin(auth.uid, body.lang); }
+    return json(res, 200, olStatus(auth.uid));
+  }
   if (path === '/api/rank') { // { tab: week|season|all } -> board + my card
     const r = rankRow(auth.uid), t = tierOf(r.rp), b = board(body.tab || 'season', auth.uid);
     return b ? json(res, 200, { ...b, mine: { rp: r.rp, best: r.best, w: r.w, l: r.l, d: r.d, tier: t.id, div: t.div, next: t.next, season: r.season, ends: seasonEnds(r.season) } }) : json(res, 400, { err: 'bad' });
@@ -381,6 +521,13 @@ const BT = {
     support: 'Bantuan Pembelian', support_b: 'Hantar dalam chat ini:\n1. <b>ID resit</b> dari mesej bayaran (bermula dengan <code>stxt</code>)\n2. Nama item atau pek coins yang anda beli', support_n: 'Kami akan balas dalam masa 48 jam. Bayaran berganda akan dipulangkan.',
     terms: 'Terma', terms_b: '• Semua item hanya untuk gaya dalam permainan. Kertas mahal tidak menjadikan anda lebih kuat.\n• Coins dan item tidak boleh ditukar kepada wang tunai atau dipindahkan.\n• Pembelian dengan Stars adalah muktamad, kecuali jika item tidak diterima. Hubungi /paysupport.\n• Coins dari permainan terhad 1,500 sehari. Coins yang dibeli tiada had.',
     owns: n => `Anda dah ada <b>${n}</b>.`, cant_buy: 'Item ini tidak boleh dibeli sekarang.',
+    ol_started: t => `⭐ <b>Liga Rasmi Bola Kertas dah bermula!</b>\nPemain dah cukup. Perlawanan setiap hari jam <b>${t}</b> waktu Malaysia. Kami akan ingatkan anda 30 minit sebelum.`,
+    ol_soon: (o, t) => `⏰ <b>Perlawanan liga jam ${t}</b>\nLawan anda: <b>${o}</b>\n<blockquote>Bilik dibuka tepat jam ${t}. Anda ada 10 minit untuk masuk, kalau tak, dikira kalah.</blockquote>`,
+    ol_open: (o, n) => `🟢 <b>Bilik liga dah buka!</b>\nLawan: <b>${o}</b>\nMasuk dalam <b>${n} minit</b>. Siapa tak muncul, kalah 0-3.`,
+    ol_invite: '⭐ <b>Liga Rasmi Bola Kertas</b>\nLawan live setiap malam jam 9:00. Juara dapat 3,000 coins dan bola eksklusif. Tekan butang untuk daftar.',
+    ol_walkover: '✅ <b>Menang 3-0!</b>\nLawan anda tak muncul. 3 mata masuk ke jadual liga.',
+    ol_missed: '❌ <b>Anda terlepas perlawanan liga hari ini.</b>\nDikira kalah 0-3. Tiga kali terlepas berturut-turut, anda akan dikeluarkan dari liga musim ini.',
+    ol_prize: (p, c, b, s) => `🏆 <b>Musim ${s} tamat!</b>\nAnda tamat di tempat <b>#${p}</b>.${c ? `\n🪙 <b>+${c} coins</b> masuk ke akaun anda.` : ''}${b ? '\n⚽ Bola eksklusif <b>Juara Liga</b> kini dalam loker anda!' : ''}`,
     inv_room: c => `🎮 <b>Anda dicabar!</b>\nKawan anda tunggu dalam bilik <code>${c}</code>. Tekan butang di bawah untuk masuk terus.`,
     inv_league: c => `🏆 <b>Jemputan Liga</b>\nAnda dijemput sertai liga <code>${c}</code>. Lawan kawan, kumpul mata, rebut piala musim ini.`,
     b_play: '⚽ MAIN SEKARANG', b_coins: '🪙 Beli Coins', b_profile: '👤 Profil', b_help: '📖 Cara Main', b_locker: '🎒 Buka Loker', b_more: '🪙 Beli lagi', coins_w: 'coins',
@@ -399,6 +546,13 @@ const BT = {
     support: 'Purchase Help', support_b: 'Send us in this chat:\n1. The <b>receipt ID</b> from your payment message (it starts with <code>stxt</code>)\n2. The item or coin pack you bought', support_n: "We'll reply within 48 hours. Double payments are refunded.",
     terms: 'Terms', terms_b: "• All items are cosmetic. Expensive paper doesn't make you stronger.\n• Coins and items can't be exchanged for cash or transferred.\n• Stars purchases are final unless the item doesn't arrive. Contact /paysupport.\n• Coins from playing are capped at 1,500 a day. Bought coins have no limit.",
     owns: n => `You already own <b>${n}</b>.`, cant_buy: "This item can't be bought right now.",
+    ol_started: t => `⭐ <b>The Bola Kertas Official League has started!</b>\nEnough players joined. Matches every day at <b>${t}</b> Malaysia time. We will remind you 30 minutes before.`,
+    ol_soon: (o, t) => `⏰ <b>League match at ${t}</b>\nYour opponent: <b>${o}</b>\n<blockquote>The room opens at ${t} sharp. You have 10 minutes to join, or you lose the match.</blockquote>`,
+    ol_open: (o, n) => `🟢 <b>The league room is open!</b>\nOpponent: <b>${o}</b>\nJoin within <b>${n} minutes</b>. No-shows lose 0-3.`,
+    ol_invite: '⭐ <b>Bola Kertas Official League</b>\nLive matches every night at 9:00 PM (Malaysia). The champion wins 3,000 coins and an exclusive ball. Tap the button to sign up.',
+    ol_walkover: '✅ <b>3-0 win!</b>\nYour opponent did not show up. 3 points added to the league table.',
+    ol_missed: '❌ <b>You missed today\'s league match.</b>\nCounted as a 0-3 loss. Miss three in a row and you are out of the league this season.',
+    ol_prize: (p, c, b, s) => `🏆 <b>Season ${s} is over!</b>\nYou finished <b>#${p}</b>.${c ? `\n🪙 <b>+${c} coins</b> added to your account.` : ''}${b ? '\n⚽ The exclusive <b>League Champion</b> ball is now in your locker!' : ''}`,
     inv_room: c => `🎮 <b>You have been challenged!</b>\nYour friend is waiting in room <code>${c}</code>. Tap the button below to jump in.`,
     inv_league: c => `🏆 <b>League invite</b>\nYou are invited to league <code>${c}</code>. Play your friends, collect points, win this season's trophy.`,
     b_play: '⚽ PLAY NOW', b_coins: '🪙 Buy Coins', b_profile: '👤 Profile', b_help: '📖 How to Play', b_locker: '🎒 Open Locker', b_more: '🪙 Buy more', coins_w: 'coins',
@@ -417,6 +571,13 @@ const BT = {
     support: 'Помощь с покупкой', support_b: 'Отправь в этот чат:\n1. <b>ID чека</b> из сообщения об оплате (начинается с <code>stxt</code>)\n2. Название предмета или набора монет', support_n: 'Ответим в течение 48 часов. Двойные платежи возвращаем.',
     terms: 'Условия', terms_b: '• Все предметы только для внешнего вида. Дорогая бумага не делает тебя сильнее.\n• Монеты и предметы нельзя обменять на деньги или передать.\n• Покупки за звёзды окончательны, если предмет получен. Пиши в /paysupport.\n• Монеты за игру ограничены 1 500 в день. У купленных монет лимита нет.',
     owns: n => `У тебя уже есть <b>${n}</b>.`, cant_buy: 'Этот предмет сейчас нельзя купить.',
+    ol_started: t => `⭐ <b>Официальная лига Bola Kertas стартовала!</b>\nИгроков достаточно. Матчи каждый день в <b>${t}</b> по Малайзии (16:00 МСК). Напомним за 30 минут.`,
+    ol_soon: (o, t) => `⏰ <b>Матч лиги в ${t}</b>\nТвой соперник: <b>${o}</b>\n<blockquote>Комната откроется ровно в ${t}. У тебя 10 минут, чтобы войти, иначе поражение.</blockquote>`,
+    ol_open: (o, n) => `🟢 <b>Комната лиги открыта!</b>\nСоперник: <b>${o}</b>\nВойди за <b>${n} минут</b>. Неявка: поражение 0:3.`,
+    ol_invite: '⭐ <b>Официальная лига Bola Kertas</b>\nЖивые матчи каждый вечер в 16:00 МСК. Чемпиону 3 000 монет и эксклюзивный мяч. Нажми кнопку, чтобы записаться.',
+    ol_walkover: '✅ <b>Победа 3:0!</b>\nСоперник не явился. 3 очка в таблицу лиги.',
+    ol_missed: '❌ <b>Ты пропустил матч лиги сегодня.</b>\nЗасчитано поражение 0:3. Три пропуска подряд, и ты выбываешь из лиги в этом сезоне.',
+    ol_prize: (p, c, b, s) => `🏆 <b>Сезон ${s} завершён!</b>\nТвоё место: <b>#${p}</b>.${c ? `\n🪙 <b>+${c} монет</b> на твой счёт.` : ''}${b ? '\n⚽ Эксклюзивный мяч <b>Чемпион лиги</b> уже в твоём шкафу!' : ''}`,
     inv_room: c => `🎮 <b>Тебе бросили вызов!</b>\nДруг ждёт в комнате <code>${c}</code>. Нажми кнопку ниже, чтобы войти.`,
     inv_league: c => `🏆 <b>Приглашение в лигу</b>\nТебя пригласили в лигу <code>${c}</code>. Играй с друзьями, набирай очки, бери кубок сезона.`,
     b_play: '⚽ ИГРАТЬ', b_coins: '🪙 Купить монеты', b_profile: '👤 Профиль', b_help: '📖 Как играть', b_locker: '🎒 Открыть шкаф', b_more: '🪙 Купить ещё', coins_w: 'монет',
@@ -442,6 +603,11 @@ export function botText(kind, d = {}) {
   if (kind === 'terms') return `<b>📜 ${x.terms}</b>\n\n<blockquote expandable>${x.terms_b}</blockquote>`;
   if (kind === 'owns') return x.owns(nm(d.item));
   if (kind === 'invite_room') return x.inv_room(h(d.code));
+  if (kind === 'ol_started') return x.ol_started(h(d.time));
+  if (kind === 'ol_soon') return x.ol_soon(h(d.opp), h(d.time));
+  if (kind === 'ol_open') return x.ol_open(h(d.opp), +d.min);
+  if (kind === 'ol_walkover' || kind === 'ol_missed' || kind === 'ol_invite') return x[kind];
+  if (kind === 'ol_prize') return x.ol_prize(+d.pos, d.coins ? f(d.coins) : 0, !!d.ball, +d.season);
   if (kind === 'invite_league') return x.inv_league(h(d.code));
   return '';
 }
@@ -481,6 +647,7 @@ export async function onUpdate(u) {
   const sp = /^\/start (room|lg)_([a-z0-9]{4,8})(?:_(\d+))?$/.exec(text);
   if (sp) { const code = sp[2].toUpperCase(), q2 = sp[1] === 'room' ? `room=${code}` : `league=${code}${sp[3] ? '&by=' + sp[3] : ''}`;
     return say(m.chat.id, botText(sp[1] === 'room' ? 'invite_room' : 'invite_league', { lang, code }), kb([[{ text: x.b_play, web_app: { url: `${WEBAPP_URL}/?${q2}` } }]])); }
+  if (text === '/start official') return say(m.chat.id, botText('ol_invite', { lang }), kb([[{ text: x.b_play, web_app: { url: `${WEBAPP_URL}/?official=1` } }]]));
   if (text.startsWith('/start')) return say(m.chat.id, botText('start', userSnap(uid, name, lang)), kb([[playBtn(lang)], [{ text: x.b_coins, callback_data: 'menu:coins' }, { text: x.b_profile, callback_data: 'menu:profil' }], [{ text: x.b_help, callback_data: 'menu:help' }]]));
   if (text.startsWith('/coins')) return say(m.chat.id, botText('coins', userSnap(uid, name, lang)), packsKb(lang));
   if (text.startsWith('/profil')) return say(m.chat.id, botText('profile', userSnap(uid, name, lang)), kb([[playBtn(lang)], [{ text: x.b_coins, callback_data: 'menu:coins' }]]));
@@ -494,7 +661,7 @@ const TURN_MS = 15000 + 1500, GONE_MS = 60000;
 function createRoom(rules) {
   if (rooms.size >= 300) return null;
   let code; do code = makeCode(5); while (rooms.has(code));
-  rooms.set(code, { code, rules: { minutes: MINUTES.includes(+rules?.minutes) ? +rules.minutes : 3 }, players: [], created: Date.now(), ranked: !!rules?.ranked, uids: rules?.uids || null, league: +rules?.league || 0 });
+  rooms.set(code, { code, rules: { minutes: MINUTES.includes(+rules?.minutes) ? +rules.minutes : 3 }, players: [], created: Date.now(), ranked: !!rules?.ranked, uids: rules?.uids || null, league: +rules?.league || 0, official: +rules?.official || 0 });
   return code;
 }
 const send = (ws, o) => { if (ws?.readyState === 1) ws.send(JSON.stringify(o)); };
@@ -538,6 +705,8 @@ function overCast(room, msg, forfeited = false) {
   if (room.league && !room.leagueDone) { room.leagueDone = true; const [a, b] = room.players, sc = room.engine.score;
     lres = recordLeague(room.league, a.uid, b.uid, sc[0], sc[1], forfeited ? MIN_RANKED_MS : Date.now() - room.startedAt); }
   if (lres) msg = { ...msg, league: { counted: lres.counted, why: lres.why } };
+  if (room.official && !room.officialDone) { room.officialDone = true; const m = q('SELECT * FROM ol_match WHERE id=?').get(room.official), sc = room.engine.score, [x] = room.players;
+    if (m) { const flip = x.uid !== m.a; olRecord(m.id, flip ? sc[1] : sc[0], flip ? sc[0] : sc[1]); msg = { ...msg, official: true }; } }
   room.players.forEach(p => { const r = res?.[p.uid]; send(p.ws, { ...msg, rank: room.ranked ? (r ? { ...r, tier: tierOf(r.rp).id, div: tierOf(r.rp).div } : { counted: false, why: res?.why }) : undefined }); });
 }
 // Seat 0 calls the coin (10s, else auto). Winner kicks off and is home: both players see the winner's venue, pitch and ball.
@@ -551,7 +720,7 @@ function startMatch(room, call = 'k') {
   const [a, b] = room.players, coin = randomBytes(1)[0] & 1 ? 'b' : 'k', first = tossResult(call, coin) ? 0 : 1;
   const homeEquip = p => p.uid ? profile(p.uid).equip : DEFAULT_EQUIP;
   const setup = buildSetup({ team0: a.profile.team, team1: b.profile.team, kit0: a.profile.kit, kit1: b.profile.kit, formation: a.profile.formation,
-    minutes: room.rules.minutes, seed: randomBytes(4).readUInt32LE(), paper0: room.ranked ? null : paperStats(a.uid), paper1: room.ranked ? null : paperStats(b.uid), cpu: [false, false], squad0: squadOf(a.uid), squad1: squadOf(b.uid),
+    minutes: room.rules.minutes, seed: randomBytes(4).readUInt32LE(), paper0: room.ranked || room.official ? null : paperStats(a.uid), paper1: room.ranked || room.official ? null : paperStats(b.uid), cpu: [false, false], squad0: squadOf(a.uid), squad1: squadOf(b.uid),
     first, home: homeEquip(room.players[first]) });
   setup.coin = coin; setup.call = call;
   setup.formations[1] = FORMATIONS[b.profile.formation] ? b.profile.formation : '4-4-2';
@@ -574,6 +743,7 @@ function onRoomSocket(ws, pid, code) {
     if (m.t === 'join') {
       const auth = verifyInitData(m.initData);
       me.uid = auth?.uid || 0; me.paperId = me.uid ? profile(me.uid).equip.paper : 'p_a4';
+      if (room.official && !room.uids.includes(me.uid)) { room.players.splice(room.players.indexOf(me), 1); room.players.forEach((p, i) => p.seat = i); send(ws, { t: 'err', msg: 'room-full' }); return ws.close(4009); }
       const pr = m.profile || {};
       me.profile = { name: String(auth?.name || pr.name || 'Pemain').slice(0, 20), team: teamById(pr.team).id, kit: String(pr.kit || ''), formation: String(pr.formation || '4-4-2') };
       if (room.engine) return send(ws, { t: 'setup', setup: room.setup, seat: me.seat, state: room.engine.exportState(), left: Math.max(0, (room.deadline || 0) - Date.now()) });
@@ -655,6 +825,7 @@ wss.on('connection', (ws, req) => {
   else if (u.pathname.startsWith('/ws/room/')) onRoomSocket(ws, pid, u.pathname.split('/')[3]?.toUpperCase());
   else ws.close(4000);
 });
+if (process.env.NODE_ENV !== 'test') setInterval(() => { try { olTick(); } catch (e) { console.error('olTick', e.message); } }, 20e3).unref();
 setInterval(() => { const now = Date.now(); for (const [c, r] of rooms) if (now - r.created > 3 * 3600e3) { clearTimeout(r.timer); rooms.delete(c); } }, 60e3).unref();
 
 if (process.env.NODE_ENV !== 'test') {

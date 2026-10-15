@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=28';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=28';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=28';
-import { World, Q } from './scene.js?v=28';
-import { crest, ink } from './art.js?v=28';
-import * as L3 from './locker3d.js?v=28';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=28';
-import { tierOf, TIERS } from './rank.js?v=28';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=29';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=29';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=29';
+import { World, Q } from './scene.js?v=29';
+import { crest, ink } from './art.js?v=29';
+import * as L3 from './locker3d.js?v=29';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=29';
+import { tierOf, TIERS } from './rank.js?v=29';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -448,7 +448,7 @@ function rankLine(r) {
   return `<div class="rk-res ${r.delta >= 0 ? 'up' : 'down'}" style="--tc:${tierOf(r.rp).color}"><b>${T(r.delta >= 0 ? 'rk_gain' : 'rk_loss', { n: r.delta })}</b><span>${up ? `${T('rk_up')} ` : ''}${tierName(r.tier, r.div)}  ·  ${T('rk_rp', { n: num(r.rp) })}</span></div>`;
 }
 async function showRanked(tab = 'season') {
-  const m = screen(`${header(true)}<main class="ranked"><div class="seg2"><button class="on">🏆 ${T('ranked')}</button><button id="to-lg">👥 ${T('lg')}</button></div><div id="rk-card" class="rk-card"><div class="spinner"></div></div>
+  const m = screen(`${header(true)}<main class="ranked"><div class="seg2 seg3"><button class="on">🏆 ${T('ranked')}</button><button id="to-ol">⭐ ${T('ol')}</button><button id="to-lg">👥 ${T('lg')}</button></div><div id="rk-card" class="rk-card"><div class="spinner"></div></div>
     <button class="play" id="rk-go"><b>${T('rk_play')}</b><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke-linejoin="round"/></svg></button>
     <p class="rk-fair">⚖️ ${T('rk_fair')}</p>
     <h3 class="rk-h">${T('rk_board')}</h3><div class="tabs rk-tabs">${['week', 'season', 'all'].map(k => `<button class="tab ${k === tab ? 'on' : ''}" data-t="${k}">${T('rk_' + k)}</button>`).join('')}</div>
@@ -456,6 +456,7 @@ async function showRanked(tab = 'season') {
   bindHeader(m);
   m.querySelector('#rk-go').onclick = () => { SFX.ui(); if (P.guest) return toast(T('rk_guest')); findMatch(true); };
   m.querySelector('#to-lg').onclick = () => { SFX.ui(); showLeagues(); };
+  m.querySelector('#to-ol').onclick = () => { SFX.ui(); showOfficial(); };
   m.querySelectorAll('.rk-tabs .tab').forEach(b => b.onclick = () => { SFX.ui(); showRanked(b.dataset.t); });
   if (P.guest) { m.querySelector('#rk-card').innerHTML = `<p class="muted">${T('rk_guest')}</p>`; m.querySelector('#rk-list').innerHTML = ''; return; }
   let r; try { r = await api('/api/rank', { tab }); } catch { m.querySelector('#rk-card').innerHTML = `<p class="muted">${T('no_server')}</p>`; return; }
@@ -470,6 +471,52 @@ async function showRanked(tab = 'season') {
   m.querySelector('#rk-list').innerHTML = `<div class="rk-hd"><span>${tab === 'week' ? T('rk_week_reset') : ''}</span><span>${col}</span></div><ol>${rows || `<li class="empty">${T('rk_empty')}</li>`}${mine}</ol>`;
 }
 
+// ── official league ────────────────────────────────────────
+const dur = ms => { const m = Math.max(0, Math.round(ms / 60e3)), h = Math.floor(m / 60); return h ? `${h}j ${m % 60}m`.replace('j', S.lang === 'en' ? 'h' : S.lang === 'ru' ? 'ч' : 'j').replace('m', S.lang === 'ru' ? 'м' : 'm') : `${m}${S.lang === 'ru' ? 'м' : 'm'}`; };
+async function showOfficial() {
+  const m = screen(`${header(true)}<main class="ranked"><div class="seg2 seg3"><button id="to-rk">🏆 ${T('ranked')}</button><button class="on">⭐ ${T('ol')}</button><button id="to-lg">👥 ${T('lg')}</button></div><div id="ol-body"><div class="spinner"></div></div></main>`);
+  bindHeader(m);
+  m.querySelector('#to-rk').onclick = () => { SFX.ui(); showRanked(); };
+  m.querySelector('#to-lg').onclick = () => { SFX.ui(); showLeagues(); };
+  let st; try { st = P.guest ? null : await api('/api/official', { op: 'status' }); } catch { st = null; }
+  if (!m.isConnected) return;
+  const body = m.querySelector('#ol-body'), pr = st?.prize || [3000, 1500, 1000, 500], ly = st?.loyal || { games: 20, coins: 300 };
+  const prizes = `<h3 class="rk-h">🏆 ${T('ol_prizes')}</h3><div class="ol-prizes"><div class="ol-p1"><span class="ol-ball" id="ol-ball"></span><b>${T('ol_p1', { c: num(pr[0]) })}</b></div><p>🥈🥉 ${T('ol_p2', { a: num(pr[1]), b: num(pr[2]) })}</p><p>🎖 ${T('ol_p3', { c: num(pr[3]) })}</p><p>🎁 ${T('ol_p4', { g: ly.games, c: num(ly.coins) })}</p></div>`;
+  const rules = `<h3 class="rk-h">📋 ${T('ol_rules')}</h3><ol class="ol-rules">${[1, 2, 3, 4, 5].map(i => `<li>${T('ol_r' + i)}</li>`).join('')}</ol>`;
+  const hero = `<div class="ol-hero"><small>${T('rk_season_n', { n: st?.season || 1 })}</small><h2>${T('ol_title')}</h2><p>${T('ol_sub')}</p></div>`;
+  if (!st) { body.innerHTML = hero + `<p class="rk-fair">${T('rk_guest')}</p>` + prizes + rules; return paintBall(); }
+  let main = '';
+  if (!st.started) {
+    const pct = Math.min(100, Math.round(st.count / st.min * 100));
+    main = `<div class="rk-card ol-wait"><b>${T('ol_wait', { min: st.min })}</b><div class="rk-bar"><i style="width:${pct}%;background:var(--yel)"></i></div><small class="rk-nx">${T('ol_count', { n: st.count, min: st.min })}</small>
+      ${st.me ? `<p class="ol-ok">✅ ${T('ol_joined')}</p>` : `<button class="play" id="ol-join"><b>${T('ol_join')}</b></button>`}
+      <button class="btn lime" id="ol-share">📨 ${T('ol_invite')}</button></div>`;
+  } else if (!st.me) {
+    main = `<div class="rk-card"><button class="play" id="ol-join"><b>${T('ol_join')}</b></button><p class="muted">${T('ol_r1')}</p></div>`;
+  } else {
+    const mt = st.match, left = st.nextAt - Date.now();
+    const state = st.me.out ? `<p class="ol-bad">${T('ol_out')}</p>`
+      : mt?.room ? `<p class="ol-vs">${T('ol_vs', { name: esc(mt.opp) })}</p><button class="play hot" id="ol-enter"><b>${T('ol_enter')}</b></button>`
+      : mt?.bye ? `<p class="ol-vs">😴 ${T('ol_bye')}</p>`
+      : mt?.state === 'done' ? `<p class="ol-vs">${T('ol_done', { a: mt.mine[0] ?? 0, b: mt.mine[1] ?? 0 })}</p>`
+      : `<p class="ol-vs">${mt?.opp ? T('ol_vs', { name: esc(mt.opp) }) : T('ol_tbd')}</p><p class="muted">${T('ol_hint')}</p>`;
+    main = `<div class="rk-card ol-next"><small>${T('ol_next')}</small><b class="ol-clock" id="ol-clock">${mt?.room ? '🟢 LIVE' : left > 0 ? T('ol_in', { t: dur(left) }) : '21:00'}</b>${state}</div>`;
+  }
+  const div = st.me?.div || 0, rows = st.table.map(r => `<li class="${r.me ? 'me' : ''} ${r.pos <= 3 && r.p ? 'p' + r.pos : ''} ${r.out ? 'out' : ''}"><em>${r.pos}</em><b>${esc(r.name)}${r.me ? ` <i>${T('rk_you')}</i>` : ''}</b><span class="lg-n">${r.p}</span><span class="lg-n">${r.w}</span><span class="lg-n">${r.d}</span><span class="lg-n">${r.l}</span><span class="lg-n">${r.gd > 0 ? '+' : ''}${r.gd}</span><strong>${r.pts}</strong></li>`).join('');
+  const table = st.started ? `<h3 class="rk-h">${T('ol_table')}  ·  ${div ? T('ol_div', { n: div }) : T('ol_super')}</h3><div class="rk-list lg-table"><div class="rk-hd"><span></span><span class="lg-cols-h">${T('lg_cols').split('  ').map(c => `<i>${c}</i>`).join('')}</span></div><ol>${rows}</ol><p class="lg-legend">${T('lg_legend')}</p></div>` : '';
+  body.innerHTML = hero + main + table + prizes + rules;
+  paintBall();
+  body.querySelector('#ol-join')?.addEventListener('click', async () => {
+    SFX.ui();
+    try { await new Promise(ok => tg?.requestWriteAccess ? tg.requestWriteAccess(() => ok()) : ok()); } catch {}
+    try { await api('/api/official', { op: 'join', lang: S.lang }); notify('success'); showOfficial(); } catch { toast(T('oops')); }
+  });
+  body.querySelector('#ol-enter')?.addEventListener('click', () => { SFX.ui(); joinRoom(st.match.room); });
+  body.querySelector('#ol-share')?.addEventListener('click', () => { const link = 'https://t.me/BolaKertasBot?start=official', text = T('ol_share');
+    if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`); else navigator.clipboard?.writeText(link).then(() => toast(T('link_copied'))); });
+  function paintBall() { L3.thumbs([itemById('b_champion')], artCtx(), (id, u) => paint(m.querySelector('#ol-ball'), u)).catch(() => {}); }
+}
+
 // ── friend leagues ─────────────────────────────────────────
 const lgErr = e => T({ name: 'lg_err_name', limit: 'lg_err_limit', full: 'lg_err_full', no_league: 'lg_err_none' }[e] || 'oops');
 async function lgApi(body) { const r = await fetch('/api/league', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Init-Data': initData }, body: JSON.stringify(body) }); const j = await r.json().catch(() => ({})); if (!r.ok) throw j.err || 'oops'; return j; }
@@ -479,13 +526,14 @@ async function joinLeagueCode(code, by = 0) {
   catch (e) { toast(lgErr(e)); }
 }
 async function showLeagues() {
-  const m = screen(`${header(true)}<main class="ranked"><div class="seg2"><button id="to-rk">🏆 ${T('ranked')}</button><button class="on">👥 ${T('lg')}</button></div>
+  const m = screen(`${header(true)}<main class="ranked"><div class="seg2 seg3"><button id="to-rk">🏆 ${T('ranked')}</button><button id="to-ol">⭐ ${T('ol')}</button><button class="on">👥 ${T('lg')}</button></div>
     <h3 class="rk-h">${T('lg_mine')}</h3><div id="lg-list" class="lg-list"><div class="spinner"></div></div>
     <button class="play" id="lg-new"><b>${T('lg_new')}</b></button>
     <div class="join"><input id="lg-code" maxlength="6" placeholder="${T('lg_join')}" autocomplete="off"><button class="btn lime" id="lg-join">${T('join')}</button></div>
     <p class="rk-fair">🎁 ${T('lg_reward', { n: 100 })}</p></main>`);
   bindHeader(m);
   m.querySelector('#to-rk').onclick = () => { SFX.ui(); showRanked(); };
+  m.querySelector('#to-ol').onclick = () => { SFX.ui(); showOfficial(); };
   const inp = m.querySelector('#lg-code'); inp.oninput = () => inp.value = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
   m.querySelector('#lg-join').onclick = () => inp.value.length === 6 ? joinLeagueCode(inp.value) : toast(T('lg_err_none'));
   m.querySelector('#lg-new').onclick = () => { SFX.ui(); if (P.guest) return toast(T('rk_guest')); newLeagueSheet(); };
@@ -552,7 +600,7 @@ function replayCam(clip, f, k) {
 function playReplays(idx, record = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=28" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=29" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -604,7 +652,7 @@ const loadImg = src => new Promise((ok, bad) => { const i = new Image(); i.onloa
 async function sharePoster(clip) {
   if (!clip) return toast(T('rp_none'));
   const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
-  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=28'), loadImg('/sponsor/revolix.png?v=28').catch(() => null)]);
+  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=29'), loadImg('/sponsor/revolix.png?v=29').catch(() => null)]);
   const sc = Math.max(W / art.width, H / art.height); g.drawImage(art, (W - art.width * sc) / 2, (H - art.height * sc) / 2, art.width * sc, art.height * sc);
   let gr = g.createLinearGradient(0, H * 0.5, 0, H); gr.addColorStop(0, 'rgba(5,10,30,0)'); gr.addColorStop(0.45, 'rgba(5,10,30,.82)'); gr.addColorStop(1, 'rgba(5,10,30,.96)'); g.fillStyle = gr; g.fillRect(0, H * 0.5, W, H * 0.5);
   gr = g.createLinearGradient(0, 0, 0, 220); gr.addColorStop(0, 'rgba(5,10,30,.85)'); gr.addColorStop(1, 'rgba(5,10,30,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, 220);
@@ -820,7 +868,7 @@ const priceHtml = it => it.free ? T('free') : it.coins ? `<span class="coin"></s
 const itemState = (it, owned) => { const have = !it.consumable && isOwned(owned, it), eq = it.grants ? it.grants.every(g => Object.values(P.equip).includes(g)) : P.equip[it.slot] === it.id; return { have, eq }; };
 
 function showShop(slot = 'paper') {
-  const owned = new Set(P.owned), items = ITEMS.filter(i => i.slot === slot).sort((a, b) => (RARITY[a.rarity]?.rank || 0) - (RARITY[b.rarity]?.rank || 0));
+  const owned = new Set(P.owned), items = ITEMS.filter(i => i.slot === slot && (!i.exclusive || owned.has(i.id))).sort((a, b) => (RARITY[a.rarity]?.rank || 0) - (RARITY[b.rarity]?.rank || 0));
   const m = screen(`${header(true, T('mode_shop'))}<main class="shop">
     <div class="tabs">${SLOT_TABS.map(k => `<button class="tab ${k === slot ? 'on' : ''}" data-s="${k}">${T('tab_' + k)}</button>`).join('')}</div>
     ${slot === 'paper' ? `<p class="muted">${T('note_paper')}</p>` : slot === 'bundle' ? `<p class="muted">${T('note_bundle')}</p>` : ''}
@@ -1018,6 +1066,7 @@ async function boot() {
   showHome();
   if (/^[A-Z0-9]{4,8}$/.test(room || '')) joinRoom(room);
   else if (/^[A-Z0-9]{6}$/i.test(lgc || '')) joinLeagueCode(lgc, by);
+  else if (qs.get('official') || sp === 'official') showOfficial();
   $('#boot')?.classList.add('gone');
 }
 boot();

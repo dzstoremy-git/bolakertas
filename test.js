@@ -187,6 +187,47 @@ ok('friend leagues: create/limit, invite/full, table order, invite reward once, 
   assert.ok(S.leaveLeague(O, lg.id).ok); assert.equal(S.myLeagues(O + 1)[0].own, true); // first joiner takes over
   for (const lang of ['ms', 'en', 'ru']) for (const k of ['invite_room', 'invite_league']) { const x = S.botText(k, { lang, code: '<X>' }); assert.ok(x.includes('&lt;X&gt;') && !x.includes('—')); }
 });
+ok('official league: waits for minimum, 30 min warning, 10 min no-show rule, 3 misses out, swiss, prizes once', () => {
+  const sw = S.pairSwiss([1, 2, 3, 4, 5].map(uid => ({ uid })), new Set(['1:2', '2:1']), new Set([5]));
+  assert.equal(sw.bye, 4); assert.deepEqual(sw.pairs, [[1, 3], [2, 5]]); // 5 already had a bye, 1-2 already met
+  const s = 2, day0 = K.SEASON_EPOCH + (s - 1) * K.SEASON_MS + 864e5; // a season with no previous games
+  const kick = d => Date.parse(new Date(day0 + d * 864e5 + 8 * 3600e3).toISOString().slice(0, 10) + 'T13:00:00Z');
+  const P = Array.from({ length: S.OL.min }, (_, i) => 7600 + i);
+  for (const u of P) S.db.prepare('INSERT OR IGNORE INTO users (uid,name,equip,created,coins) VALUES (?,?,?,?,0)').run(u, 'O' + u, '{}', 0);
+  S.olOut.length = 0;
+  for (const u of P.slice(0, -1)) S.olJoin(u, 'en', day0);
+  assert.equal(S.olStatus(P[0], day0).started, false); assert.equal(S.olStatus(P[0], day0).count, S.OL.min - 1);
+  S.olTick(kick(1) - 20 * 60e3); assert.equal(S.db.prepare('SELECT COUNT(*) n FROM ol_match WHERE season=?').get(s).n, 0); // not started: nothing scheduled
+  S.olJoin(P.at(-1), 'ru', day0 + 1000); assert.equal(S.olStatus(P[0], day0).started, true);
+  assert.equal(S.olOut.filter(m => m.kind === 'ol_started').length, S.OL.min);
+  const present = new Set(P.slice(0, S.OL.min - 2)); // the last two never show up
+  for (let d = 1; d <= 3; d++) {
+    S.olOut.length = 0;
+    S.olTick(kick(d) - 31 * 60e3); assert.equal(S.olOut.length, 0); // too early
+    S.olTick(kick(d) - 29 * 60e3); assert.equal(S.olOut.filter(m => m.kind === 'ol_soon').length, S.OL.min - 2 * (d > 3)); // everyone told their opponent
+    S.olTick(kick(d) - 10 * 60e3); assert.equal(S.olOut.filter(m => m.kind === 'ol_soon').length, S.OL.min); // no double reminders
+    S.olTick(kick(d) + 1000); assert.equal(S.olOut.filter(m => m.kind === 'ol_open').length, S.OL.min);
+    const games = S.db.prepare("SELECT * FROM ol_match WHERE season=? AND day=(SELECT MAX(day) FROM ol_match WHERE season=?) AND b>0").all(s, s);
+    assert.equal(games.length, S.OL.min / 2);
+    for (const g of games) if (present.has(g.a) && present.has(g.b)) S.olRecord(g.id, g.a % 3, g.b % 2); // real games finish
+    S.olTick(kick(d) + 9 * 60e3); assert.equal(S.olOut.filter(m => m.kind === 'ol_walkover' || m.kind === 'ol_missed').length, 0); // still inside 10 min
+    S.olTick(kick(d) + 10 * 60e3 + 1000, m => [m.a, m.b].filter(u => present.has(u)));
+  }
+  const ghost = S.db.prepare('SELECT * FROM ol_player WHERE uid=? AND season=?').get(P.at(-1), s);
+  assert.equal(ghost.p, 3); assert.equal(ghost.l, 3); assert.equal(ghost.out, 1); assert.equal(ghost.pts, 0); assert.ok(ghost.ga >= 3); // 3 losses (forfeit or both absent), out
+  const pairs = S.db.prepare('SELECT a, b FROM ol_match WHERE season=? AND b>0').all(s).map(m => [m.a, m.b].sort().join());
+  assert.equal(new Set(pairs).size, pairs.length); // nobody met twice
+  const walk = S.db.prepare("SELECT how FROM ol_match WHERE season=? AND how LIKE 'forfeit%'").all(s).length; assert.ok(walk >= 2);
+  const st = S.olStatus(P[0], kick(3) + 3600e3); assert.ok(st.table.length === S.OL.min && st.table[0].pts >= st.table.at(-1).pts && st.me.p === 3);
+  S.olTick(kick(4) - 29 * 60e3); assert.ok(!S.db.prepare("SELECT 1 FROM ol_match WHERE season=? AND (a=? OR b=?) AND day=(SELECT MAX(day) FROM ol_match)").get(s, P.at(-1), P.at(-1))); // out players are not paired
+  const coins = u => S.db.prepare('SELECT coins FROM users WHERE uid=?').get(u).coins, top = st.table[0], champ = P.find(u => S.olStatus(u, kick(3) + 3600e3).me.pos === 1);
+  S.olTick(K.seasonEnds(s) + 1000); const c1 = coins(champ);
+  assert.equal(c1, S.OL.prize[0]); assert.ok(S.db.prepare("SELECT 1 FROM owned WHERE uid=? AND item='b_champion'").get(champ));
+  S.olTick(K.seasonEnds(s) + 60e3); assert.equal(coins(champ), c1); // paid once
+  assert.ok(S.db.prepare('SELECT 1 FROM ol_player WHERE uid=? AND season=?').get(champ, s + 1)); assert.ok(!S.db.prepare('SELECT 1 FROM ol_player WHERE uid=? AND season=?').get(P.at(-1), s + 1)); // carried over, ghosts dropped
+  for (const lang of ['ms', 'en', 'ru']) for (const k of ['ol_invite', 'ol_started', 'ol_soon', 'ol_open', 'ol_walkover', 'ol_missed', 'ol_prize']) { const x = S.botText(k, { lang, opp: '<b>x', time: '21:00', min: 10, pos: 1, coins: 3000, ball: true, season: 2 }); assert.ok(x && !x.includes('—') && !x.includes('<b>x') && !/undefined|NaN/.test(x), k + lang); }
+  assert.equal(I.itemName(S.catalog.itemById('b_champion'), 'ru'), 'Чемпион лиги'); assert.ok(!S.catalog.itemById('b_champion').coins && !S.catalog.itemById('b_champion').stars);
+});
 // async checks run after the sync ones
 const aok = async (name, fn) => { await fn(); n++; console.log('ok', name); };
 await aok('goal clips: only signed players, real jpg/mp4 bytes, size cap, share page serves it', async () => {
