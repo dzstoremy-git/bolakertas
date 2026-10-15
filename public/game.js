@@ -1,11 +1,11 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=18';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor } from './teams.js?v=18';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet } from './items.js?v=18';
-import { World, Q } from './scene.js?v=18';
-import { crest, ink } from './art.js?v=18';
-import * as L3 from './locker3d.js?v=18';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=19';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor } from './teams.js?v=19';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet } from './items.js?v=19';
+import { World, Q } from './scene.js?v=19';
+import { crest, ink } from './art.js?v=19';
+import * as L3 from './locker3d.js?v=19';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 15, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };

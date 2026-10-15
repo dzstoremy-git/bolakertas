@@ -1,12 +1,15 @@
 // locker3d.js : Locker and menu art rendered by the match renderer itself.
 // Every thumbnail is a real World (scene.js) with the item applied, so what the shop shows is what the match shows.
 import * as THREE from 'three';
-import { World, makePlayer, makeBall } from './scene.js?v=18';
-import { itemById, DEFAULT_EQUIP } from './items.js?v=18';
+import { World, makePlayer, makeBall } from './scene.js?v=19';
+import { itemById, DEFAULT_EQUIP } from './items.js?v=19';
 
-const SIZE = 320;
+// HD: thumbnails render at 2x their on-screen size (min 512), live preview at device pixel ratio up to 1024px.
+const DPR = Math.min(2, Math.max(1, devicePixelRatio || 1));
+const THUMB = Math.max(512, Math.ceil(190 * DPR / 64) * 64);
 let W = null, previewOpen = false;
-const studio = () => W || (W = new World(document.createElement('canvas'), [SIZE, SIZE]));
+const studio = () => W || (W = new World(document.createElement('canvas'), [THUMB, THUMB]));
+const sizeTo = px => { const w = studio(); if (w.size[0] !== px) { w.size = [px, px]; w.resize(); } };
 const urls = new Map();
 
 const lookOf = (id, fb) => { const it = itemById(id) || itemById(fb); return { ...it.look, rarity: it.rarity }; };
@@ -14,11 +17,11 @@ const lookOf = (id, fb) => { const it = itemById(id) || itemById(fb); return { .
 // Build one shot. o = { equip, team, kit, opp, oppKit, players: [[x,z,ry,side]], cam: [pos, look, fov], fx, number }
 function stage(o) {
   const w = studio(), e = { ...DEFAULT_EQUIP, ...o.equip };
-  if (w._pitchId !== e.pitch) { w.setPitch(lookOf(e.pitch, 'f_stripes'), 64); w._pitchId = e.pitch; }
+  if (w._pitchId !== e.pitch) { w.setPitch(lookOf(e.pitch, 'f_stripes'), 128); w._pitchId = e.pitch; }
   if (w.venueId !== e.venue) w.setVenue(e.venue);
   w.setBall(lookOf(e.ball, 'b_classic'));
   w.disposeGroup(w.dyn); w.pieces = [];
-  w.particles.forEach(p => { w.fx.remove(p.m); p.m.geometry.dispose(); p.m.material.dispose(); }); w.particles = [];
+  w.particles.forEach(p => { w.fx.remove(p.m); const g = p.m.geometry; if (!p.sprite && --g.userData.refs <= 0) g.dispose(); p.m.material.dispose(); }); w.particles = []; w.queue = [];
   const cache = new Map();
   for (const [x, z, ry, side = 0, num] of o.players || []) {
     const pl = makePlayer({ team: side ? o.opp : o.team, kit: side ? o.oppKit : o.kit, number: num ?? o.number ?? 10, name: o.name || 'KAPTEN', look: side ? lookOf('p_a4') : lookOf(e.paper, 'p_a4') }, cache);
@@ -27,7 +30,7 @@ function stage(o) {
   const [bx, bz] = o.ball || [0.5, 0.75]; w.ballMesh.position.set(bx, 0.16, bz); w.ballRing.visible = false;
   w.showAim(null);
   const [pos, look, fov] = o.cam; w.cam.fov = fov || 40; w.cam.updateProjectionMatrix(); w.cam.position.set(...pos); w.cam.lookAt(...look);
-  if (o.fx) { w.goalFx(o.fx.kind, 0, 0, o.fx.colors); for (let i = 0; i < (o.fx.steps || 4); i++) w.update(0.07, i * 0.07); }
+  if (o.fx) { w.goalFx(o.fx.kind, 0, 0, o.fx.colors); for (let i = 0; i < (o.fx.steps || 4); i++) w.update(1 / 30, i / 30); } // freeze at the peak
   if (o.tap) { w.tapFx(-0.55, 0.25, w.pieces[0].rank, w.pieces[0].color); for (let i = 0; i < 4; i++) w.update(0.05, 1.2 + i * 0.05); }
   w.update(0.016, 1.3);
   return w;
@@ -43,11 +46,11 @@ function shotFor(it, ctx) {
   if (s === 'pitch') return { ...base, equip: { ...base.equip, pitch: it.id }, players: [[-1.4, -0.6, 0], [1.3, 0.8, Math.PI, 1], [0.2, -2.6, 0]], ball: [0.1, 0.1], cam: [[0, 6.2, 6.2], [0, 0, -0.4], 44] };
   if (s === 'venue') return { ...base, equip: { ...base.equip, venue: it.id }, players: [[0, 6, 0], [-2, 8, 0, 0, 7], [1.6, 4.2, Math.PI, 1]], ball: [0.2, 6.6], cam: [[0, 6.5, 19], [0, 0.5, -1], 52] };
   if (s === 'ball') return { ...base, equip: { ...base.equip, ball: it.id }, players: [[-0.55, -0.55, 0.5]], ball: [0.15, 0.2], cam: [[0.75, 0.42, 0.95], [0.12, 0.17, 0.18], 34] };
-  if (s === 'fx') return { ...base, players: [[0, 0, 0]], ball: [0.6, -0.4], cam: [[0, 2.2, 5.6], [0, 1.3, 0], 50], fx: { kind: it.id, colors: [ctx.kit.base, ctx.kit.accent], steps: it.id === 'x_fireworks' ? 3 : 5 } };
+  if (s === 'fx') return { ...base, players: [[0, 0, 0]], ball: [0.6, -0.4], cam: [[0, 1.2, 10.5], [0, 4.6, 0], 62], fx: { kind: it.id, colors: [ctx.kit.base, ctx.kit.accent], steps: it.id === 'x_fireworks' ? 40 : it.id === 'x_confetti' ? 22 : 10 } };
   return { ...base, players: [[0, 0, 0.35]], ball: [-0.62, 0.42], cam: HERO }; // pass
 }
 
-const snap = w => { w.render(); return w.r.domElement.toDataURL('image/jpeg', 0.86); };
+const snap = w => { sizeTo(THUMB); w.render(); return w.r.domElement.toDataURL('image/webp', 0.95); };
 const sig = ctx => `${ctx.team.id}|${ctx.kit.id}|${Object.values(ctx.equip).join(',')}`;
 const frame = () => new Promise(r => requestAnimationFrame(r));
 
@@ -82,6 +85,7 @@ export async function icon(kind, ctx) {
 // Live, touch-rotatable preview inside the item sheet. Returns { tap(), close() }.
 export function preview(host, it, ctx) {
   const w = studio(), o = shotFor(it, ctx); delete o.fx; delete o.tap; stage(o); previewOpen = true;
+  sizeTo(Math.min(1024, Math.ceil(Math.min(innerWidth, 420) * DPR / 64) * 64));
   const c = w.r.domElement; host.append(c); c.style.cssText = 'width:100%;height:100%;display:block;touch-action:none';
   const [pos, look] = o.cam, tgt = new THREE.Vector3(...look), off = new THREE.Vector3(...pos).sub(tgt);
   let yaw = 0, drag = null, alive = true, t = 0, last = performance.now(), auto = true;
