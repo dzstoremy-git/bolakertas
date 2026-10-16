@@ -1,6 +1,6 @@
 // art.js : procedural 2D art drawn on canvas. Jerseys, crests, pitch, ball, net, paper surfaces.
 // Used for 3D textures and for menu thumbnails, so the menu and the match always look the same.
-import { FIELD } from './engine.js?v=55';
+import { FIELD } from './engine.js?v=56';
 
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; };
 export const shade = (hex, k) => { // k<0 darker, k>0 lighter
@@ -298,8 +298,8 @@ export function netTexture(w = 128, h = 128) {
   // one diamond mesh cell per tile: soft cord with a darker core and a knot at each crossing
   const [c, g] = mk(w, h); g.lineCap = 'round';
   const cord = (lw, col) => { g.strokeStyle = col; g.lineWidth = lw; g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w / 2, 0); g.lineTo(w, h / 2); g.lineTo(w / 2, h); g.closePath(); g.stroke(); };
-  cord(9, 'rgba(255,255,255,.35)'); cord(5, 'rgba(255,255,255,1)');
-  g.fillStyle = '#fff'; for (const [x, y] of [[0, h / 2], [w / 2, 0], [w, h / 2], [w / 2, h]]) { g.beginPath(); g.arc(x, y, 5.5, 0, Math.PI * 2); g.fill(); }
+  cord(13, 'rgba(18,22,48,.55)'); cord(7, 'rgba(255,255,255,1)'); // dark edge + thick white cord
+  g.fillStyle = '#fff'; for (const [x, y] of [[0, h / 2], [w / 2, 0], [w, h / 2], [w / 2, h]]) { g.beginPath(); g.arc(x, y, 7, 0, Math.PI * 2); g.fill(); }
   return c;
 }
 

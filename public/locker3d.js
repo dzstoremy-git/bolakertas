@@ -1,8 +1,8 @@
 // locker3d.js : Locker and menu art rendered by the match renderer itself.
 // Every thumbnail is a real World (scene.js) with the item applied, so what the shop shows is what the match shows.
 import * as THREE from 'three';
-import { World, makePlayer, makeBall } from './scene.js?v=55';
-import { itemById, DEFAULT_EQUIP } from './items.js?v=55';
+import { World, makePlayer, makeBall } from './scene.js?v=56';
+import { itemById, DEFAULT_EQUIP } from './items.js?v=56';
 
 // HD: thumbnails render at 2x their on-screen size (min 512), live preview at device pixel ratio up to 1024px.
 const DPR = Math.min(2, Math.max(1, devicePixelRatio || 1));
@@ -17,7 +17,7 @@ const lookOf = (id, fb) => { const it = itemById(id) || itemById(fb); return { .
 // Build one shot. o = { equip, team, kit, opp, oppKit, players: [[x,z,ry,side]], cam: [pos, look, fov], fx, number }
 function stage(o) {
   const w = studio(), e = { ...DEFAULT_EQUIP, ...o.equip };
-  if (w._pitchId !== e.pitch) { w.setPitch(lookOf(e.pitch, 'f_stripes'), 64); w._pitchId = e.pitch; }
+  if (w._pitchId !== e.pitch) { w.setPitch(lookOf(e.pitch, 'f_stripes'), 128); w._pitchId = e.pitch; }
   if (w.venueId !== e.venue || !w._base) { w.setVenue(e.venue); w._base = [w.hemi.intensity, w.r.toneMappingExposure]; }
   const lift = o.lift ?? 1; w.hemi.intensity = w._base[0] + 0.6 * lift; w.r.toneMappingExposure = w._base[1] * (1 + 0.12 * lift); // product-shot fill; venue shots keep their mood
   w.setBall(lookOf(e.ball, 'b_classic'));
@@ -53,7 +53,8 @@ function shotFor(it, ctx) {
   return { ...base, players: [[0, 0, 0.35]], ball: [-0.62, 0.42], cam: HERO }; // pass
 }
 
-const snap = w => { sizeTo(THUMB); w.render(); return w.r.domElement.toDataURL('image/webp', 0.95); };
+const snap = (w, px = THUMB) => { sizeTo(px); w.render(); return w.r.domElement.toDataURL('image/webp', 0.95); };
+const ICON = Math.min(1024, Math.ceil(Math.min(innerWidth, 440) * Math.min(3, devicePixelRatio || 1) / 64) * 64);
 const sig = ctx => `${ctx.team.id}|${ctx.kit.id === 'custom' ? JSON.stringify(ctx.kit) : ctx.kit.id}|${Object.values(ctx.equip).join(',')}`;
 const frame = () => new Promise(r => requestAnimationFrame(r));
 
@@ -82,10 +83,10 @@ export async function icon(kind, ctx) {
     studio: { ...b, players: [[-0.5, 0, 0.7], [0.5, 0, -0.7]], ball: [0, 0.9], cam: [[0, 0.95, 2.4], [0, 0.34, 0], 40] },
     pen: { ...b, players: [[0, -0.2, 0.15]], ball: [0, 0.75], cam: [[0.25, 0.75, -1.9], [0, 0.35, 0.4], 42] },
     help: { ...b, players: [[0, 0, 0.2]], ball: [0.2, 0.7], cam: [[1.35, 1.0, 1.9], [0, 0.3, 0.2], 40], tap: true },
-    kit: { ...b, lift: 1, players: [[0, 0, -0.55]], ball: [0.5, 0.5], cam: [[1.0, 0.95, 1.55], [0, 0.32, 0], 38] }, // kit picker: the folded paper player in that kit
+    kit: { ...b, lift: 0.35, players: [[0, 0, 0]], ball: [0.62, 0.55], cam: [[0, 0.5, 1.85], [0, 0.36, 0], 30] }, // front-on, little fill so kit colours stay vivid // kit picker: the folded paper player in that kit
   }[kind];
   do await frame(); while (previewOpen());
-  const url = snap(stage(o)); urls.set(k, url); return url;
+  const url = snap(stage(o), Math.max(THUMB, ICON)); urls.set(k, url); return url;
 }
 
 // Live, touch-rotatable preview inside the item sheet. Returns { tap(), close() }.

@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=55';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=55';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=55';
-import { World, Q } from './scene.js?v=55';
-import { crest, ink } from './art.js?v=55';
-import * as L3 from './locker3d.js?v=55';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=55';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=55';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=56';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=56';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=56';
+import { World, Q } from './scene.js?v=56';
+import { crest, ink } from './art.js?v=56';
+import * as L3 from './locker3d.js?v=56';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=56';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=56';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -637,7 +637,7 @@ function replayCam(clip, t, b, scorer, cam, dt) {
 function playReplays(idx, record = false, auto = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em>${auto && !record && window.MediaRecorder ? `<button class="chip ghost rp-save" id="rp-save">⬇ ${T('rp_dl')}</button>` : ''}<button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=55" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em>${auto && !record && window.MediaRecorder ? `<button class="chip ghost rp-save" id="rp-save">⬇ ${T('rp_dl')}</button>` : ''}<button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=56" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -787,7 +787,7 @@ async function sharePoster(clip) {
     <button class="btn lime" id="pst-go" disabled>📤 ${T('pst_share')}</button><button class="btn ghost" id="pst-x">${T('back')}</button>`); o.classList.add('ov-pst');
   o.querySelector('#pst-x').onclick = () => o.remove();
   await new Promise(r => requestAnimationFrame(r)); // let the sheet paint before the heavy pass
-  const logo = await loadImg('/sponsor/revolix.png?v=55').catch(() => null);
+  const logo = await loadImg('/sponsor/revolix.png?v=56').catch(() => null);
   const cs = await makePosters(clip)(logo), urls = cs.map(c => c.toDataURL('image/jpeg', 0.9));
   if (window.__bkPosterHook) { o.remove(); return window.__bkPosterHook(urls); } // QA capture
   if (!o.isConnected) return;
@@ -1233,13 +1233,14 @@ let last = performance.now(), fpsAcc = 0, fpsN = 0;
 // Old laptops / phones: when the game runs under 40 fps, drop sharpness one step at a time, then shadows,
 // and remember it so the next launch starts in the light mode (smaller textures, fewer crowd pieces, no smoothing).
 let gfxBad = 0;
+// Frame-rate guard: steps quality down only when the device really struggles (<30fps twice in a row), and remembers
+// light mode only once it hits the last step. A phone that dips to 40-50fps on a busy scene keeps full HD.
 function gfxGuard(fps) {
-  if (fps >= 40) { gfxBad = 0; return; } if (++gfxBad < 2) return; gfxBad = 0; // two slow windows in a row, so a loading hitch alone never triggers it
+  if (fps >= 30) { gfxBad = 0; return; } if (++gfxBad < 2) return; gfxBad = 0;
   const pr = world.r.getPixelRatio();
-  if (pr > 1) { world.r.setPixelRatio(Math.max(1, pr - 0.25)); world.resize(); }
+  if (pr > 1.25) { world.r.setPixelRatio(Math.max(1.25, pr - 0.25)); world.resize(); }
   else if (world.sun.castShadow) { world.sun.castShadow = false; world.r.shadowMap.enabled = false; }
-  else if (pr > 0.75) { world.r.setPixelRatio(0.75); world.resize(); }
-  localStorage.setItem('bk/lowgfx', '1');
+  else if (pr > 1) { world.r.setPixelRatio(1); world.resize(); localStorage.setItem('bk/lowgfx', '1'); }
 }
 function loop(now) {
   requestAnimationFrame(loop);

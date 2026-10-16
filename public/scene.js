@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=55';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=55';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=55';
-import { RARITY } from './items.js?v=55';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=56';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=56';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=56';
+import { RARITY } from './items.js?v=56';
 // [colours, start height, count, speed, gravity, size, glow, life]
 const FX_SIMPLE = {
   x_team: ['team', 0.8, 110, 6.5, 8, 0.11, false, 2.4],
@@ -14,8 +14,9 @@ const FX_SIMPLE = {
 };
 
 export const Q = (() => { // quality tier. Telegram WebView on mobile gets the lean tier.
+  if (localStorage.getItem('bk/gfx2') !== '1') { localStorage.removeItem('bk/lowgfx'); localStorage.setItem('bk/gfx2', '1'); } // one-time: clear light mode set by the old over-eager guard
   const touch = matchMedia('(pointer:coarse)').matches, slow = localStorage.getItem('bk/lowgfx') === '1'; // set by the frame-rate guard in game.js on a struggling device
-  const low = slow || touch && (navigator.hardwareConcurrency || 4) <= 4;
+  const low = slow; // iOS reports 2-4 cores on every iPhone, so core count put flagship phones in blurry low mode; the frame-rate guard decides instead
   return { dpr: Math.min(devicePixelRatio || 1, slow ? 1 : low ? 1.25 : 2), shadow: low ? 1024 : 2048, aa: !low, ppu: low ? 64 : 96, low, slow }; // sharp like bolatepuk (dpr up to 2, AA on); the frame-rate guard in game.js still steps down on a struggling device
 })();
 
@@ -165,7 +166,7 @@ function paperMaterial(map, look, printed, grain) {
   return m;
 }
 
-const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=55'; });
+const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=56'; });
 export class World {
   // size = [w, h] gives a fixed-size studio World (Locker previews) that renders with the exact match pipeline.
   constructor(canvas, size = null) {
@@ -225,7 +226,7 @@ export class World {
     const post = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.25, metalness: 0.1 });
     const frame = new THREE.MeshStandardMaterial({ color: 0xe4e8f0, roughness: 0.45, metalness: 0.35 });
     const nt = tex(netTexture(), false); nt.wrapS = nt.wrapT = THREE.RepeatWrapping;
-    const netM = new THREE.MeshStandardMaterial({ map: nt, alphaMap: nt, color: 0xf4f7ff, transparent: true, side: THREE.DoubleSide, roughness: 0.9, depthWrite: false, alphaTest: 0.02 });
+    const netM = new THREE.MeshStandardMaterial({ map: nt, color: 0xffffff, transparent: true, side: THREE.DoubleSide, roughness: 0.9, depthWrite: false, alphaTest: 0.02 }); // colour + alpha from the texture: white cord with a dark edge reads on any background
     const V = (x, y, z) => new THREE.Vector3(x, y, z);
     const rod = (a, b, r, mat, outline) => { // cylinder between two points, optional ink hull
       const len = a.distanceTo(b), g = new THREE.Group(); g.position.copy(a).lerp(b, 0.5); g.quaternion.setFromUnitVectors(V(0, 1, 0), b.clone().sub(a).normalize());
@@ -392,6 +393,17 @@ export class World {
       g.fillStyle = 'rgba(255,255,255,0.85)'; g.font = '700 64px "Teko", Arial'; g.fillText('4-4-2  ->  TEPUK!', 70, 140); g.font = '600 44px "Teko", Arial'; g.fillText('Rehat: 10.30 pagi', 70, 260);
       board.material = [std('#5a4632'), std('#5a4632'), std('#5a4632'), std('#5a4632'), new THREE.MeshStandardMaterial({ map: tex(ct), roughness: 0.95 }), std('#5a4632')];
       for (let i = 0; i < 4; i++) add(new THREE.BoxGeometry(1.4, 0.5, 1), std(['#e8483c', '#3a7be8', '#f2c230', '#33a35a'][i], 0.7), -8 + i * 0.5, 0.25 + i * 0.5, 10.8 - i * 0.2);
+      // Behind each goal: a row of standing textbooks on the desk edge, so the view past the net is colourful, not a bare brown wall.
+      // One InstancedMesh for both rows (2 draw calls with the spine labels).
+      const BK = ['#e8483c', '#3a7be8', '#f2c230', '#33a35a', '#8e5bd6', '#ff8a3d', '#1fb5a8', '#e85a9b'], per = 34, bw = (TW + 1.2) / per;
+      const books = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), std('#ffffff', 0.75), per * 2), labels = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), std('#f4ecd8', 0.9), per * 2);
+      const o = new THREE.Object3D(), col = new THREE.Color(); let n = 0, r = 7;
+      const rnd = () => (r = (r * 16807) % 2147483647) / 2147483647;
+      for (const sz of [-1, 1]) for (let i = 0; i < per; i++, n++) {
+        const h = 1.1 + rnd() * 0.7, w = bw * (0.82 + rnd() * 0.16), x = -(TW + 1.2) / 2 + (i + 0.5) * bw, z = sz * (TL / 2 + 0.62);
+        o.position.set(x, h / 2, z); o.rotation.set(0, 0, (rnd() - 0.5) * 0.06); o.scale.set(w, h, 0.5); o.updateMatrix(); books.setMatrixAt(n, o.matrix); books.setColorAt(n, col.set(BK[i % BK.length]).offsetHSL(0, 0, (rnd() - 0.5) * 0.08));
+        o.position.set(x, h * 0.62, z - sz * 0.252); o.scale.set(w * 0.7, h * 0.16, 0.01); o.updateMatrix(); labels.setMatrixAt(n, o.matrix); }
+      books.castShadow = books.receiveShadow = true; this.venue.add(books, labels);
       const pencil = add(new THREE.CylinderGeometry(0.09, 0.09, 4.2, 6), std('#f2b705', 0.6), 7.6, 0.1, 4); pencil.rotation.set(Math.PI / 2, 0, 0.3); // pencil + ruler on the desk
       add(new THREE.BoxGeometry(0.7, 0.04, 7), std('#d9e7f2', 0.3), -7.9, 0.02, -3);
       pano((g, w, h) => { gradBand(g, w, h, [[0, '#cfc3ad'], [0.62, '#b9ab95'], [0.63, '#8a6a4a'], [1, '#6e5238']]); // wall + wood skirting
