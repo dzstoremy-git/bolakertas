@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=43';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=43';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=43';
-import { RARITY } from './items.js?v=43';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=44';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=44';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=44';
+import { RARITY } from './items.js?v=44';
 // [colours, start height, count, speed, gravity, size, glow, life]
 const FX_SIMPLE = {
   x_team: ['team', 0.8, 110, 6.5, 8, 0.11, false, 2.4],
@@ -162,7 +162,7 @@ function paperMaterial(map, look, printed, grain) {
   return m;
 }
 
-const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=43'; });
+const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=44'; });
 export class World {
   // size = [w, h] gives a fixed-size studio World (Locker previews) that renders with the exact match pipeline.
   constructor(canvas, size = null) {
@@ -259,24 +259,49 @@ export class World {
     };
     // Official sponsor: Revolix Gaming LED boards behind both goals and along both touchlines, on every venue.
     const sponsor = () => {
-      const c = document.createElement('canvas'); c.width = 2048; c.height = 160; const g = c.getContext('2d'), t = tex(c); t.anisotropy = 8;
+      // LED boards: three slides baked once into one texture, the board rolls between them on the GPU (texture offset only,
+      // no per-frame redraw). Slide 0 logo + URL, slide 1 topup message, slide 2 "GOL!" shown for a few seconds after a goal.
+      const SH = 160, c = document.createElement('canvas'); c.width = 2048; c.height = 512; const g = c.getContext('2d'), t = tex(c); t.anisotropy = 8;
+      t.wrapS = THREE.RepeatWrapping; t.repeat.set(1, SH / 512);
+      const bg = y => { const gr = g.createLinearGradient(0, y, 0, y + SH); gr.addColorStop(0, '#0d1b3d'); gr.addColorStop(1, '#050b1c'); g.fillStyle = gr; g.fillRect(0, y, 2048, SH);
+        g.fillStyle = '#2f8fff'; g.fillRect(0, y, 2048, 6); g.fillRect(0, y + SH - 6, 2048, 6);
+        g.fillStyle = 'rgba(255,255,255,.035)'; for (let x = 0; x < 2048; x += 8) g.fillRect(x, y, 3, SH); }; // LED pixel grid
+      const txt = (s, x, y, font, fill) => { g.font = font; g.fillStyle = fill; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(s, x, y); };
       const draw = img => {
-        const gr = g.createLinearGradient(0, 0, 0, 160); gr.addColorStop(0, '#0d1b3d'); gr.addColorStop(1, '#050b1c'); g.fillStyle = gr; g.fillRect(0, 0, 2048, 160);
-        g.fillStyle = '#2f8fff'; g.fillRect(0, 0, 2048, 6); g.fillRect(0, 154, 2048, 6);
+        g.clearRect(0, 0, 2048, 512); [0, SH, SH * 2].forEach(bg);
+        const logo = (x, y, w) => { if (img) { const h = w * img.height / img.width; g.drawImage(img, x, y - h / 2, w, h); } };
         for (const x0 of [0, 1024]) {
-          if (img) { const w = 440, h = w * img.height / img.width; g.drawImage(img, x0 + 36, (160 - h) / 2, w, h); } // logo left half, URL right half: never touch
-          g.fillStyle = 'rgba(127,184,255,.35)'; g.fillRect(x0 + 512, 30, 3, 100);
-          g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#7fb8ff'; g.font = '700 26px "Rajdhani", Arial'; g.fillText('OFFICIAL SPONSOR', x0 + 768, 40);
-          g.fillStyle = '#ffffff'; g.font = '800 64px "Teko", Arial'; g.fillText('revolixgaming.com', x0 + 768, 98);
+          logo(x0 + 36, 80, 440); g.fillStyle = 'rgba(127,184,255,.35)'; g.fillRect(x0 + 512, 30, 3, 100); // logo left half, URL right half: never touch
+          txt('OFFICIAL SPONSOR', x0 + 768, 40, '700 26px "Rajdhani", Arial', '#7fb8ff'); txt('revolixgaming.com', x0 + 768, 98, '800 64px "Teko", Arial', '#ffffff');
+          txt('TOPUP GAME', x0 + 256, SH + 72, '800 78px "Teko", Arial', '#ffffff'); txt('PANTAS  ·  SELAMAT  ·  24 JAM', x0 + 256, SH + 124, '700 24px "Rajdhani", Arial', '#7fd0ff');
+          g.fillStyle = '#ffc93c'; g.fillRect(x0 + 520, SH + 38, 480, 84); txt('revolixgaming.com', x0 + 760, SH + 82, '800 58px "Teko", Arial', '#0a1430');
+          for (const k of [0, 1]) { const x = x0 + k * 512; txt('GOL!', x + 300, SH * 2 + 84, 'italic 800 120px "Teko", Arial', '#ffc93c'); logo(x + 24, SH * 2 + 80, 150); }
         }
         t.needsUpdate = true;
       };
       draw(null); SPONSOR_IMG.then(draw);
-      const mat = new THREE.MeshStandardMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.55, roughness: 0.5 }), dark = std('#0a0f1e', 0.6);
+      const mat = new THREE.MeshStandardMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.6, roughness: 0.5 }), dark = std('#0a0f1e', 0.6);
+      // light sweep: one thin additive strip per board, slides along it
+      const sc = document.createElement('canvas'); sc.width = 256; sc.height = 4; const sg = sc.getContext('2d'), sgr = sg.createLinearGradient(0, 0, 256, 0);
+      sgr.addColorStop(0, 'rgba(255,255,255,0)'); sgr.addColorStop(0.5, 'rgba(190,225,255,.55)'); sgr.addColorStop(1, 'rgba(255,255,255,0)'); sg.fillStyle = sgr; sg.fillRect(0, 0, 256, 4);
+      const st = tex(sc); st.repeat.set(3, 1); // one narrow band, edges fade to clear
+      const sweep = new THREE.MeshBasicMaterial({ map: st, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
       const L = 9.6, H = 0.75, ez = TL / 2 + 0.62, sx = TW / 2 + 0.62;
       for (const [x, z, ry] of [[0, -ez, 0], [0, ez, Math.PI], [-sx, -5, Math.PI / 2], [sx, 5, -Math.PI / 2]]) {
         const b = add(new THREE.BoxGeometry(L, H, 0.1), [dark, dark, dark, dark, mat, dark], x, H / 2 + 0.02, z); b.rotation.y = ry; b.castShadow = true;
+        const s = new THREE.Mesh(new THREE.PlaneGeometry(L, H * 0.92), sweep); s.position.set(0, 0, 0.056); b.add(s);
       }
+      let slide = 0, at = 0;
+      this.boardGoal = 0; this.boardTex = t;
+      anim((dt, tt) => {
+        const goal = this.boardGoal > 0; if (goal) this.boardGoal -= dt;
+        const want = goal ? 2 : Math.floor(tt / 6) % 2; // swap every 6s; "GOL!" overrides
+        if (want !== slide) { at += (want - at) * Math.min(1, dt * 5); if (Math.abs(want - at) < 0.004) { at = slide = want; } } else at = slide;
+        t.offset.y = 1 - (at + 1) * SH / 512;
+        t.offset.x = goal ? (tt * 0.12) % 1 : 0; // "GOL!" marquee
+        st.offset.x = 1 - ((tt * 0.18) % 1) * 5; // crosses in ~4.4s, then a short rest
+        mat.emissiveIntensity = goal ? 0.75 + Math.sin(tt * 14) * 0.2 : 0.6;
+      });
     };
     const crowd = (count, radius, colors, lift = 0) => {
       const geo = new THREE.CapsuleGeometry(0.28, 0.5, 2, 6), mat = new THREE.MeshLambertMaterial(), mesh = new THREE.InstancedMesh(geo, mat, count);
@@ -757,6 +782,7 @@ export class World {
   // setFx: colours of a completed set (extra shower on top of the chosen effect). rank 4 paper: gold/rainbow column.
   later(sec, fn) { (this.queue ||= []).push({ sec, fn }); }
   goalFx(kind, x, z, teamColors, setFx, rank = 0) {
+    this.boardGoal = 3.5; // LED boards show GOL!
     if (setFx) { this.burst(x, 6, z, setFx, 140, 3, 2.5, 0.13); for (let k = 1; k <= 3; k++) this.later(k * 0.22, () => this.burst(x + (k - 2) * 2.4, 4.5, z, setFx, 60, 4.5, 3, 0.09)); }
     if (rank >= 4) this.burst(x, 0.2, z, ['#ff5fd2', '#39f6ff', '#ffd45a', '#7cff6b', '#ffffff'], 90, 9, 6, 0.07);
     if (kind === 'x_fireworks') {
