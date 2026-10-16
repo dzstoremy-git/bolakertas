@@ -11,7 +11,7 @@ export const ITEMS = [
     stats: { power: 104, weight: 92, control: 98 }, look: { kind: 'news', base: '#e2ddd0', rough: 0.95 } },
   { id: 'p_manila', rarity: 'rare', slot: 'paper', name: 'Kad Manila', desc: 'Tebal sikit. Bola senang dikawal.', coins: 800,
     stats: { power: 100, weight: 110, control: 102 }, look: { kind: 'plain', base: '#ead9a6', rough: 0.8 } },
-  { id: 'p_kraft', rarity: 'rare', slot: 'paper', name: 'Kraf Tebal', desc: 'Gentian kasar untuk tendangan padu.', stars: 15,
+  { id: 'p_kraft', rarity: 'rare', slot: 'paper', name: 'Kraf Tebal', desc: 'Gentian kasar untuk sepakan padu.', stars: 15,
     stats: { power: 106, weight: 108, control: 100 }, look: { kind: 'kraft', base: '#b98a55', rough: 0.9 } },
   { id: 'p_washi', rarity: 'epic', slot: 'paper', name: 'Washi Jepun', desc: 'Halus dan tepat. Sesuai untuk pemain yang suka bidik.', stars: 49,
     stats: { power: 102, weight: 100, control: 108 }, look: { kind: 'washi', base: '#f6f1e4', rough: 0.7 } },
@@ -128,8 +128,8 @@ export const ITEMS = [
 export const RARITY = {
   common: { rank: 0, label: 'BIASA', color: '#9aa6c4' },
   rare: { rank: 1, label: 'LUAR BIASA', color: '#3fa0ff', perks: ['Tekstur kertas lebih halus', 'Nama pemain berwarna semasa main'] },
-  epic: { rank: 2, label: 'EPIK', color: '#b36bff', perks: ['Aura bercahaya di kaki pemain', 'Riak tendangan berwarna'] },
-  legend: { rank: 3, label: 'LEGENDA', color: '#ffb21e', perks: ['Percikan api setiap tendangan', 'Bunyi tendangan khas', 'Bingkai emas pada papan skor'] },
+  epic: { rank: 2, label: 'EPIK', color: '#b36bff', perks: ['Aura bercahaya di kaki pemain', 'Riak sepakan berwarna'] },
+  legend: { rank: 3, label: 'LEGENDA', color: '#ffb21e', perks: ['Percikan api setiap sepakan', 'Bunyi sepakan khas', 'Bingkai emas pada papan skor'] },
   myth: { rank: 4, label: 'MITOS', color: '#ff5fd2', perks: ['Kilauan pelangi bergerak', 'Pemain terjun masuk padang', 'Sambutan gol khas'] },
 };
 export const rarityOf = it => RARITY[it?.rarity] || RARITY.common;

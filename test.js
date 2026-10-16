@@ -143,7 +143,7 @@ ok('i18n: every key and every item has ms/en/ru, no em dash, no developer words'
   for (const it of S.catalog.ITEMS) { assert.ok(I.ITEM_IDS.includes(it.id), 'missing translation ' + it.id); assert.ok(I.itemDesc(it, 'en') !== it.desc || it.slot === 'coins', 'en desc ' + it.id); }
   for (const it of S.catalog.ITEMS) assert.ok(/[а-я]/i.test(I.itemName(it, 'ru')) || /^[A-Z0-9 ]+$/.test(I.itemName(it, 'ru')), it.id);
   assert.equal(I.langFrom('ru'), 'ru'); assert.equal(I.langFrom('uk'), 'ru'); assert.equal(I.langFrom('ms'), 'ms'); assert.equal(I.langFrom('id'), 'ms'); assert.equal(I.langFrom('en'), 'en'); assert.equal(I.langFrom('de'), 'en'); assert.equal(I.langFrom(''), 'ms');
-  assert.equal(I.trMs('en', '3 TENDANGAN HABIS'), '3 KICKS USED'); assert.equal(I.trMs('ru', 'GOL!'), 'ГОЛ!'); assert.equal(I.trMs('ms', 'GOL!'), 'GOL!');
+  assert.equal(I.trMs('en', '3 TENDANGAN HABIS'), '3 KICKS USED'); assert.equal(I.trMs('en', '3 SEPAKAN HABIS'), '3 KICKS USED'); assert.equal(I.trMs('ru', 'GOL!'), 'ГОЛ!'); assert.equal(I.trMs('ms', 'GOL!'), 'GOL!');
 });
 ok('cheap catalog: every new item is priced low and drawable', () => {
   const { ITEMS: L } = S.catalog, cheap = L.filter(i => (i.coins && i.coins <= 900) || (i.stars && i.stars <= 8 && i.slot !== 'coins'));

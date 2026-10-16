@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=41';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=41';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=41';
-import { World, Q } from './scene.js?v=41';
-import { crest, ink } from './art.js?v=41';
-import * as L3 from './locker3d.js?v=41';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=41';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=41';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=42';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=42';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=42';
+import { World, Q } from './scene.js?v=42';
+import { crest, ink } from './art.js?v=42';
+import * as L3 from './locker3d.js?v=42';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=42';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=42';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -636,7 +636,7 @@ function replayCam(clip, t, b, scorer, cam, dt) {
 function playReplays(idx, record = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=41" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=42" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -772,7 +772,7 @@ async function sharePoster(clip) {
     <button class="btn lime" id="pst-go" disabled>📤 ${T('pst_share')}</button><button class="btn ghost" id="pst-x">${T('back')}</button>`); o.classList.add('ov-pst');
   o.querySelector('#pst-x').onclick = () => o.remove();
   await new Promise(r => requestAnimationFrame(r)); // let the sheet paint before the heavy pass
-  const logo = await loadImg('/sponsor/revolix.png?v=41').catch(() => null);
+  const logo = await loadImg('/sponsor/revolix.png?v=42').catch(() => null);
   const cs = await makePosters(clip)(logo), urls = cs.map(c => c.toDataURL('image/jpeg', 0.9));
   if (window.__bkPosterHook) { o.remove(); return window.__bkPosterHook(urls); } // QA capture
   if (!o.isConnected) return;
@@ -928,7 +928,7 @@ function showHome() {
     <button class="rk-tile" id="rk-tile"><span class="rk-badge" id="rk-badge">🏆</span><span class="mt"><b>${T('ranked')}</b><small id="rk-sub">${T('ranked_s')}</small></span><span class="go"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span></button>
     <button class="play" id="kick"><b>${T('play')}</b><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke-linejoin="round"/></svg></button>
     <section class="modes">
-      ${[['cpu', T('mode_cpu'), T('mode_cpu_s')], ['two', T('mode_two'), T('mode_two_s')], ['pen', T('mode_pen'), T('mode_pen_s'), T('tag_new')], ['web', T('mode_web'), T('mode_web_s'), T('tag_beta')], ['shop', T('mode_shop'), T('mode_shop_s', { a: have, b: sellable.length })], ['studio', T('mode_studio'), T('mode_studio_s'), T('tag_new')], ['help', T('mode_help'), T('mode_help_s')]]
+      ${[['web', T('mode_web'), T('mode_web_s'), T('tag_beta')], ['pen', T('mode_pen'), T('mode_pen_s'), T('tag_new')], ['cpu', T('mode_cpu'), T('mode_cpu_s')], ['two', T('mode_two'), T('mode_two_s')], ['shop', T('mode_shop'), T('mode_shop_s', { a: have, b: sellable.length })], ['studio', T('mode_studio'), T('mode_studio_s')], ['help', T('mode_help'), T('mode_help_s')]]
         .map(([k, t, s, tag], i) => `<button class="mode m-${k}" data-k="${k}" style="--i:${i}"><span class="mi" data-icon="${k}"></span><span class="mt"><b>${t}</b><small>${s}</small></span>${tag ? `<em>${tag}</em>` : ''}<span class="go"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span></button>`).join('')}
     </section>
   </main><footer class="foot">${T('footer')}</footer>
