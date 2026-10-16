@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=47';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=47';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=47';
-import { World, Q } from './scene.js?v=47';
-import { crest, ink } from './art.js?v=47';
-import * as L3 from './locker3d.js?v=47';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=47';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=47';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=48';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=48';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=48';
+import { World, Q } from './scene.js?v=48';
+import { crest, ink } from './art.js?v=48';
+import * as L3 from './locker3d.js?v=48';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=48';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=48';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -637,16 +637,20 @@ function replayCam(clip, t, b, scorer, cam, dt) {
 function playReplays(idx, record = false, auto = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em>${auto && !record && window.MediaRecorder ? `<button class="chip ghost rp-save" id="rp-save">⬇ ${T('rp_dl')}</button>` : ''}<button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=47" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em>${auto && !record && window.MediaRecorder ? `<button class="chip ghost rp-save" id="rp-save">⬇ ${T('rp_dl')}</button>` : ''}<button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=48" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
     const type = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(x => MediaRecorder.isTypeSupported(x));
-    try { rec = new MediaRecorder(canvas.captureStream(30), { mimeType: type, videoBitsPerSecond: 2.5e6 }); rec.ondataavailable = ev => ev.data.size && chunks.push(ev.data); rec.start(); } catch { rec = null; }
+    // HD + steady: draw at 720px wide for the clip, and step the replay a fixed 1/30s per captured frame (see loop),
+    // so a busy phone gives a slightly slower but smooth clip instead of a juddery one.
+    // ponytail: wall-clock capture, a phone under 30fps stretches the clip a little; WebCodecs encoder if that matters
+    const pr0 = world.r.getPixelRatio(); world.r.setPixelRatio(Math.min(2.5, 720 / (canvas.clientWidth || innerWidth))); world.resize();
+    try { rec = new MediaRecorder(canvas.captureStream(30), { mimeType: type, videoBitsPerSecond: 5e6 }); rec.ondataavailable = ev => ev.data.size && chunks.push(ev.data); rec.start(); rec.pr0 = pr0; } catch { rec = null; world.r.setPixelRatio(pr0); world.resize(); }
   }
   const F = clip.frames, cam = { pos: new THREE.Vector3(), look: new THREE.Vector3(), first: true }, bm = world.ballMesh, prevB = new THREE.Vector3(...F[0].b);
   const scorer = world.pieces[clip.sid]; let i = 1;
-  M.replaying = { step(dt) {
+  M.replaying = { rec: rec ? { last: 0 } : null, step(dt) {
     const slow = Math.abs(t - clip.goalT) < 1.2 ? 0.4 : 0.9, warp = Math.min(1, 0.25 + t * 1.5); t += dt * slow * warp; // ease in, slow motion at the net
     while (i < F.length - 1 && F[i].t < t) i++; if (F[i - 1].t > t) i = 1;
     const a = F[i - 1], c = F[i], u = Math.min(1, Math.max(0, (t - a.t) / ((c.t - a.t) || 1))), L = (x, y) => x + (y - x) * u; // blend the two recorded frames around t
@@ -660,7 +664,7 @@ function playReplays(idx, record = false, auto = false) {
   } };
   const done = () => {
     if (!M?.replaying) return; M.replaying = null; bar.remove();
-    if (rec) { rec.onstop = () => record(new Blob(chunks, { type: rec.mimeType })); rec.stop(); }
+    if (rec) { rec.onstop = () => record(new Blob(chunks, { type: rec.mimeType })); rec.stop(); world.r.setPixelRatio(rec.pr0); world.resize(); }
     if (auto) { $('#hud').hidden = false; M.prevP = null; return; } // back to the match exactly where it paused
     replayMenu(idx);
   };
@@ -784,7 +788,7 @@ async function sharePoster(clip) {
     <button class="btn lime" id="pst-go" disabled>📤 ${T('pst_share')}</button><button class="btn ghost" id="pst-x">${T('back')}</button>`); o.classList.add('ov-pst');
   o.querySelector('#pst-x').onclick = () => o.remove();
   await new Promise(r => requestAnimationFrame(r)); // let the sheet paint before the heavy pass
-  const logo = await loadImg('/sponsor/revolix.png?v=47').catch(() => null);
+  const logo = await loadImg('/sponsor/revolix.png?v=48').catch(() => null);
   const cs = await makePosters(clip)(logo), urls = cs.map(c => c.toDataURL('image/jpeg', 0.9));
   if (window.__bkPosterHook) { o.remove(); return window.__bkPosterHook(urls); } // QA capture
   if (!o.isConnected) return;
@@ -1238,6 +1242,7 @@ function gfxGuard(fps) {
 function loop(now) {
   requestAnimationFrame(loop);
   const dt = Math.min(0.05, (now - last) / 1000); last = now; const t = now / 1000;
+  if (M?.replaying?.rec) { const R = M.replaying.rec; if (now - R.last < 33) return; R.last = now; M.replaying.step(1 / 30); world.update(1 / 30, t); world.render(); return; } // recording: fixed step, one frame per 33ms, quality guard off
   if (M?.replaying) M.replaying.step(dt);
   else if (M) { tick(dt); syncVisuals(dt, t); updateHud(); }
   else if (window.__frz) {} // QA: camera held still for screenshots
