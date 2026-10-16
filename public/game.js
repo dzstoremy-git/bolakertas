@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=50';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=50';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=50';
-import { World, Q } from './scene.js?v=50';
-import { crest, ink } from './art.js?v=50';
-import * as L3 from './locker3d.js?v=50';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=50';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=50';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=51';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=51';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=51';
+import { World, Q } from './scene.js?v=51';
+import { crest, ink } from './art.js?v=51';
+import * as L3 from './locker3d.js?v=51';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=51';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=51';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -636,7 +636,7 @@ function replayCam(clip, t, b, scorer, cam, dt) {
 function playReplays(idx, record = false, auto = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em>${auto && !record && window.MediaRecorder ? `<button class="chip ghost rp-save" id="rp-save">⬇ ${T('rp_dl')}</button>` : ''}<button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=50" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em>${auto && !record && window.MediaRecorder ? `<button class="chip ghost rp-save" id="rp-save">⬇ ${T('rp_dl')}</button>` : ''}<button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=51" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -674,7 +674,7 @@ function replayMenu(idx) {
   const list = M.goals.map((g, i) => `<button class="rp-goal ${i === idx ? 'on' : ''}" data-i="${i}"><b>${g.score[0]}:${g.score[1]}</b><span>${esc(g.who)}</span></button>`).join('');
   const o = overlay(`<h2>${T('rp_goals')}</h2><div class="rp-list">${list}</div>
     <div class="rp-row"><button class="btn lime" id="rp-share">📤 ${T('rp_share')}</button><button class="btn" id="rp-poster">🖼 ${T('rp_poster')}</button></div>
-    ${window.MediaRecorder ? `<div class="rp-row"><button class="btn" id="rp-dl">⬇ ${T('rp_dl')}</button>${P.guest ? '' : `<button class="btn" id="rp-bot">✈️ ${T('rp_bot')}</button>`}</div>` : ''}
+    ${window.MediaRecorder ? `<button class="btn" id="rp-dl">⬇ ${T('rp_dl')}</button>` : ''}
     <button class="btn" id="rp-again">▶ ${T('rp_again')}</button><button class="btn ghost" id="rp-back">${T('back')}</button>`);
   let sel = idx;
   o.querySelectorAll('.rp-goal').forEach(b => b.onclick = () => { sel = +b.dataset.i; o.querySelectorAll('.rp-goal').forEach(x => x.classList.toggle('on', x === b)); });
@@ -682,25 +682,24 @@ function replayMenu(idx) {
   o.querySelector('#rp-poster').onclick = () => sharePoster(M.goals[sel]);
   o.querySelector('#rp-share').onclick = () => { if (!window.MediaRecorder) return sharePoster(M.goals[sel]); toast(T('rp_saving'), 6000); playReplays(sel, blob => shareFile(blob, `bola-kertas-gol.${blob.type.includes('mp4') ? 'mp4' : 'webm'}`)); };
   o.querySelector('#rp-dl')?.addEventListener('click', () => { toast(T('rp_saving'), 6000); playReplays(sel, saveVideo); });
-  o.querySelector('#rp-bot')?.addEventListener('click', () => { toast(T('rp_saving'), 6000); playReplays(sel, sendToBot); });
   o.querySelector('#rp-back').onclick = () => { closeAllOverlays(); M.over = false; finishMatch(); };
 }
 // Save the recorded replay to the phone: Telegram's own download sheet when available, else a plain browser download.
-// The bot sends the replay to the player's own Telegram chat: it plays there and saves to the gallery with one tap.
-async function sendToBot(blob) {
-  try {
-    const r = await fetch('/api/clip', { method: 'POST', headers: { 'Content-Type': blob.type.split(';')[0], 'X-Init-Data': initData }, body: blob }).then(r => r.ok ? r.json() : Promise.reject(r.status));
-    await api('/api/clip/send', { url: r.url, caption: `${T('share_goal')}\n\n${T('share_join')} ${refLink()}` }); notify('success'); toast(T('rp_bot_ok'), 4000);
-  } catch (e) { if (e.code === 'bot_blocked') { tg?.openTelegramLink?.('https://t.me/BolaKertasBot?start=start'); return toast(T('rp_bot_start'), 5000); } toast(T(e.code === 'slow_down' ? 'rp_bot_limit' : 'oops')); }
-}
+// Save video: the bot sends the clip to the player's own chat (plays there, one tap saves it to the gallery, easy to forward).
+// Falls back to Telegram's download screen if the bot can't message them, and to a plain download outside Telegram.
 async function saveVideo(blob) {
   const name = `bola-kertas-gol.${blob.type.includes('mp4') ? 'mp4' : 'webm'}`;
   const local = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); a.remove(); toast(T('share_saved')); };
-  if (P.guest || !tg?.downloadFile) return local();
-  try {
-    const r = await fetch('/api/clip', { method: 'POST', headers: { 'Content-Type': blob.type.split(';')[0], 'X-Init-Data': initData }, body: blob }).then(r => r.ok ? r.json() : Promise.reject(r.status));
-    tg.downloadFile({ url: `${location.origin}${r.url}?dl=1`, file_name: name }, ok => ok && toast(T('share_saved')));
-  } catch { local(); }
+  if (P.guest) return local();
+  let r;
+  try { r = await fetch('/api/clip', { method: 'POST', headers: { 'Content-Type': blob.type.split(';')[0], 'X-Init-Data': initData }, body: blob }).then(r => r.ok ? r.json() : Promise.reject(r.status)); }
+  catch { return local(); }
+  try { await api('/api/clip/send', { url: r.url, caption: `${T('share_goal')}\n\n${T('share_join')} ${refLink()}` }); notify('success'); return toast(T('rp_bot_ok'), 4000); }
+  catch (e) {
+    if (e.code === 'slow_down') return toast(T('rp_bot_limit'));
+    if (tg?.downloadFile) return tg.downloadFile({ url: `${location.origin}${r.url}?dl=1`, file_name: name }, ok => ok && toast(T('share_saved')));
+    local();
+  }
 }
 // Share: native share sheet when the phone allows files, else upload and let Telegram share the link / save the file.
 const refLink = () => `https://t.me/BolaKertasBot?start=ref_${P.uid || 0}`; // personal invite: inviter gets coins when the friend finishes a first match
@@ -787,7 +786,7 @@ async function sharePoster(clip) {
     <button class="btn lime" id="pst-go" disabled>📤 ${T('pst_share')}</button><button class="btn ghost" id="pst-x">${T('back')}</button>`); o.classList.add('ov-pst');
   o.querySelector('#pst-x').onclick = () => o.remove();
   await new Promise(r => requestAnimationFrame(r)); // let the sheet paint before the heavy pass
-  const logo = await loadImg('/sponsor/revolix.png?v=50').catch(() => null);
+  const logo = await loadImg('/sponsor/revolix.png?v=51').catch(() => null);
   const cs = await makePosters(clip)(logo), urls = cs.map(c => c.toDataURL('image/jpeg', 0.9));
   if (window.__bkPosterHook) { o.remove(); return window.__bkPosterHook(urls); } // QA capture
   if (!o.isConnected) return;
