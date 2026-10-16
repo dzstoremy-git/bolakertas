@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=36';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=36';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=36';
-import { RARITY } from './items.js?v=36';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=37';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=37';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=37';
+import { RARITY } from './items.js?v=37';
 // [colours, start height, count, speed, gravity, size, glow, life]
 const FX_SIMPLE = {
   x_team: ['team', 0.8, 110, 6.5, 8, 0.11, false, 2.4],
@@ -14,8 +14,9 @@ const FX_SIMPLE = {
 };
 
 export const Q = (() => { // quality tier. Telegram WebView on mobile gets the lean tier.
-  const touch = matchMedia('(pointer:coarse)').matches, low = touch && (navigator.hardwareConcurrency || 4) <= 4;
-  return { dpr: Math.min(devicePixelRatio || 1, low ? 1.25 : touch ? 1.6 : 2), shadow: low ? 1024 : 2048, aa: !touch, ppu: low ? 64 : 96, low };
+  const touch = matchMedia('(pointer:coarse)').matches, slow = localStorage.getItem('bk/lowgfx') === '1'; // set by the frame-rate guard in game.js on a struggling device
+  const low = slow || touch && (navigator.hardwareConcurrency || 4) <= 4;
+  return { dpr: Math.min(devicePixelRatio || 1, slow ? 1 : low ? 1.25 : touch ? 1.6 : 1.5), shadow: low ? 1024 : 2048, aa: !touch && !slow, ppu: low ? 64 : 96, low, slow };
 })();
 
 const tex = (canvas, srgb = true, aniso = 8) => { const t = new THREE.CanvasTexture(canvas); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = aniso; return t; };
@@ -161,7 +162,7 @@ function paperMaterial(map, look, printed, grain) {
   return m;
 }
 
-const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=36'; });
+const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=37'; });
 export class World {
   // size = [w, h] gives a fixed-size studio World (Locker previews) that renders with the exact match pipeline.
   constructor(canvas, size = null) {
@@ -178,6 +179,7 @@ export class World {
     this.sun.shadow.mapSize.set(size ? 2048 : Q.shadow, size ? 2048 : Q.shadow); this.sun.shadow.bias = -0.0004; this.sun.shadow.normalBias = 0.02; this.sun.shadow.radius = 4;
     Object.assign(this.sun.shadow.camera, { left: -11, right: 11, top: 15, bottom: -15, near: 1, far: 70 });
     this.sun.position.set(7, 22, 9); this.scene.add(this.sun, this.sun.target);
+    if (Q.slow && !size) { this.sun.castShadow = false; this.r.shadowMap.enabled = false; } // light mode remembered from a slow run
     this.static = new THREE.Group(); this.venue = new THREE.Group(); this.dyn = new THREE.Group(); this.fx = new THREE.Group();
     this.scene.add(this.static, this.venue, this.dyn, this.fx);
     this.pieces = []; this.particles = []; this.camPos = new THREE.Vector3(0, 14, 16); this.camLook = new THREE.Vector3();
