@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=49';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=49';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=49';
-import { World, Q } from './scene.js?v=49';
-import { crest, ink } from './art.js?v=49';
-import * as L3 from './locker3d.js?v=49';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=49';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=49';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=50';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=50';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=50';
+import { World, Q } from './scene.js?v=50';
+import { crest, ink } from './art.js?v=50';
+import * as L3 from './locker3d.js?v=50';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=50';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=50';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -183,7 +183,7 @@ function tick(dt) {
   if (M.queued && (M.queued.t -= dt) <= 0) { const a = M.queued.a; M.queued = null; if (e._applyAction(a)) M.actions.push(a); else beacon({ rejected: a, phase: e.phase, kicker: e.kicker?.id }); }
   if (e.phase === 'halftime' && M.mode !== 'online') { M.halfWait += dt; if (M.halfWait > 2.6) { M.halfWait = 0; act({ t: 'half' }); } }
   e.acc += sim;
-  let n = 0; while (e.acc >= STEP && n++ < 8) { snapPrev(e); e.step(STEP); e.acc -= STEP; }
+  let n = 0; while (e.acc >= STEP && n++ < 16) { snapPrev(e); e.step(STEP); e.acc -= STEP; }
   M.alpha = Math.min(1, e.acc / STEP);
   drainEvents();
   if (M.pending && isRest(e)) { e.importState(M.pending); M.pending = null; M.turnFlag = true; }
@@ -618,26 +618,25 @@ function recordFrame(e) {
   if (now - G.t0 >= POST_S) { const from = G.t0 - PRE_S; M.goals.push({ ...G, frames: M.tape.filter(f => f.t >= from).map(f => ({ ...f, t: f.t - from })), goalT: PRE_S }); M.goalAt = null;
     if (M.mode !== 'online' && !e.kicks && S.autoReplay !== false) playReplays(M.goals.length - 1, false, true); } // instant replay; online keeps playing (both phones must stay in step), penalties would replay every kick
 }
-// Cinematic: chase cam behind the ball that keeps the scorer in frame, swings to a low side angle on the net, slow motion
-// at the goal. The look point is the ball itself (eased), so the ball never leaves the centre of the shot.
+// Broadcast replay: third-person camera behind the ball, facing the goal it is heading for (fixed from where the move
+// started), low and close; slow motion while the ball is near the goal, then eases back and up after it hits the net.
 function replayCam(clip, t, b, scorer, cam, dt) {
-  const gs = Math.sign(clip.frames.at(-1).b[2]) || 1, side = clip.frames.at(-1).b[0] >= 0 ? -1 : 1;
-  const near = Math.min(1, Math.max(0, 1 - (clip.goalT - t) / 2.2)), e = near * near * (3 - 2 * near); // 0 build-up, 1 at the net
-  const keep = scorer ? (t < clip.goalT - 0.6 ? 0.5 : t > clip.goalT + 0.3 ? 0.35 : 0) : 0; // scorer in shot on the build-up and the celebration
-  const mid = scorer ? new THREE.Vector3(b.x + (scorer.x - b.x) * keep, 0.3, b.z + (scorer.z - b.z) * keep) : new THREE.Vector3(b.x, 0.3, b.z);
-  const chase = new THREE.Vector3(mid.x * 0.85 + side * 1.6, 2.4, mid.z - gs * 4.6);
-  const net = new THREE.Vector3(b.x * 0.4 + side * 4.2, 1.3, gs * (FIELD.L / 2 - 2.8));
-  const after = Math.max(0, t - clip.goalT), pos = chase.lerp(net, e), gap = scorer ? Math.hypot(scorer.x - b.x, scorer.z - b.z) : 0;
-  pos.y += after * 0.45 + keep * gap * 0.35; pos.x += side * after * 0.5; pos.z -= gs * keep * gap * 0.3; // pull back far enough to fit ball + scorer
-  const look = new THREE.Vector3(b.x, Math.max(0.25, b.y * 0.6), b.z).lerp(mid, 0.25 * (1 - e));
-  const k = cam.first ? 1 : 1 - Math.exp(-dt * 6); cam.first = false; // ease, never snap
-  cam.pos.lerp(pos, k); cam.look.lerp(look, 1 - Math.exp(-dt * 10));
-  world.cam.position.copy(cam.pos); world.cam.lookAt(cam.look); world.cam.fov = 46 - 8 * e; world.cam.updateProjectionMatrix();
+  const gz = (Math.sign(clip.frames.at(-1).b[2]) || 1) * FIELD.L / 2;
+  if (!cam.face) { const s = clip.frames[0].b, fx = 0 - s[0], fz = gz - s[2], n = Math.hypot(fx, fz) || 1; cam.face = { x: fx / n, z: fz / n }; }
+  const f = cam.face, near = Math.abs(gz - b.z) < 4.5, after = Math.max(0, t - clip.goalT);
+  const x = Math.max(-FIELD.W / 2, Math.min(FIELD.W / 2, b.x)), z = gz > 0 ? Math.min(b.z, gz + 0.8) : Math.max(b.z, gz - 0.8); // stop at the net
+  const back = (near ? 4.2 : 3.4) + after * 0.8, up = (near ? 3.7 : 3) + after * 0.4;
+  const pos = new THREE.Vector3(x - f.x * back, up, z - f.z * back), look = new THREE.Vector3(x + f.x * 1.3, 0, z + f.z * 1.3);
+  const k = cam.first ? 1 : 1 - Math.exp(-dt * 5); cam.first = false; // ease, never snap
+  cam.pos.lerp(pos, k); cam.look.lerp(look, k);
+  world.cam.position.copy(cam.pos); world.cam.lookAt(cam.look);
+  const fov = near ? 40 : 45; world.cam.fov += (fov - world.cam.fov) * Math.min(1, dt * 6); world.cam.updateProjectionMatrix();
+  cam.slow = near;
 }
 function playReplays(idx, record = false, auto = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em>${auto && !record && window.MediaRecorder ? `<button class="chip ghost rp-save" id="rp-save">⬇ ${T('rp_dl')}</button>` : ''}<button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=49" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em>${auto && !record && window.MediaRecorder ? `<button class="chip ghost rp-save" id="rp-save">⬇ ${T('rp_dl')}</button>` : ''}<button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=50" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -651,7 +650,7 @@ function playReplays(idx, record = false, auto = false) {
   const F = clip.frames, cam = { pos: new THREE.Vector3(), look: new THREE.Vector3(), first: true }, bm = world.ballMesh, prevB = new THREE.Vector3(...F[0].b);
   const scorer = world.pieces[clip.sid]; let i = 1;
   M.replaying = { rec: rec ? { last: 0 } : null, step(dt) {
-    const slow = Math.abs(t - clip.goalT) < 1.2 ? 0.4 : 0.9, warp = Math.min(1, 0.25 + t * 1.5); t += dt * slow * warp; // ease in, slow motion at the net
+    const slow = cam.slow ? 0.45 : 1, warp = Math.min(1, 0.25 + t * 1.5); t += dt * slow * warp; // slow motion while the ball is near the goal
     while (i < F.length - 1 && F[i].t < t) i++; if (F[i - 1].t > t) i = 1;
     const a = F[i - 1], c = F[i], u = Math.min(1, Math.max(0, (t - a.t) / ((c.t - a.t) || 1))), L = (x, y) => x + (y - x) * u; // blend the two recorded frames around t
     bm.position.set(L(a.b[0], c.b[0]), L(a.b[1], c.b[1]), L(a.b[2], c.b[2]));
@@ -788,7 +787,7 @@ async function sharePoster(clip) {
     <button class="btn lime" id="pst-go" disabled>📤 ${T('pst_share')}</button><button class="btn ghost" id="pst-x">${T('back')}</button>`); o.classList.add('ov-pst');
   o.querySelector('#pst-x').onclick = () => o.remove();
   await new Promise(r => requestAnimationFrame(r)); // let the sheet paint before the heavy pass
-  const logo = await loadImg('/sponsor/revolix.png?v=49').catch(() => null);
+  const logo = await loadImg('/sponsor/revolix.png?v=50').catch(() => null);
   const cs = await makePosters(clip)(logo), urls = cs.map(c => c.toDataURL('image/jpeg', 0.9));
   if (window.__bkPosterHook) { o.remove(); return window.__bkPosterHook(urls); } // QA capture
   if (!o.isConnected) return;
