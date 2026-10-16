@@ -1,8 +1,8 @@
 // locker3d.js : Locker and menu art rendered by the match renderer itself.
 // Every thumbnail is a real World (scene.js) with the item applied, so what the shop shows is what the match shows.
 import * as THREE from 'three';
-import { World, makePlayer, makeBall } from './scene.js?v=48';
-import { itemById, DEFAULT_EQUIP } from './items.js?v=48';
+import { World, makePlayer, makeBall } from './scene.js?v=49';
+import { itemById, DEFAULT_EQUIP } from './items.js?v=49';
 
 // HD: thumbnails render at 2x their on-screen size (min 512), live preview at device pixel ratio up to 1024px.
 const DPR = Math.min(2, Math.max(1, devicePixelRatio || 1));
@@ -17,7 +17,7 @@ const lookOf = (id, fb) => { const it = itemById(id) || itemById(fb); return { .
 // Build one shot. o = { equip, team, kit, opp, oppKit, players: [[x,z,ry,side]], cam: [pos, look, fov], fx, number }
 function stage(o) {
   const w = studio(), e = { ...DEFAULT_EQUIP, ...o.equip };
-  if (w._pitchId !== e.pitch) { w.setPitch(lookOf(e.pitch, 'f_stripes'), 128); w._pitchId = e.pitch; }
+  if (w._pitchId !== e.pitch) { w.setPitch(lookOf(e.pitch, 'f_stripes'), 64); w._pitchId = e.pitch; }
   if (w.venueId !== e.venue || !w._base) { w.setVenue(e.venue); w._base = [w.hemi.intensity, w.r.toneMappingExposure]; }
   const lift = o.lift ?? 1; w.hemi.intensity = w._base[0] + 0.6 * lift; w.r.toneMappingExposure = w._base[1] * (1 + 0.12 * lift); // product-shot fill; venue shots keep their mood
   w.setBall(lookOf(e.ball, 'b_classic'));

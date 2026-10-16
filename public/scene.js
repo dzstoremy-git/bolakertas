@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=48';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=48';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=48';
-import { RARITY } from './items.js?v=48';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=49';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=49';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=49';
+import { RARITY } from './items.js?v=49';
 // [colours, start height, count, speed, gravity, size, glow, life]
 const FX_SIMPLE = {
   x_team: ['team', 0.8, 110, 6.5, 8, 0.11, false, 2.4],
@@ -20,6 +20,9 @@ export const Q = (() => { // quality tier. Telegram WebView on mobile gets the l
 })();
 
 const tex = (canvas, srgb = true, aniso = 8) => { const t = new THREE.CanvasTexture(canvas); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = aniso; return t; };
+// Big paint-once canvases (pitch, 360 backdrop): free the page-side copy once the GPU has it. iOS kills and reloads the
+// whole mini app when canvas memory runs out; these two were ~35MB per World and the Locker keeps a second World.
+const once = t => { t.onUpdate = () => { const c = t.image; if (c) { c.width = c.height = 1; } t.onUpdate = null; }; return t; };
 
 // Folded paper tent: a strip creased across the middle, both halves leaning in.
 // Base footprint PIECE.w x PIECE.d, apex height PIECE.h. Front face looks at +z of the local frame.
@@ -121,7 +124,7 @@ export function animBall(m, t) { const u = m.userData; if (!u.spin) return;
   if (u.glow) u.glow.material.opacity = (u.flame ? 0.5 : 0.4) + Math.sin(t * (u.flame ? 13 : 3)) * 0.08;
   if (u.ring) u.ring.rotation.z = t * 0.8; }
 export function pitchMaterial(look, ppu, aniso) {
-  const t = tex(pitchTexture(look, ppu), true, aniso);
+  const t = once(tex(pitchTexture(look, ppu), true, aniso));
   const m = new THREE.MeshStandardMaterial({ map: t, roughness: look.style === 'neon' ? 0.5 : 0.95, metalness: 0, envMapIntensity: 0.3 });
   if (look.style === 'neon' || look.style === 'gold') { m.emissive = new THREE.Color(0xffffff); m.emissiveMap = t; m.emissiveIntensity = look.style === 'neon' ? 0.35 : 0.12; }
   return m;
@@ -162,7 +165,7 @@ function paperMaterial(map, look, printed, grain) {
   return m;
 }
 
-const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=48'; });
+const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=49'; });
 export class World {
   // size = [w, h] gives a fixed-size studio World (Locker previews) that renders with the exact match pipeline.
   constructor(canvas, size = null) {
@@ -184,6 +187,7 @@ export class World {
     this.scene.add(this.static, this.venue, this.dyn, this.fx);
     this.pieces = []; this.particles = []; this.camPos = new THREE.Vector3(0, 14, 16); this.camLook = new THREE.Vector3();
     this.buildGoals(); this.buildAim();
+    canvas.addEventListener('webglcontextrestored', () => { if (this.pitchLook) this.setPitch(this.pitchLook, this._ppu); if (this.venueId) this.setVenue(this.venueId); }); // freed canvases are repainted after a GPU reset
     this.resize(); if (!size) addEventListener('resize', () => this.resize());
   }
   resize() { const [w, h] = this.size || [innerWidth, innerHeight]; this.r.setSize(w, h, false); this.cam.aspect = w / h; this.cam.updateProjectionMatrix(); }
@@ -191,6 +195,7 @@ export class World {
   disposeGroup(g) { g.traverse(o => { o.geometry && o.geometry !== TENT && o.geometry.dispose(); const m = o.material; (Array.isArray(m) ? m : m ? [m] : []).forEach(x => { SHIMMER.delete(x); x.map?.dispose(); x.bumpMap?.dispose(); x.dispose(); }); }); g.clear(); }
 
   setPitch(look, ppu = Q.ppu) {
+    this._ppu = ppu;
     if (this.pitch) { this.static.remove(this.pitch); this.pitch.geometry.dispose(); this.pitch.material.map.dispose(); this.pitch.material.dispose(); }
     this.pitchLook = look;
     const m = pitchMaterial(look, ppu, this.r.capabilities.getMaxAnisotropy());
@@ -374,7 +379,7 @@ export class World {
       anim((dt, t) => { pts.material.opacity = 0.35 + Math.abs(Math.sin(t * 7.3)) * 0.65; pts.rotation.y = Math.floor(t * 3) * 0.37; }); };
     // 360 backdrop: paint(g, w, h) on a 4096x1024 canvas, x = angle (0 = north/-z, clockwise from above), mapped inside a tall cylinder.
     const pano = (paint, r = 150, h = 90, y0 = -12) => { const c = document.createElement('canvas'); c.width = Q.low ? 2048 : 4096; c.height = Q.low ? 512 : 1024; paint(c.getContext('2d'), c.width, c.height);
-      const t = tex(c, true, 8), m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 96, 1, true), new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide, fog: false, depthWrite: false }));
+      const t = once(tex(c, true, 8)), m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 96, 1, true), new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide, fog: false, depthWrite: false }));
       m.position.y = y0 + h / 2; m.rotation.y = Math.PI / 2; m.renderOrder = -1; V.add(m); return m; };
     const gradBand = (g, w, h, stops) => { const gr = g.createLinearGradient(0, 0, 0, h); stops.forEach(([o, c]) => gr.addColorStop(o, c)); g.fillStyle = gr; g.fillRect(0, 0, w, h); };
     const ridge = (g, w, h, y, amp, col, seed, f = 6) => { const r = rng(seed); g.fillStyle = col; g.beginPath(); g.moveTo(0, h); for (let x = 0; x <= w; x += w / 256) g.lineTo(x, y - amp * (0.5 + 0.5 * Math.sin(x / w * Math.PI * 2 * f + seed) * Math.sin(x / w * Math.PI * 2 * (f * 0.37) + seed * 2)) - r() * amp * 0.08); g.lineTo(w, h); g.fill(); };
