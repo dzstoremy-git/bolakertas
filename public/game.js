@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=33';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=33';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=33';
-import { World, Q } from './scene.js?v=33';
-import { crest, ink } from './art.js?v=33';
-import * as L3 from './locker3d.js?v=33';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=33';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=33';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=34';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=34';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=34';
+import { World, Q } from './scene.js?v=34';
+import { crest, ink } from './art.js?v=34';
+import * as L3 from './locker3d.js?v=34';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=34';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=34';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -636,7 +636,7 @@ function replayCam(clip, t, b, scorer, cam, dt) {
 function playReplays(idx, record = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=33" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=34" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -694,7 +694,7 @@ const loadImg = src => new Promise((ok, bad) => { const i = new Image(); i.onloa
 async function sharePoster(clip) {
   if (!clip) return toast(T('rp_none'));
   const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
-  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=33'), loadImg('/sponsor/revolix.png?v=33').catch(() => null)]);
+  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=34'), loadImg('/sponsor/revolix.png?v=34').catch(() => null)]);
   const sc = Math.max(W / art.width, H / art.height); g.drawImage(art, (W - art.width * sc) / 2, (H - art.height * sc) / 2, art.width * sc, art.height * sc);
   let gr = g.createLinearGradient(0, H * 0.5, 0, H); gr.addColorStop(0, 'rgba(5,10,30,0)'); gr.addColorStop(0.45, 'rgba(5,10,30,.82)'); gr.addColorStop(1, 'rgba(5,10,30,.96)'); g.fillStyle = gr; g.fillRect(0, H * 0.5, W, H * 0.5);
   gr = g.createLinearGradient(0, 0, 0, 220); gr.addColorStop(0, 'rgba(5,10,30,.85)'); gr.addColorStop(1, 'rgba(5,10,30,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, 220);
@@ -742,15 +742,16 @@ async function beginLocal() {
 }
 
 // ── coin toss: KEPALA (k) or BUNGA (b). Winner kicks off and plays at home (their venue, pitch, ball) ──
-const COIN = () => `<div class="coin3d" id="coin"><i class="cf k"><b>${T('heads_s')}</b><small>${T('heads')}</small></i><i class="cf b"><b>${T('tails_s')}</b><small>${T('tails')}</small></i></div>`;
+const COIN = () => `<div class="coin3d" id="coin"></div>`;
+const coin3d = o => L3.coin(o.querySelector('#coin'), [T('heads_s'), T('heads'), T('tails_s'), T('tails')]);
 function pickSide(caller, online = false) {
   return new Promise(res => {
     const o = overlay(`<div class="toss"><small class="kick">${T('referee')}</small><h2>${T('coin_toss')}</h2>${COIN()}
       ${caller ? `<p class="muted">${T('toss_pick')}</p>
       <div class="row2"><button class="btn lime big" data-s="k">${T('heads')}</button><button class="btn lime big" data-s="b">${T('tails')}</button></div>${online ? '' : `<button class="btn ghost" id="cx">${T('cancel')}</button>`}`
       : `<p class="muted">${T('toss_wait')}</p><div class="spinner"></div>`}</div>`);
-    o.classList.add('ov-toss');
-    o.querySelectorAll('[data-s]').forEach(b => b.onclick = () => { SFX.ui(); haptic('medium'); o.querySelectorAll('[data-s]').forEach(x => x.disabled = true); b.classList.add('picked'); o.querySelector('#coin').classList.add('spin'); setTimeout(() => res(b.dataset.s), 450); });
+    o.classList.add('ov-toss'); const cn = coin3d(o);
+    o.querySelectorAll('[data-s]').forEach(b => b.onclick = () => { SFX.ui(); haptic('medium'); o.querySelectorAll('[data-s]').forEach(x => x.disabled = true); b.classList.add('picked'); cn.spin(); setTimeout(() => res(b.dataset.s), 450); });
     o.querySelector('#cx')?.addEventListener('click', () => { closeAllOverlays(); res(null); });
     if (!caller) res(null);
   });
@@ -758,11 +759,12 @@ function pickSide(caller, online = false) {
 function revealToss(coin, iWon, oppName) {
   if (M && M.mode !== 'online') M.paused = true;
   const o = overlay(`<div class="toss"><small class="kick">${T('referee')}</small><h2>${T('coin_toss')}</h2>${COIN()}<p class="tres" id="tres">&nbsp;</p></div>`); o.classList.add('ov-toss');
-  const c = o.querySelector('#coin'); c.classList.add('flip', coin === 'b' ? 'land-b' : 'land-k'); SFX.whistle(false);
-  setTimeout(() => { const r = o.querySelector('#tres'); if (!r) return;
+  const cn = coin3d(o);
+  // start the flip only once the new match scene has drawn twice, so it never runs on the heavy first frames
+  requestAnimationFrame(() => requestAnimationFrame(() => { SFX.whistle(false); cn.land(coin, () => { const r = o.querySelector('#tres'); if (!r) return;
     r.innerHTML = `<b>${T(coin === 'k' ? 'heads' : 'tails')}!</b> ${iWon ? T('toss_won') : T('toss_lost', { name: esc(oppName) })}`;
-    iWon ? (notify('success'), SFX.buy()) : haptic('rigid'); }, 1500);
-  setTimeout(() => { o.remove(); if (M) M.paused = false; }, 3600);
+    iWon ? (notify('success'), SFX.buy()) : haptic('rigid');
+    setTimeout(() => { o.remove(); if (M) M.paused = false; }, 2000); }); }));
 }
 
 // ── online ─────────────────────────────────────────────────
