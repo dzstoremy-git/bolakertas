@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=34';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=34';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=34';
-import { World, Q } from './scene.js?v=34';
-import { crest, ink } from './art.js?v=34';
-import * as L3 from './locker3d.js?v=34';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=34';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=34';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=35';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=35';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=35';
+import { World, Q } from './scene.js?v=35';
+import { crest, ink } from './art.js?v=35';
+import * as L3 from './locker3d.js?v=35';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=35';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=35';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -636,7 +636,7 @@ function replayCam(clip, t, b, scorer, cam, dt) {
 function playReplays(idx, record = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=34" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=35" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -689,30 +689,86 @@ async function shareFile(blob, name) {
     else { navigator.clipboard?.writeText(location.origin + r.page); toast(T('link_copied')); }
   } catch { toast(T('oops')); }
 }
-// AAA poster: Higgsfield key art (reusable, no text baked in) + live score, scorer, crests and the sponsor drawn on top.
+// Posters: three layouts built from the real match scene (same paper players, ball, pitch and venue the player saw),
+// framed in the game's own paper-and-ink style. The player picks one and shares it.
 const loadImg = src => new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = src; });
+const INK = '#2a1f5c';
+// Pose the match scene at a recorded frame and draw it at w x h into g (one off-screen pass, screen size restored right after).
+function shot(clip, g, x, y, w, h, view) {
+  const F = clip.frames, gi = Math.max(0, F.findIndex(f => f.t >= clip.goalT)), gs = Math.sign(F.at(-1).b[2]) || 1, side = F.at(-1).b[0] >= 0 ? -1 : 1;
+  const sp = F[gi].p[clip.sid], dist = f => sp ? Math.hypot(f.b[0] - sp[0], f.b[2] - sp[2]) : 0;
+  const strike = F.slice(0, gi + 1).reduce((a, f) => dist(f) < dist(a) ? f : a, F[0]), f = view === 'goal' ? F[gi] : strike;
+  world.ballMesh.position.set(...f.b); world.ballRing.visible = false; world.showAim(null);
+  f.p.forEach((p, j) => { const v = world.pieces[j]; if (!v) return; v.root.position.set(p[0], p[1], p[2]);
+    if (p.length > 4) { v.root.rotation.set(p[3], p[4], p[5]); v.body.scale.set(p[6], p[7], p[8]); } else v.root.rotation.y = p[3]; });
+  const b = new THREE.Vector3(...f.b), s = sp ? new THREE.Vector3(f.p[clip.sid][0], 0, f.p[clip.sid][2]) : b.clone(), C = world.cam;
+  if (view === 'goal') { C.fov = 44; C.position.set(b.x * 0.5 - side * 1.6, 0.55, gs * (FIELD.L / 2 - 3.6)); C.lookAt(b.x * 0.8, -0.35, gs * (FIELD.L / 2 - 0.4)); C.updateProjectionMatrix(); C.setViewOffset(1080, 1350, 0, 260, 1080, 1350); } // in front of the net, ball in the mesh
+  else if (view === 'star') { C.fov = 30; C.position.set(s.x + side * 1.1, 0.62, s.z + gs * 1.7); C.lookAt(s.x - side * 0.15, 0.36, s.z); }
+  else { C.fov = 46; C.position.set(s.x * 0.5 + side * 3.5, 6.5, s.z - gs * 6.5); C.lookAt((s.x + b.x) / 4, 0, (s.z + gs * FIELD.L / 2) / 2); }
+  const keep = world.size, dpr = world.r.getPixelRatio(); world.r.setPixelRatio(1); world.size = [w, h]; world.resize();
+  world.update(0.001, performance.now() / 1000); world.render(); g.drawImage(world.r.domElement, x, y, w, h);
+  world.size = keep; world.r.setPixelRatio(dpr); C.clearViewOffset(); world.resize();
+}
+function makePosters(clip) {
+  const W = 1080, H = 1350, [t0, t1] = M.art.teams, k = M.art.kits[clip.team] || M.art.kits[0], vp = world.pieces[clip.sid];
+  const rk = Object.entries(RARITY).find(([, r]) => r.rank === (vp?.rank || 0)) || ['common', RARITY.common];
+  const name = clip.own ? clip.who : clip.who.replace(/^#\d+\s*/, ''), num = (clip.who.match(/^#(\d+)/) || [])[1] || '';
+  const txt = (g, s, x, y, size, fill, sw = size / 9, align = 'center', font = '"Lilita One","Rubik Cyr"') => { g.font = `400 ${size}px ${font}`; g.textAlign = align; g.lineJoin = 'round';
+    g.lineWidth = sw; g.strokeStyle = INK; g.strokeText(s, x, y + sw * 0.35); g.strokeText(s, x, y); g.fillStyle = fill; g.fillText(s, x, y); }; // thick ink outline + drop, like the game titles
+  const rr = (g, x, y, w, h, r) => { g.beginPath(); g.roundRect(x, y, w, h, r); };
+  const chip = (g, s, x, y, fill, size = 34, col = '#fff') => { g.font = `400 ${size}px "Lilita One","Rubik Cyr"`; const w = g.measureText(s).width + size * 1.1, h = size * 1.55;
+    g.fillStyle = INK; rr(g, x - w / 2, y - h / 2 + 7, w, h, h / 2); g.fill(); g.fillStyle = fill; rr(g, x - w / 2, y - h / 2, w, h, h / 2); g.fill(); g.lineWidth = 5; g.strokeStyle = INK; g.stroke();
+    g.fillStyle = col; g.textAlign = 'center'; g.fillText(s, x, y + size * 0.36); };
+  const grade = (g, top = 0.35, bot = 0.5) => { let gr = g.createLinearGradient(0, 0, 0, H * top); gr.addColorStop(0, 'rgba(20,12,60,.8)'); gr.addColorStop(1, 'rgba(20,12,60,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, H * top);
+    gr = g.createLinearGradient(0, H * (1 - bot), 0, H); gr.addColorStop(0, 'rgba(20,12,60,0)'); gr.addColorStop(1, 'rgba(20,12,60,.92)'); g.fillStyle = gr; g.fillRect(0, H * (1 - bot), W, H * bot);
+    gr = g.createRadialGradient(W / 2, H * 0.45, H * 0.3, W / 2, H * 0.45, H * 0.85); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(10,6,40,.55)'); g.fillStyle = gr; g.fillRect(0, 0, W, H); };
+  const score = (g, cy, s = 1) => { crest(g, W / 2 - 300 * s, cy, 150 * s, t0); crest(g, W / 2 + 300 * s, cy, 150 * s, t1); txt(g, `${clip.score[0]} : ${clip.score[1]}`, W / 2, cy + 50 * s, 150 * s, '#fff', 16 * s); };
+  const foot = (g, logo, dark = true) => { g.fillStyle = dark ? 'rgba(255,255,255,.18)' : 'rgba(42,31,92,.18)'; g.fillRect(60, H - 112, W - 120, 3);
+    if (logo) { const lw = 270, lh = lw * logo.height / logo.width; g.drawImage(logo, 60, H - 90 + (56 - lh) / 2, lw, lh); }
+    g.textAlign = 'right'; g.font = '800 28px Nunito'; g.fillStyle = dark ? '#b9c8ff' : '#6a6399'; g.fillText(T('rp_sponsor').toUpperCase(), W - 60, H - 62); g.font = '900 34px Nunito'; g.fillStyle = dark ? '#fff' : INK; g.fillText('t.me/BolaKertasBot', W - 60, H - 24); };
+  const logoTop = (g, y = 104) => txt(g, 'BOLA KERTAS', W / 2, y, 84, '#ffc93c', 14);
+  const canvas2 = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; };
+  return async logo => {
+    await document.fonts.load('400 120px "Lilita One"');
+    // 1. GOL: low camera from behind the net, goal effect at its peak
+    const a = canvas2(), ga = a.getContext('2d'); world.goalFx(clip.fx, ...[clip.frames.at(-1).b[0], clip.frames.at(-1).b[2]], clip.colors, clip.set, clip.rank); for (let i = 0; i < 8; i++) world.update(1 / 30, i / 30);
+    shot(clip, ga, 0, 0, W, H, 'goal'); grade(ga, 0.3, 0.55); logoTop(ga);
+    ga.save(); ga.translate(W / 2, 830); ga.rotate(-0.06); txt(ga, T('goal'), 0, 0, 250, '#ffc93c', 24); ga.restore();
+    score(ga, 990); chip(ga, (clip.own ? clip.who : T('rp_scored', { name: clip.who })).toUpperCase(), W / 2, 1170, k.base, 40, ink(k.base)); foot(ga, logo);
+    // 2. PENJARING: the scorer's own paper player, close up at the strike, big number in the team colour
+    const b = canvas2(), gb = b.getContext('2d'); shot(clip, gb, 0, 0, W, H, 'star'); grade(gb, 0.3, 0.5);
+    gb.save(); gb.globalAlpha = 0.9; gb.fillStyle = k.base; gb.beginPath(); gb.moveTo(0, 0); gb.lineTo(330, 0); gb.lineTo(150, H); gb.lineTo(0, H); gb.fill(); gb.lineWidth = 8; gb.strokeStyle = INK; gb.stroke(); gb.restore();
+    if (num) { gb.save(); gb.translate(150, 520); gb.rotate(-0.08); txt(gb, num, 0, 0, 330, k.accent === k.base ? '#fff' : k.accent, 26); gb.restore(); }
+    logoTop(gb); chip(gb, T('pst_star'), W / 2, 200, '#ff7fb6', 34);
+    txt(gb, name.toUpperCase(), W / 2, 1030, name.length > 12 ? 92 : 120, '#fff', 16); chip(gb, rk[1].rank ? `${T('r_' + rk[0])} · ${clip.score[0]} : ${clip.score[1]}` : `${M.names[0]}  ${clip.score[0]} : ${clip.score[1]}  ${M.names[1]}`, W / 2, 1140, rk[1].rank ? rk[1].color : '#ffc93c', 36, INK); foot(gb, logo);
+    // 3. KAD PERLAWANAN: notebook paper card with the wide shot taped in, like the game's menus
+    const c = canvas2(), gc = c.getContext('2d'); gc.fillStyle = '#fffaf0'; gc.fillRect(0, 0, W, H);
+    gc.strokeStyle = 'rgba(79,179,255,.28)'; gc.lineWidth = 3; for (let y = 60; y < H; y += 54) { gc.beginPath(); gc.moveTo(0, y); gc.lineTo(W, y); gc.stroke(); }
+    gc.strokeStyle = 'rgba(255,93,115,.5)'; gc.beginPath(); gc.moveTo(90, 0); gc.lineTo(90, H); gc.stroke();
+    txt(gc, 'BOLA KERTAS', W / 2, 120, 84, '#ffc93c', 14); chip(gc, T('pst_card'), W / 2, 200, '#4fb3ff', 32);
+    gc.save(); gc.translate(W / 2, 600); gc.rotate(-0.025); gc.fillStyle = INK; rr(gc, -440, -310 + 12, 880, 620, 30); gc.fill(); gc.save(); rr(gc, -440, -310, 880, 620, 30); gc.clip(); shot(clip, gc, -440, -310, 880, 620, 'wide'); gc.restore();
+    rr(gc, -440, -310, 880, 620, 30); gc.lineWidth = 10; gc.strokeStyle = INK; gc.stroke();
+    gc.fillStyle = 'rgba(255,201,60,.85)'; [[-400, -320, -0.5], [400, -320, 0.5]].forEach(([x, y, r]) => { gc.save(); gc.translate(x, y); gc.rotate(r); gc.fillRect(-70, -22, 140, 44); gc.restore(); }); gc.restore();
+    score(gc, 1020, 0.9); txt(gc, (clip.own ? clip.who : T('rp_scored', { name: clip.who })).toUpperCase(), W / 2, 1180, 50, '#3fd1a2', 9); foot(gc, logo, false);
+    world.cam.fov = 46; world.cam.updateProjectionMatrix();
+    return [a, b, c];
+  };
+}
 async function sharePoster(clip) {
   if (!clip) return toast(T('rp_none'));
-  const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
-  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=34'), loadImg('/sponsor/revolix.png?v=34').catch(() => null)]);
-  const sc = Math.max(W / art.width, H / art.height); g.drawImage(art, (W - art.width * sc) / 2, (H - art.height * sc) / 2, art.width * sc, art.height * sc);
-  let gr = g.createLinearGradient(0, H * 0.5, 0, H); gr.addColorStop(0, 'rgba(5,10,30,0)'); gr.addColorStop(0.45, 'rgba(5,10,30,.82)'); gr.addColorStop(1, 'rgba(5,10,30,.96)'); g.fillStyle = gr; g.fillRect(0, H * 0.5, W, H * 0.5);
-  gr = g.createLinearGradient(0, 0, 0, 220); gr.addColorStop(0, 'rgba(5,10,30,.85)'); gr.addColorStop(1, 'rgba(5,10,30,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, 220);
-  await document.fonts.load('400 120px "Lilita One"');
-  const stroke = (txt, x, y, size, fill, sw = 10, font = '"Lilita One","Rubik Cyr"') => { g.font = `400 ${size}px ${font}`; g.lineJoin = 'round'; g.lineWidth = sw; g.strokeStyle = '#0b0726'; g.strokeText(txt, x, y); g.fillStyle = fill; g.fillText(txt, x, y); };
-  g.textAlign = 'center'; g.textBaseline = 'alphabetic';
-  stroke('BOLA KERTAS', W / 2, 118, 92, '#ffffff', 14);
-  // layout bands: GOL 700-860, crests+score 900-1080, scorer 1150, rule 1240, footer 1258-1330
-  stroke(T('goal'), W / 2, 860, 230, '#ffc93c', 20);
-  const [t0, t1] = M.art.teams, cy = 990;
-  crest(g, 180, cy, 170, t0); crest(g, W - 180, cy, 170, t1);
-  stroke(`${clip.score[0]}  :  ${clip.score[1]}`, W / 2, cy + 55, 160, '#ffffff', 14);
-  stroke((clip.own ? clip.who : T('rp_scored', { name: clip.who })).toUpperCase(), W / 2, 1160, 48, '#7fe9ff', 8);
-  g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(60, H - 110, W - 120, 2);
-  if (logo) { const lw = 300, lh = lw * logo.height / logo.width; g.drawImage(logo, 60, H - 92 + (60 - lh) / 2, lw, lh); }
-  g.textAlign = 'right'; g.font = '800 30px Nunito'; g.fillStyle = '#9fc6ff'; g.fillText(T('rp_sponsor').toUpperCase(), W - 60, H - 64); g.fillStyle = '#ffffff'; g.font = '900 34px Nunito'; g.fillText('t.me/BolaKertasBot', W - 60, H - 26);
-  if (window.__bkPosterHook) return window.__bkPosterHook(c.toDataURL('image/jpeg', 0.9)); // QA capture
-  c.toBlob(b => shareFile(b, 'bola-kertas-gol.jpg'), 'image/jpeg', 0.9);
+  const o = overlay(`<h2>${T('pst_pick')}</h2><div class="pst" id="pst"><div class="spinner"></div></div><div class="pst-dots" id="pdots"></div>
+    <button class="btn lime" id="pst-go" disabled>📤 ${T('pst_share')}</button><button class="btn ghost" id="pst-x">${T('back')}</button>`); o.classList.add('ov-pst');
+  o.querySelector('#pst-x').onclick = () => o.remove();
+  await new Promise(r => requestAnimationFrame(r)); // let the sheet paint before the heavy pass
+  const logo = await loadImg('/sponsor/revolix.png?v=35').catch(() => null);
+  const cs = await makePosters(clip)(logo), urls = cs.map(c => c.toDataURL('image/jpeg', 0.9));
+  if (window.__bkPosterHook) { o.remove(); return window.__bkPosterHook(urls); } // QA capture
+  if (!o.isConnected) return;
+  const row = o.querySelector('#pst'); row.innerHTML = urls.map((u, i) => `<img src="${u}" alt="" data-i="${i}">`).join('');
+  const dots = o.querySelector('#pdots'); dots.innerHTML = urls.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('');
+  let sel = 0; row.onscroll = () => { sel = Math.round(row.scrollLeft / row.clientWidth); dots.querySelectorAll('i').forEach((d, i) => d.classList.toggle('on', i === sel)); };
+  const go = o.querySelector('#pst-go'); go.disabled = false;
+  go.onclick = () => { SFX.ui(); haptic('medium'); cs[sel].toBlob(b => shareFile(b, `bola-kertas-poster-${sel + 1}.jpg`), 'image/jpeg', 0.9); };
 }
 
 // ── start helpers ──────────────────────────────────────────
