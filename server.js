@@ -1,5 +1,6 @@
 // server.js : Bola Kertas. Static files, Telegram auth, shop + Stars, CPU match rewards, online rooms.
 import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
 import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { join, extname, normalize } from 'node:path';
 import { createHmac, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -417,6 +418,9 @@ function serveStatic(req, res) {
 const CLIPS = join(DATA_DIR, 'clips'); mkdirSync(CLIPS, { recursive: true });
 const CLIP_TYPES = { 'video/mp4': '.mp4', 'video/webm': '.webm', 'image/jpeg': '.jpg' }, CLIP_MAX = 8 << 20, CLIP_DAYS = 7;
 const readBuf = (req, max) => new Promise((ok, bad) => { const a = []; let n = 0; req.on('data', c => { n += c.length; if (n > max) { bad(new Error('big')); req.destroy(); } else a.push(c); }); req.on('end', () => ok(Buffer.concat(a))); req.on('error', bad); });
+// WebM -> MP4 (H.264, yuv420p, faststart) that plays inline in Telegram and in every phone gallery. false = keep the WebM.
+const toMp4 = (src, dst) => new Promise(ok => execFile('ffmpeg', ['-v', 'error', '-y', '-i', src, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-r', '30', '-an', '-movflags', '+faststart', dst],
+  { timeout: 60e3 }, err => ok(!err && existsSync(dst) && statSync(dst).size > 1000)));
 const pruneClips = () => { const old = Date.now() - CLIP_DAYS * 864e5; for (const f of readdirSync(CLIPS)) try { if (statSync(join(CLIPS, f)).mtimeMs < old) unlinkSync(join(CLIPS, f)); } catch {} };
 export function clipPage(id, ext, base = WEBAPP_URL) {
   const media = `${base}/clip/${id}${ext}`, video = ext !== '.jpg', poster = `${base}/poster/goal.webp`;
@@ -455,6 +459,9 @@ async function api(req, res, path) {
     const magic = { '.jpg': b => b[0] === 0xff && b[1] === 0xd8, '.mp4': b => b.toString('latin1', 4, 8) === 'ftyp', '.webm': b => b.readUInt32BE(0) === 0x1a45dfa3 }[ext];
     if (buf.length < 1000 || !magic(buf)) return json(res, 400, { err: 'bad' });
     const id = randomBytes(9).toString('base64url'); writeFileSync(join(CLIPS, id + ext), buf); pruneClips();
+    // Android records WebM: Telegram only plays MP4 inline and many gallery apps skip WebM, so convert it here.
+    // ponytail: one ffmpeg per upload, capped by the 20/day/user limit; add a queue if uploads ever pile up
+    if (ext === '.webm' && await toMp4(join(CLIPS, id + ext), join(CLIPS, id + '.mp4'))) { try { unlinkSync(join(CLIPS, id + ext)); } catch {} return json(res, 200, { url: `/clip/${id}.mp4`, page: `/c/${id}` }); }
     return json(res, 200, { url: `/clip/${id}${ext}`, page: `/c/${id}` });
   }
   let body = {}; try { body = JSON.parse((await readBody(req)) || '{}'); } catch { return json(res, 400, { err: 'bad' }); }

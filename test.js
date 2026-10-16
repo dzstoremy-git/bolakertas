@@ -2,6 +2,9 @@
 process.env.NODE_ENV = 'test'; process.env.BOT_TOKEN = '123:TEST'; process.env.DATA_DIR = '/tmp/bk-test-' + process.pid;
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { Engine, runToRest, BASE_STATS, checksum, predictPath, FIELD } from './public/engine.js';
 import * as E from './public/engine.js';
 const S = await import('./server.js');
@@ -319,6 +322,11 @@ await aok('goal clips: only signed players, real jpg/mp4 bytes, size cap, share 
   assert.equal((await up(jpg, 'text/html')).status, 415);
   assert.equal((await up(Buffer.alloc(3000, 7), 'image/jpeg')).status, 400); // not really a jpeg
   assert.equal((await up(Buffer.alloc(9 << 20, 0xff), 'video/mp4')).status, 413);
+  { // Android WebM comes back as a playable MP4 (ffmpeg); skipped where ffmpeg isn't installed
+    const { execFileSync } = await import('node:child_process'); let ff = true; try { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); } catch { ff = false; }
+    if (ff) { const w = join(tmpdir(), 'bk-test.webm'); execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=360x640:rate=30', '-t', '1', '-c:v', 'libvpx', w]);
+      const j = await (await up(readFileSync(w), 'video/webm')).json(); assert.match(j.url, /\.mp4$/);
+      const mp4 = Buffer.from(await (await fetch(base + j.url)).arrayBuffer()); assert.equal(mp4.toString('latin1', 4, 8), 'ftyp'); } }
   const r = await (await up(jpg, 'image/jpeg')).json(); assert.match(r.url, /^\/clip\/[\w-]{12}\.jpg$/);
   const got = await fetch(base + r.url); assert.equal(got.headers.get('content-type'), 'image/jpeg'); assert.equal(Buffer.from(await got.arrayBuffer()).length, jpg.length);
   { const g = id => S.db.prepare('SELECT coins, ref FROM users WHERE uid=?').get(id); await fetch(base + '/api/me', { headers: { 'X-Init-Data': sign(7301) } }); await fetch(base + '/api/me', { headers: { 'X-Init-Data': sign(7302) } });
