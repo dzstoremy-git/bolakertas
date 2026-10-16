@@ -454,8 +454,8 @@ async function showRanked(tab = 'season') {
     <button class="play" id="rk-go"><b>${T('rk_play')}</b><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke-linejoin="round"/></svg></button>
     <p class="rk-fair">⚖️ ${T('rk_fair')}</p>
     <h3 class="rk-h">${T('rk_board')}</h3><div class="tabs rk-tabs">${['week', 'season', 'all'].map(k => `<button class="tab ${k === tab ? 'on' : ''}" data-t="${k}">${T('rk_' + k)}</button>`).join('')}</div>
-    <div id="rk-list" class="rk-list"></div><p class="rk-fair">🎁 ${T('rk_reward')}</p></main>`);
-  bindHeader(m);
+    <div id="rk-list" class="rk-list"></div><p class="rk-fair">🎁 ${T('rk_reward')}</p></main>${navBar('rank')}`, 'm-home');
+  bindHeader(m); bindNav(m);
   m.querySelector('#rk-go').onclick = () => { SFX.ui(); if (P.guest) return toast(T('rk_guest')); findMatch(true); };
   m.querySelector('#to-lg').onclick = () => { SFX.ui(); showLeagues(); };
   m.querySelector('#to-ol').onclick = () => { SFX.ui(); showOfficial(); };
@@ -468,8 +468,8 @@ async function showRanked(tab = 'season') {
   m.querySelector('#rk-card').innerHTML = `<div class="rk-top" style="--tc:${t.color}"><div class="rk-medal"><i>${t.index + 1}</i></div><div><small>${T('rk_season_n', { n: me.season })}  ·  ${T('rk_ends', { d: days })}</small>
     <b>${tierName(me.tier, me.div)}</b><span>${T('rk_rp', { n: num(me.rp) })}  ·  ${T('rk_wld', { w: me.w, d: me.d, l: me.l })}</span></div></div>
     <div class="rk-bar"><i style="width:${pct}%;background:${t.color}"></i></div><small class="rk-nx">${nxt ? T('rk_next', { n: hi - me.rp, t: T('t_' + nxt.id) }) : T('rk_top')}</small>`;
-  const col = T('rk_col_' + tab), rows = r.rows.map(x => `<li class="${x.me ? 'me' : ''} ${x.pos <= 3 ? 'p' + x.pos : ''}"><em>${x.pos}</em><b>${esc(x.name)}${x.pro ? ' <i class="pro-b">PRO</i>' : ''}${x.me ? ` <i>${T('rk_you')}</i>` : ''}</b>${x.tier ? `<span class="tchip" style="--tc:${TIERS.find(z => z.id === x.tier).color}">${T('t_' + x.tier)}</span>` : ''}<strong>${num(x.score)}</strong></li>`).join('');
-  const mine = r.me && !r.rows.some(x => x.me) ? `<li class="me sticky"><em>${num(r.me.pos)}</em><b>${T('rk_you')}</b><strong>${num(r.me.score)}</strong></li>` : '';
+  const col = T('rk_col_' + tab), rows = r.rows.map(x => `<li class="${x.me ? 'me' : ''} ${x.pos <= 3 ? 'p' + x.pos : ''}"><em>${x.pos}</em>${avatar(x.name, x.photo)}<b>${esc(x.name)}${x.pro ? ' <i class="pro-b">PRO</i>' : ''}${x.me ? ` <i>${T('rk_you')}</i>` : ''}</b>${x.tier ? `<span class="tchip" style="--tc:${TIERS.find(z => z.id === x.tier).color}">${T('t_' + x.tier)}</span>` : ''}<strong>${num(x.score)}</strong></li>`).join('');
+  const mine = r.me && !r.rows.some(x => x.me) ? `<li class="me sticky"><em>${num(r.me.pos)}</em>${avatar(myName(), myPhoto())}<b>${T('rk_you')}</b><strong>${num(r.me.score)}</strong></li>` : '';
   m.querySelector('#rk-list').innerHTML = `<div class="rk-hd"><span>${tab === 'week' ? T('rk_week_reset') : ''}</span><span>${col}</span></div><ol>${rows || `<li class="empty">${T('rk_empty')}</li>`}${mine}</ol>`;
 }
 
@@ -504,7 +504,7 @@ async function showOfficial() {
       : `<p class="ol-vs">${mt?.opp ? T('ol_vs', { name: esc(mt.opp) }) : T('ol_tbd')}</p><p class="muted">${T('ol_hint')}</p>`;
     main = `<div class="rk-card ol-next"><small>${T('ol_next')}</small><b class="ol-clock" id="ol-clock">${mt?.room ? '🟢 LIVE' : left > 0 ? T('ol_in', { t: dur(left) }) : '21:00'}</b>${state}</div>`;
   }
-  const div = st.me?.div || 0, rows = st.table.map(r => `<li class="${r.me ? 'me' : ''} ${r.pos <= 3 && r.p ? 'p' + r.pos : ''} ${r.out ? 'out' : ''}"><em>${r.pos}</em><b>${esc(r.name)}${r.pro ? ' <i class="pro-b">PRO</i>' : ''}${r.me ? ` <i>${T('rk_you')}</i>` : ''}</b><span class="lg-n">${r.p}</span><span class="lg-n">${r.w}</span><span class="lg-n">${r.d}</span><span class="lg-n">${r.l}</span><span class="lg-n">${r.gd > 0 ? '+' : ''}${r.gd}</span><strong>${r.pts}</strong></li>`).join('');
+  const div = st.me?.div || 0, rows = st.table.map(r => `<li class="${r.me ? 'me' : ''} ${r.pos <= 3 && r.p ? 'p' + r.pos : ''} ${r.out ? 'out' : ''}"><em>${r.pos}</em>${avatar(r.name, r.photo)}<b>${esc(r.name)}${r.pro ? ' <i class="pro-b">PRO</i>' : ''}${r.me ? ` <i>${T('rk_you')}</i>` : ''}</b><span class="lg-n">${r.p}</span><span class="lg-n">${r.w}</span><span class="lg-n">${r.d}</span><span class="lg-n">${r.l}</span><span class="lg-n">${r.gd > 0 ? '+' : ''}${r.gd}</span><strong>${r.pts}</strong></li>`).join('');
   const table = st.started ? `<h3 class="rk-h">${T('ol_table')}  ·  ${div ? T('ol_div', { n: div }) : T('ol_super')}</h3><div class="rk-list lg-table"><div class="rk-hd"><span></span><span class="lg-cols-h">${T('lg_cols').split('  ').map(c => `<i>${c}</i>`).join('')}</span></div><ol>${rows}</ol><p class="lg-legend">${T('lg_legend')}</p></div>` : '';
   body.innerHTML = hero + main + table + prizes + rules;
   paintBall();
@@ -562,7 +562,7 @@ async function showLeague(id) {
   let t; try { t = await lgApi({ op: 'get', id }); } catch (e) { toast(lgErr(e)); return showLeagues(); }
   if (!m.isConnected) return;
   const days = Math.max(0, Math.ceil((t.ends - Date.now()) / 864e5)), me = t.table.find(r => r.me);
-  const rows = t.table.map(r => `<li class="${r.me ? 'me' : ''} ${r.pos === 1 && r.p ? 'p1' : ''}"><em>${r.pos}</em><b>${esc(r.name)}${r.pro ? ' <i class="pro-b">PRO</i>' : ''}${r.me ? ` <i>${T('rk_you')}</i>` : ''}</b><span class="lg-n">${r.p}</span><span class="lg-n">${r.w}</span><span class="lg-n">${r.d}</span><span class="lg-n">${r.l}</span><span class="lg-n">${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</span><strong>${r.pts}</strong></li>`).join('');
+  const rows = t.table.map(r => `<li class="${r.me ? 'me' : ''} ${r.pos === 1 && r.p ? 'p1' : ''}"><em>${r.pos}</em>${avatar(r.name, r.photo)}<b>${esc(r.name)}${r.pro ? ' <i class="pro-b">PRO</i>' : ''}${r.me ? ` <i>${T('rk_you')}</i>` : ''}</b><span class="lg-n">${r.p}</span><span class="lg-n">${r.w}</span><span class="lg-n">${r.d}</span><span class="lg-n">${r.l}</span><span class="lg-n">${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</span><strong>${r.pts}</strong></li>`).join('');
   const recent = t.recent.map(x => `<li><b>${esc(x.a)}</b><em>${x.ga} : ${x.gb}</em><b>${esc(x.b)}</b></li>`).join('');
   m.querySelector('#lg-body').innerHTML = `<div class="lg-head" style="--lc:${t.color}"><span class="lg-badge big">${esc(t.name[0] || '?')}</span><div><h2 class="ttl">${esc(t.name)}</h2><small>${T('rk_season_n', { n: t.season })}  ·  ${T('lg_members', { n: t.table.length, m: t.max })}  ·  <code>${t.code}</code></small></div></div>
     <div class="rp-row"><button class="play" id="lg-ch"><b>${T('lg_challenge')}</b></button><button class="btn lime" id="lg-inv">📨 ${T('lg_invite')}</button></div>
@@ -774,6 +774,18 @@ async function createRoom() {
 // ── menus ──────────────────────────────────────────────────
 const svgI = { cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>' };
 const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${svgI[k]}</svg>`;
+// Telegram photo, or the first letter on a colour picked from the name when there is no photo.
+const AV_COL = ['#4fb3ff', '#ff5d73', '#3fd1a2', '#ffc93c', '#9d85ff', '#ff9f66'];
+const avatar = (name, photo, cls = '') => { const n = String(name || '?'), c = AV_COL[[...n].reduce((s, ch) => s + ch.charCodeAt(0), 0) % AV_COL.length];
+  return `<span class="av ${cls}" style="--av:${c}"><i>${esc([...n.trim()][0] || '?').toUpperCase()}</i>${photo ? `<img src="${esc(photo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}</span>`; };
+const myPhoto = () => P.photo || tg?.initDataUnsafe?.user?.photo_url || '';
+const myName = () => P.name || [tg?.initDataUnsafe?.user?.first_name, tg?.initDataUnsafe?.user?.last_name].filter(Boolean).join(' ') || T('rk_you');
+// Bottom bar on the home screen: the five places people go most.
+const NAV = [['home', 'M4 11l8-7 8 7v9h-5v-6H9v6H4z'], ['rank', 'M7 4h10v4a5 5 0 0 1-10 0zM5 5H3v2a4 4 0 0 0 4 4M19 5h2v2a4 4 0 0 1-4 4M10 14h4v3h3v3H7v-3h3z'], ['play', ''], ['shop', 'M5 8h14l-1 12H6zM9 8V6a3 3 0 0 1 6 0v2'], ['me', '']];
+function navBar(on = 'home') {
+  return `<nav class="nav">${NAV.map(([k, d]) => `<button data-n="${k}" class="${k === 'play' ? 'mid' : ''} ${k === on ? 'on' : ''}"><i>${k === 'play' ? '<svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="#fff" stroke="#2a1f5c" stroke-width="2" stroke-linejoin="round"/></svg>' : k === 'me' ? avatar(myName(), myPhoto(), 'nav-av') : `<svg viewBox="0 0 24 24"><path d="${d}" fill="currentColor" stroke="#2a1f5c" stroke-width="1.6" stroke-linejoin="round"/></svg>`}</i>${T('nav_' + k)}</button>`).join('')}</nav>`;
+}
+function bindNav(m) { m.querySelectorAll('.nav button').forEach(b => b.onclick = () => { SFX.ui(); haptic(); ({ home: showHome, rank: () => showRanked(), play: beginCpu, shop: () => showShop('paper'), me: showProfile })[b.dataset.n](); }); }
 function header(back, title = '') {
   return `<header class="top">${back ? `<button class="chip ghost sq" id="back" aria-label="${T('back')}"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button>` : ''}
   ${title ? `<h2 class="hd">${title}</h2>` : `<div class="logo"><i></i><b>BOLA</b><em>KERTAS</em></div>`}<div class="sp"></div>
@@ -809,8 +821,8 @@ function showHome() {
         .map(([k, t, s, tag], i) => `<button class="mode m-${k}" data-k="${k}" style="--i:${i}"><span class="mi" data-icon="${k}"></span><span class="mt"><b>${t}</b><small>${s}</small></span>${tag ? `<em>${tag}</em>` : ''}<span class="go"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span></button>`).join('')}
     </section>
   </main><footer class="foot">${T('footer')}</footer>
-  <nav class="nav"><button data-n="home" class="on"><i><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z" fill="currentColor" stroke="#2a1f5c" stroke-width="1.6" stroke-linejoin="round"/></svg></i>${T('nav_home')}</button><button data-n="shop" class=""><i><svg viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6zM9 8V6a3 3 0 0 1 6 0v2" fill="currentColor" stroke="#2a1f5c" stroke-width="1.6" stroke-linejoin="round"/></svg></i>${T('nav_shop')}</button><button data-n="play" class="mid"><i><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="#fff" stroke="#2a1f5c" stroke-width="2" stroke-linejoin="round"/></svg></i>${T('nav_play')}</button><button data-n="studio" class=""><i><svg viewBox="0 0 24 24"><path d="M8 3l4 2 4-2 5 4-3 3-2-1v12H8V9l-2 1-3-3z" fill="currentColor" stroke="#2a1f5c" stroke-width="1.6" stroke-linejoin="round"/></svg></i>${T('nav_studio')}</button><button data-n="cog" class=""><i><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="currentColor" stroke="#2a1f5c" stroke-width="1.6"/><circle cx="12" cy="12" r="2.6" fill="#fffaf0" stroke="#2a1f5c" stroke-width="1.6"/></svg></i>${T('nav_cog')}</button></nav>`, 'm-home');
-  m.querySelectorAll('.nav button').forEach(b => b.onclick = () => { SFX.ui(); haptic(); ({ home: () => {}, shop: () => showShop('paper'), play: beginCpu, studio: () => showStudio(), cog: showSettings })[b.dataset.n](); });
+  ${navBar('home')}`, 'm-home');
+  bindNav(m);
   bindHeader(m);
   m.querySelector('#kick').onclick = () => { SFX.ui(); beginCpu(); };
   m.querySelector('#rk-tile').onclick = () => { SFX.ui(); haptic(); showRanked(); };
@@ -888,8 +900,8 @@ function showShop(slot = 'paper') {
         <div class="pr">${eq ? `<b class="ok">${T('equipped')}</b>` : have ? `<b class="ok">${T('equip')}</b>` : `<b>${priceHtml(it)}</b>`}</div></article>`;
     }).join('')}</div>
     ${slot === 'pass' && P.passUntil > Date.now() ? `<p class="muted">${T('pass_until', { d: new Date(P.passUntil).toLocaleDateString(S.lang) })}</p>` : ''}
-  </main>`, 'm-shop');
-  bindHeader(m);
+  </main>${navBar('shop')}`, 'm-shop m-home');
+  bindHeader(m); bindNav(m);
   m.querySelectorAll('.tab').forEach(b => b.onclick = () => { SFX.ui(); showShop(b.dataset.s); });
   m.querySelectorAll('.item').forEach(card => card.onclick = () => { SFX.ui(); haptic(); itemSheet(itemById(card.dataset.id), slot); });
   m.querySelector('#pro-go')?.addEventListener('click', ev => buyOrEquip(itemById('pro_month'), 'buy', ev.currentTarget, () => showShop('pass')));
@@ -957,6 +969,24 @@ async function buyOrEquip(it, act, btn, done) {
       else done();
     });
   } catch (e) { btn.disabled = false; toast(T(e.code === 'owned' ? 'already_own' : e.code === 'not_for_sale' ? 'not_for_sale' : 'inv_fail')); done(); }
+}
+
+// Profile: Telegram photo + name (synced every open), rank, PRO, stats, and the shortcuts that left the bottom bar.
+async function showProfile() {
+  const owned = new Set(P.owned), sellable = ITEMS.filter(i => i.slot !== 'pass' && i.slot !== 'bundle' && i.slot !== 'coins' && !i.exclusive), have = sellable.filter(i => owned.has(i.id)).length;
+  const pro = (P.proUntil || 0) > Date.now();
+  const m = screen(`${header(false)}<main class="profile">
+    <section class="pf-card">${avatar(myName(), myPhoto(), 'big')}<div class="pf-id"><h2>${esc(myName())}${pro ? ' <i class="pro-b">PRO</i>' : ''}</h2><small>${P.guest ? T('rk_guest') : T('pf_synced')}</small></div></section>
+    <div class="pf-stats"><div id="pf-rank"><b>…</b><small>${T('ranked')}</small></div><div><b>${num(P.coins)}</b><small>Coins</small></div><div><b>${have}/${sellable.length}</b><small>${T('pf_items')}</small></div></div>
+    ${pro ? `<p class="pro-on">✅ ${T('pro_until', { d: new Date(P.proUntil).toLocaleDateString(S.lang) })}</p>` : `<button class="lg-pro" id="pf-pro"><i class="pro-b">PRO</i> ${T('lg_go_pro')}</button>`}
+    <div class="pf-links">${[['squad', '👕', T('squad')], ['studio', '🎨', T('mode_studio')], ['leagues', '👥', T('lg')], ['official', '⭐', T('ol_title')], ['help', '❓', T('mode_help')], ['cog', '⚙️', T('nav_cog')]]
+      .map(([k, ic, t]) => `<button class="pf-link" data-k="${k}"><span>${ic}</span><b>${t}</b><span class="go"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span></button>`).join('')}</div>
+  </main>${navBar('me')}`, 'm-home');
+  bindHeader(m); bindNav(m);
+  m.querySelector('#pf-pro')?.addEventListener('click', () => showShop('pass'));
+  m.querySelectorAll('.pf-link').forEach(b => b.onclick = () => { SFX.ui(); haptic(); ({ squad: () => showSquad(showProfile), studio: () => showStudio(showProfile), leagues: showLeagues, official: showOfficial, help: showHelp, cog: showSettings })[b.dataset.k](); });
+  if (!P.guest) api('/api/rank', { tab: 'season' }).then(r => { const el = m.querySelector('#pf-rank b'); if (el) el.textContent = `${T('t_' + r.mine.tier)}${r.mine.div ? ' ' + 'III II I'.split(' ')[3 - r.mine.div] : ''}`; }).catch(() => {});
+  else m.querySelector('#pf-rank b').textContent = '-';
 }
 
 function showHelp() {

@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS payments (charge_id TEXT PRIMARY KEY, uid INTEGER NOT
 CREATE TABLE IF NOT EXISTS matches (mid TEXT PRIMARY KEY, uid INTEGER NOT NULL, setup TEXT NOT NULL, created INTEGER, done INTEGER NOT NULL DEFAULT 0);`);
 try { db.exec("ALTER TABLE users ADD COLUMN squad TEXT NOT NULL DEFAULT '{}'"); } catch {} // per-team names/numbers + studio kit
 try { db.exec('ALTER TABLE users ADD COLUMN pro_until INTEGER NOT NULL DEFAULT 0'); } catch {} // PRO subscription paid up to
+try { db.exec("ALTER TABLE users ADD COLUMN photo TEXT NOT NULL DEFAULT ''"); } catch {} // Telegram profile photo URL (from signed initData)
 // Ranked: one row per player per season; every settled ranked match logged (weekly board + same-pair daily cap).
 db.exec(`CREATE TABLE IF NOT EXISTS rank (uid INTEGER NOT NULL, season INTEGER NOT NULL, rp INTEGER NOT NULL, best INTEGER NOT NULL, w INTEGER NOT NULL DEFAULT 0, l INTEGER NOT NULL DEFAULT 0, d INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (uid, season));
 CREATE TABLE IF NOT EXISTS rmatch (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, season INTEGER NOT NULL, week INTEGER NOT NULL, a INTEGER NOT NULL, b INTEGER NOT NULL, sa REAL NOT NULL, da INTEGER NOT NULL, db INTEGER NOT NULL);
@@ -49,17 +50,21 @@ CREATE INDEX IF NOT EXISTS olm_day ON ol_match (day, state);`);
 const q = sql => db.prepare(sql);
 const tx = fn => { db.exec('BEGIN IMMEDIATE'); try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; } };
 
-function getUser(uid, name) {
+function getUser(uid, name, photo) {
   let u = q('SELECT * FROM users WHERE uid=?').get(uid);
   if (!u) { q('INSERT INTO users (uid,name,equip,created) VALUES (?,?,?,?)').run(uid, name || '', JSON.stringify(DEFAULT_EQUIP), Date.now()); u = q('SELECT * FROM users WHERE uid=?').get(uid); }
   else if (name && name !== u.name) q('UPDATE users SET name=? WHERE uid=?').run(name, uid);
+  if (photo !== undefined && photo !== u.photo) q('UPDATE users SET photo=? WHERE uid=?').run(photo, uid); // Telegram name + photo follow every app open
   return u;
 }
+// Only Telegram's own CDN; anything else is dropped.
+export const cleanPhoto = p => /^https:\/\/t\.me\/i\/userpic\/[\w/.-]{1,200}$/.test(String(p || '')) ? String(p) : '';
+const photoOf = uid => q('SELECT photo FROM users WHERE uid=?').get(uid)?.photo || '';
 const ownedSet = uid => new Set([...ITEMS.filter(i => i.free).map(i => i.id), ...q('SELECT item FROM owned WHERE uid=?').all(uid).map(r => r.item)]);
 function profile(uid) {
   const u = q('SELECT * FROM users WHERE uid=?').get(uid);
   const equip = { ...DEFAULT_EQUIP, ...JSON.parse(u.equip || '{}') };
-  return { uid, name: u.name, coins: u.coins, equip, owned: [...ownedSet(uid)], passUntil: u.pass_until, proUntil: u.pro_until, squad: JSON.parse(u.squad || '{}') };
+  return { uid, name: u.name, photo: u.photo || '', coins: u.coins, equip, owned: [...ownedSet(uid)], passUntil: u.pass_until, proUntil: u.pro_until, squad: JSON.parse(u.squad || '{}') };
 }
 export const isPro = (uid, now = Date.now()) => !!uid && (q('SELECT pro_until FROM users WHERE uid=?').get(uid)?.pro_until || 0) > now;
 // Star player skins: { slot(0-10): itemId }, only star items the user owns. Style only.
@@ -147,7 +152,7 @@ export function leagueTable(lid, me = 0, now = Date.now()) {
   for (const m of q('SELECT lm.uid, COALESCE(u.name, \'\') name FROM league_member lm LEFT JOIN users u ON u.uid=lm.uid WHERE lid=? ORDER BY joined').all(lid)) rows.set(m.uid, { uid: m.uid, name: m.name.slice(0, 20) || 'Pemain', p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 });
   for (const x of q('SELECT * FROM league_match WHERE lid=? AND season=?').all(lid, season))
     for (const [uid, f, ag] of [[x.a, x.ga, x.gb], [x.b, x.gb, x.ga]]) { const r = rows.get(uid); if (!r) continue; r.p++; r.gf += f; r.ga += ag; if (f > ag) { r.w++; r.pts += 3; } else if (f === ag) { r.d++; r.pts++; } else r.l++; }
-  const table = [...rows.values()].sort((x, y) => y.pts - x.pts || (y.gf - y.ga) - (x.gf - x.ga) || y.gf - x.gf || y.p - x.p).map((r, i) => ({ ...r, pos: i + 1, me: r.uid === me, pro: isPro(r.uid), uid: undefined }));
+  const table = [...rows.values()].sort((x, y) => y.pts - x.pts || (y.gf - y.ga) - (x.gf - x.ga) || y.gf - x.gf || y.p - x.p).map((r, i) => ({ ...r, pos: i + 1, me: r.uid === me, pro: isPro(r.uid), photo: photoOf(r.uid), uid: undefined }));
   const recent = q('SELECT lm.ga, lm.gb, lm.at, COALESCE(ua.name,\'\') an, COALESCE(ub.name,\'\') bn FROM league_match lm LEFT JOIN users ua ON ua.uid=lm.a LEFT JOIN users ub ON ub.uid=lm.b WHERE lid=? ORDER BY at DESC LIMIT 5').all(lid);
   return { id: lg.id, code: lg.code, name: lg.name, color: lg.color, owner: lg.owner === me, season, ends: seasonEnds(season), max: leagueLimits(lg.owner).members, table, recent: recent.map(r => ({ a: r.an.slice(0, 20), b: r.bn.slice(0, 20), ga: r.ga, gb: r.gb, at: r.at })) };
 }
@@ -274,7 +279,7 @@ export function olStatus(uid, now = Date.now()) {
   const s = seasonOf(now), me = uid ? q('SELECT * FROM ol_player WHERE uid=? AND season=?').get(uid, s) : null, started = olStarted(s);
   const div = me?.div || 0, day = mytDay(now), k = kickAt(day), nextAt = now < k + OL.joinMin * 60e3 ? k : kickAt(mytDay(now + 864e5));
   const table = q('SELECT o.uid, o.pts, o.p, o.w, o.d, o.l, o.gf, o.ga, o.out, COALESCE(u.name,\'\') name FROM ol_player o LEFT JOIN users u ON u.uid=o.uid WHERE season=? AND div=? ORDER BY pts DESC, gf-ga DESC, gf DESC, joined LIMIT 100').all(s, div)
-    .map((r, i) => ({ pos: i + 1, name: r.name.slice(0, 20) || 'Pemain', pts: r.pts, p: r.p, w: r.w, d: r.d, l: r.l, gd: r.gf - r.ga, out: !!r.out, me: r.uid === uid, pro: isPro(r.uid) }));
+    .map((r, i) => ({ pos: i + 1, name: r.name.slice(0, 20) || 'Pemain', pts: r.pts, p: r.p, w: r.w, d: r.d, l: r.l, gd: r.gf - r.ga, out: !!r.out, me: r.uid === uid, pro: isPro(r.uid), photo: photoOf(r.uid) }));
   const m = me ? q("SELECT * FROM ol_match WHERE season=? AND (a=? OR b=?) AND day=? ORDER BY id DESC LIMIT 1").get(s, uid, uid, day) : null;
   const opp = m && m.b ? (m.a === uid ? m.b : m.a) : 0;
   return { season: s, ends: seasonEnds(s), started, count: olCount(s), min: OL.min, divs: (q('SELECT MAX(div) d FROM ol_player WHERE season=?').get(s).d || 0) + 1, nextAt, joinMin: OL.joinMin,
@@ -294,7 +299,7 @@ export function board(tab, me = 0, now = Date.now()) {
   if (!SQL) return null;
   const rows = q(`SELECT t.uid, t.score, t.w, COALESCE(u.name,'') name, RANK() OVER (ORDER BY t.score DESC, t.w DESC) pos FROM (${SQL}) t LEFT JOIN users u ON u.uid=t.uid WHERE t.score > 0 ORDER BY pos, t.uid LIMIT 100`).all();
   const mine = me ? q(`SELECT * FROM (SELECT t.uid, t.score, t.w, RANK() OVER (ORDER BY t.score DESC, t.w DESC) pos FROM (${SQL}) t) WHERE uid=?`).get(me) : null;
-  return { tab, season: s, week: wk, ends: tab === 'week' ? 0 : seasonEnds(s), rows: rows.map(r => ({ name: r.name.slice(0, 20) || 'Pemain', score: r.score, w: r.w, pos: r.pos, me: r.uid === me, pro: isPro(r.uid), tier: tab === 'season' ? tierOf(r.score).id : undefined })), me: mine ? { score: mine.score, pos: mine.pos } : null };
+  return { tab, season: s, week: wk, ends: tab === 'week' ? 0 : seasonEnds(s), rows: rows.map(r => ({ name: r.name.slice(0, 20) || 'Pemain', photo: photoOf(r.uid), score: r.score, w: r.w, pos: r.pos, me: r.uid === me, pro: isPro(r.uid), tier: tab === 'season' ? tierOf(r.score).id : undefined })), me: mine ? { score: mine.score, pos: mine.pos } : null };
 }
 
 // ── Telegram initData (HMAC, official algorithm) ───────────
@@ -309,7 +314,7 @@ export function verifyInitData(initData, token = BOT_TOKEN, maxAgeS = 86400) {
   if (!timingSafeEqual(calc, Buffer.from(hash, 'hex'))) return null;
   const age = Date.now() / 1000 - Number(params.get('auth_date'));
   if (!(age >= -300 && age < maxAgeS)) return null;
-  try { const user = JSON.parse(params.get('user') || 'null'); if (!user?.id) return null; return { uid: user.id, name: (user.first_name || '').slice(0, 40) }; } catch { return null; }
+  try { const user = JSON.parse(params.get('user') || 'null'); if (!user?.id) return null; return { uid: user.id, name: [user.first_name, user.last_name].filter(Boolean).join(' ').replace(/[<>\u0000-\u001f]/g, '').trim().slice(0, 40), photo: cleanPhoto(user.photo_url) }; } catch { return null; }
 }
 
 // ── Stars invoice payload (<=128 bytes, HMAC bound) ────────
@@ -431,7 +436,7 @@ async function api(req, res, path) {
   }
   const auth = verifyInitData(req.headers['x-init-data']);
   if (!auth) return json(res, 401, { err: 'auth' });
-  getUser(auth.uid, auth.name);
+  getUser(auth.uid, auth.name, auth.photo);
   if (req.method === 'GET' && path === '/api/me') return json(res, 200, profile(auth.uid));
   if (path === '/api/clip' && req.method === 'POST') {
     const type = String(req.headers['content-type'] || '').split(';')[0], ext = CLIP_TYPES[type];
