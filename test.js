@@ -3,6 +3,7 @@ process.env.NODE_ENV = 'test'; process.env.BOT_TOKEN = '123:TEST'; process.env.D
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { Engine, runToRest, BASE_STATS, checksum, predictPath, FIELD } from './public/engine.js';
+import * as E from './public/engine.js';
 const S = await import('./server.js');
 const I = await import('./public/i18n.js');
 const K = await import('./public/rank.js');
@@ -19,6 +20,56 @@ ok('paper power changes the shot', () => {
 });
 ok('trajectory preview lands on the pitch', () => { const e = new Engine(setup(3)); runToRest(e); const p = predictPath(e, 0, 1, 0.6, 2, false); assert.ok(p.pts.length > 5 && p.land && Math.abs(p.land.x) < FIELD.W); });
 
+
+// ── v31 gameplay: curve, smarter keeper, penalties, power strike, formations, protocol
+ok('curve bends toward the goal it attacks', () => {
+  const e = new Engine(setup(11)); runToRest(e); const s = e.attackSign(e.turnTeam);
+  const st = predictPath(e, 0.35, s, 0.7, 1), cv = predictPath(e, 0.35, s, 0.7, 3);
+  assert.ok(Math.abs(cv.end.x) < Math.abs(st.end.x) - 0.3, `curve ${cv.end.x} vs chip ${st.end.x}`);
+});
+ok('keeper: fewer goals than a line-slider, still scores', () => {
+  let g = 0; for (let i = 1; i <= 12; i++) { const e = playOut(setup(i * 101)); g += e.score[0] + e.score[1]; }
+  assert.ok(g / 12 > 1 && g / 12 < 9, 'goals per match ' + g / 12);
+});
+ok('penalties: shootout ends with a winner and human keeper must pick first', () => {
+  for (let s = 1; s <= 30; s++) { const e = new Engine({ seed: s, drill: 'penalties', cpu: [true, true], cpuSkill: 0.5 }); runToRest(e); let g = 0;
+    while (e.phase !== 'over' && g++ < 200) { e._applyAction(e.cpuAction()); runToRest(e); }
+    assert.equal(e.phase, 'over'); assert.notEqual(e.winner, null); assert.ok(e.kicks[0].length >= 3); }
+  const e = new Engine({ seed: 5, drill: 'penalties', cpu: [true, false] }); runToRest(e);
+  assert.equal(e._applyAction({ t: 'aim', dx: 0, dz: 1, power: 0.8, shot: 0 }), false);
+  assert.equal(e._applyAction({ t: 'keep', pick: 'sideways' }), false);
+  assert.equal(e._applyAction({ t: 'keep', pick: 'left' }), true);
+  assert.equal(e._applyAction(e.cpuAction()), true);
+});
+ok('penalty match replays on the server for rewards', () => {
+  const st = S.buildSetup({ team0: 'jdt', team1: 'sel', seed: 77, skill: 0.5, drill: 'penalties' }); assert.equal(st.drill, 'penalties');
+  const e = new Engine(st); runToRest(e); const log = []; let g = 0;
+  while (e.phase !== 'over' && g++ < 200) { let a; if (st.cpu[e.turnTeam] && !e.needPick) a = e.cpuAction(); else if (e.needPick) a = { t: 'keep', pick: 'middle' }; else a = { t: 'aim', dx: 0.1, dz: 1, power: 0.85, shot: 0 };
+    if (!(st.cpu[e.turnTeam] && !e.needPick)) log.push(a); e._applyAction(a); runToRest(e); }
+  const r = S.replayCpuMatch(st, log); assert.ok(r); assert.deepEqual(r.score, e.score);
+});
+ok('power strike meter: clean pass +1, goal +2, blast knocks cards and woodwork gives goal kick', () => {
+  const e = new Engine(setup(21)); runToRest(e); const k = e.kicker; k.charge = 0;
+  e.lastTapper = k; e.cleanPass = true; const mate = e.pieces.find(p => p.team === k.team && p !== k && !p.isGK); e.creditPass(mate); assert.equal(k.charge, 1);
+  e.cleanPass = false; e.creditPass(mate); assert.equal(k.charge, 1);
+  const f = new Engine(setup(22)); runToRest(f); f.kicker.charge = 5; const s = f.attackSign(f.turnTeam);
+  f.placeBall(0, s * 2); f.startAim(f.kicker); f.kicker.charge = 5;
+  for (const p of f.pieces) if (p !== f.kicker && !p.isGK) { p.home = { x: 0, z: s * 4 }; break; }
+  f.startAim(f.kicker); f.kicker.charge = 5; const blocker = f.pieces.find(p => p !== f.kicker && p.team !== f.turnTeam && !p.isGK); blocker.x = 0; blocker.z = s * 5;
+  f._applyAction({ t: 'aim', dx: 0, dz: s, power: 1, shot: 0, ps: true }); let n = 0; while (f.phase === 'rolling' && n++ < 600) f.step(1 / 60);
+  assert.ok(blocker.down || f.phase === 'goal' || f.phase === 'dead');
+  const w = new Engine(setup(23)); runToRest(w); w.power = true; w.woodwork(w.attackSign(w.turnTeam) * FIELD.L / 2); runToRest(w); assert.equal(w.setPiece, 'goalkick');
+});
+ok('mid-game formation: own turn only, validated, keeps meters', () => {
+  const e = new Engine(setup(31)); runToRest(e); const t = e.turnTeam, sq = e.squadOf(t); sq[3].charge = 4;
+  const order = sq.map((_, i) => i); [order[0], order[1]] = [order[1], order[0]];
+  assert.equal(e._applyAction({ t: 'lineup', formation: '9-9-9', order }), false);
+  assert.equal(e._applyAction({ t: 'lineup', formation: '4-3-3', order: [0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9] }), false);
+  assert.equal(e._applyAction({ t: 'lineup', formation: '4-3-3', order }), true);
+  assert.equal(e.opts.formations[t], '4-3-3'); assert.equal(sq[1].isGK, true); assert.equal(sq[0].isGK, false); assert.equal(sq[3].charge, 4);
+  const f = new Engine(setup(31)); runToRest(f); f.importState(e.exportState()); assert.equal(checksum(f), checksum(e)); assert.equal(f.opts.formations[t], '4-3-3');
+  assert.equal(e._applyAction({ t: 'lineup', formation: '4-4-2', order: e.startLineup(t).order }), true);
+});
 ok('server replay rewards only a real finished match', () => {
   const st = S.buildSetup({ team0: 'jdt', team1: 'sel', seed: 9, minutes: 1, skill: 0.25 });
   const e = new Engine(st); runToRest(e); const log = []; let g = 0;
@@ -281,7 +332,7 @@ await aok('ranked queue: guests refused, two signed players matched into a ranke
     const dc = [...p.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join('\n');
     const key = createHmac('sha256', 'WebAppData').update('123:TEST').digest(); p.set('hash', createHmac('sha256', key).update(dc).digest('hex')); return p.toString(); };
   const lobby = (initData) => new Promise(ok => { const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/lobby?pid=${Math.random()}`); const box = { ws, msgs: [] };
-    ws.on('message', m => box.msgs.push(JSON.parse(String(m)))); ws.on('open', () => { ws.send(JSON.stringify({ t: 'queue', ranked: true, initData })); ok(box); }); });
+    ws.on('message', m => box.msgs.push(JSON.parse(String(m)))); ws.on('open', () => { ws.send(JSON.stringify({ t: 'queue', ranked: true, initData, v: E.PROTOCOL })); ok(box); }); });
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const g = await lobby('nope'); await wait(150); assert.equal(g.msgs[0]?.msg, 'ranked-guest');
   const a = await lobby(sign(7301)), a2 = await lobby(sign(7301)); await wait(150);

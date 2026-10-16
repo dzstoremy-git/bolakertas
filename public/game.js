@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF } from './engine.js?v=30';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=30';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=30';
-import { World, Q } from './scene.js?v=30';
-import { crest, ink } from './art.js?v=30';
-import * as L3 from './locker3d.js?v=30';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=30';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=30';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=31';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=31';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=31';
+import { World, Q } from './scene.js?v=31';
+import { crest, ink } from './art.js?v=31';
+import * as L3 from './locker3d.js?v=31';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=31';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=31';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -121,13 +121,13 @@ function startMatch({ setup, mode, seat = 0, mid = null, paperIds, names }) {
   buildHud(); onTurnStart(); SFX.whistle(false);
   setTimeout(() => { if (M && S.hints) toast(T(S.ctrl === 'sling' ? 'hint_sling' : 'hint_hold'), 5200); }, setup.coin ? 4000 : 600);
 }
-const humanTurn = () => M && !M.over && !M.queued && M.e.phase === 'aim' && (M.mode === 'local' || (M.mode === 'cpu' && M.e.turnTeam === 0) || (M.mode === 'online' && M.e.turnTeam === M.seat && !M.pending && !M.sent));
+const humanTurn = () => M && !M.over && !M.queued && M.e.phase === 'aim' && !M.e.needPick && (M.mode === 'local' || (M.mode === 'cpu' && M.e.turnTeam === 0) || (M.mode === 'online' && M.e.turnTeam === M.seat && !M.pending && !M.sent));
 const myTeam = () => M.mode === 'online' ? M.seat : M.mode === 'local' ? M.e.turnTeam : 0;
 
 function onTurnStart() {
   const e = M.e; M.shot = 0; M.ps = false; M.aim = null; M.sent = false; M.cpuWait = 0.9 + Math.random() * 0.4; M.camYaw = 0;
   if (M.mode !== 'online') { M.turnLeft = 15; }
-  updateShotChips(); updatePlayerCard();
+  updateShotChips(); updatePlayerCard(); keeperPicker();
   if (e.phase === 'aim' && e.canPowerStrike() && humanTurn()) { SFX.ignite(); toast(T('power_ready'), 3000); }
 }
 
@@ -159,6 +159,10 @@ function drainEvents() {
       M.goalAt = { team: ev.team, own: !!e.lastGoal?.own, who: e.lastGoal?.own ? T('own_goal') : e.lastGoal?.name ? `#${e.lastGoal.number} ${e.lastGoal.name}` : M.names[ev.team], score: [...e.score], fx: mine ? P.equip.fx : 'x_basic', colors: [k.base, k.accent], set: set?.setFx, rank, t: 0 };
     }
     else if (ev.type === 'turn') M.turnFlag = true;
+    else if (ev.type === 'blast') { const vp = world.pieces[ev.id]; vp.hop = 1; SFX.post(); haptic('heavy'); world.burst(vp.x, 0.4, vp.z, ['#ff7a1a', '#ffd45a', '#ffffff'], 18, 4, 6, 0.06); }
+    else if (ev.type === 'woodwork') { SFX.post(); M.shake = 0.9; haptic('rigid'); world.burst(e.ball.x, 0.6, ev.s * FIELD.L / 2, ['#ffffff', '#ffd45a', '#ff7a1a'], 50, 6, 6, 0.08); }
+    else if (ev.type === 'lineup') { world.setTeams(e, M.art.teams, M.art.kits, M.art.looks, M.art.keepers, M.art.stars); world.pieces.forEach(p => { p.x = p.data.x; p.z = p.data.z; p.drop = 0; }); M.prevP = null; updatePlayerCard(); }
+    else if (ev.type === 'keep') keeperPicker();
   }
   e.events.length = 0;
 }
@@ -169,12 +173,12 @@ function tick(dt) {
   const sim = dt * M.slow;
   // drive non-human turns
   if (e.phase === 'aim' && !M.over) {
-    if (M.mode === 'cpu' && e.turnTeam === 1 && !M.queued) {
+    if (M.mode === 'cpu' && e.turnTeam === 1 && !M.queued && !e.needPick) {
       M.cpuWait -= dt;
       if (M.cpuWait <= 0.6 && !M.cpuPlan) M.cpuPlan = e.cpuAction(); // same RNG draw the server replay makes
       if (M.cpuPlan && M.cpuWait <= 0) act(M.cpuPlan);
     }
-    else if (M.mode !== 'online' && M.turnLeft !== null) { M.turnLeft -= dt; if (M.turnLeft <= 0) { beacon({ timeout: true, downs: M.downs || 0, held: !!M.hold, q: !!M.queued, phase: e.phase, w: innerWidth, h: innerHeight }); act({ t: 'skip' }); } }
+    else if (M.mode !== 'online' && M.turnLeft !== null && !e.needPick) { M.turnLeft -= dt; if (M.turnLeft <= 0) { beacon({ timeout: true, downs: M.downs || 0, held: !!M.hold, q: !!M.queued, phase: e.phase, w: innerWidth, h: innerHeight }); act({ t: 'skip' }); } }
   }
   if (M.queued && (M.queued.t -= dt) <= 0) { const a = M.queued.a; M.queued = null; if (e._applyAction(a)) M.actions.push(a); else beacon({ rejected: a, phase: e.phase, kicker: e.kicker?.id }); }
   if (e.phase === 'halftime' && M.mode !== 'online') { M.halfWait += dt; if (M.halfWait > 2.6) { M.halfWait = 0; act({ t: 'half' }); } }
@@ -205,7 +209,8 @@ function syncVisuals(dt, t) {
     vp.body.scale.set(1 + sq * 0.12, Math.max(0.2, 1 - sq * 0.7), 1 + sq * 0.9);
     let dropY = 0; if (vp.drop > 0) { vp.drop = Math.max(0, vp.drop - dt); const u = Math.min(1, vp.drop / 0.9); dropY = u * u * 6; if (vp.drop === 0) { world.ripple(vp.x, vp.z, vp.color); world.burst(vp.x, 0.3, vp.z, [vp.color, '#ffffff'], 6, 2.5, 8, 0.06, true); } }
     vp.root.position.set(vp.x, lift + dropY, vp.z);
-    vp.root.rotation.set(Math.sin(t * 30 + p.id) * p.wobble * 0.18, (e.attackSign(p.team) > 0 ? 0 : Math.PI), Math.sin(t * 26 + p.id) * p.wobble * 0.12);
+    vp.fall = (vp.fall || 0) + ((p.down ? 1 : 0) - (vp.fall || 0)) * Math.min(1, dt * 9);
+    vp.root.rotation.set(Math.sin(t * 30 + p.id) * p.wobble * 0.18 - vp.fall * 1.45 * e.attackSign(p.team), (e.attackSign(p.team) > 0 ? 0 : Math.PI), Math.sin(t * 26 + p.id) * p.wobble * 0.12);
     const active = p === e.kicker && e.phase === 'aim';
     vp.ring.material.opacity += ((active ? 0.95 : 0) - vp.ring.material.opacity) * k;
     vp.ring.scale.setScalar(1 + (active ? Math.sin(t * 5) * 0.06 : 0));
@@ -235,7 +240,7 @@ function updateCamera(dt) {
   const e = M.e, cam = world.cam, b = world.ballMesh.position, bv = e.ball, portrait = cam.aspect < 1;
   const rolling = e.phase === 'rolling' && Math.hypot(bv.vx, bv.vz) > 1.2, goal = e.phase === 'goal';
   const fov = (portrait ? (cam.aspect < 0.8 ? 58 : 52) : cam.aspect < 1.2 ? 50 : 45) - (goal ? 8 : 0); if (Math.abs(cam.fov - fov) > 0.05) { cam.fov += (fov - cam.fov) * Math.min(1, 5 * dt); cam.updateProjectionMatrix(); }
-  const viewTeam = (M.mode === 'cpu' && e.turnTeam === 1) || (M.mode === 'online' && e.turnTeam !== M.seat) ? myTeam() : e.turnTeam;
+  const viewTeam = e.kicks ? e.turnTeam : (M.mode === 'cpu' && e.turnTeam === 1) || (M.mode === 'online' && e.turnTeam !== M.seat) ? myTeam() : e.turnTeam;
   const sign = e.attackSign(viewTeam), z = M.zoom, k0 = e.kicker;
   // yaw orbits every mode around the look point
   const orbit = (pos, look) => { const c = Math.cos(M.camYaw), s2 = Math.sin(M.camYaw), dx = pos.x - look.x, dz = pos.z - look.z; pos.x = look.x + dx * c - dz * s2; pos.z = look.z + dx * s2 + dz * c; pos.y = look.y + (pos.y - look.y) * z; pos.x = look.x + (pos.x - look.x) * z; pos.z = look.z + (pos.z - look.z) * z; return pos; };
@@ -315,7 +320,7 @@ const endDrag = ev => {
 canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
 addEventListener('keydown', ev => {
   if (!M) return;
-  if (ev.key >= '1' && ev.key <= '3') setShot(+ev.key - 1);
+  if (ev.key >= '1' && ev.key <= '4') setShot(+ev.key - 1);
   if (ev.key === 'c' || ev.key === 'C') toggleCam();
   if (ev.key === 'Escape') pause();
   if ((ev.key === ' ' || ev.key === 'Enter') && M.ps && humanTurn()) firePower();
@@ -328,7 +333,8 @@ function toggleCam() { M.camMode = CAMS[(CAMS.indexOf(M.camMode) + 1) % CAMS.len
 function crestCanvas(team, size = 34) { const c = document.createElement('canvas'); c.width = c.height = size * 2; crest(c.getContext('2d'), size, size * 0.95, size * 1.5, team); c.className = 'crest'; return c; }
 // Kick type icons: ball, dashed flight path, landing spot, and the folded paper players it clears.
 const SHOT_ICON = ['<path class="tr" d="M11 20H45"/>', '<path class="pl" d="M25 23L28 14L31 23"/><path class="tr" d="M10 18Q28 2 46 19"/>',
-  '<path class="pl" d="M19 23L22 14L25 23M31 23L34 14L37 23"/><path class="tr" d="M10 17Q28 -12 46 18"/>'];
+  '<path class="pl" d="M19 23L22 14L25 23M31 23L34 14L37 23"/><path class="tr" d="M10 17Q28 -12 46 18"/>',
+  '<path class="pl" d="M27 23L30 14L33 23"/><path class="tr" d="M10 19C18 4 40 2 46 19"/><path class="tr" d="M40 9l5 1-2 5"/>'];
 function buildHud() {
   const hud = $('#hud'), [t0, t1] = M.art.teams, [k0, k1] = M.art.kits;
   hud.innerHTML = `
@@ -339,6 +345,7 @@ function buildHud() {
     <div class="sb-team r" style="--c:${k1.base};--i:${ink(k1.base)}"><b>${esc(M.names[1]).slice(0, 12)}</b><span class="sb-c1"></span></div>
   </div>
   <div class="tr">
+    <button class="chip ghost" id="form-btn" hidden><svg viewBox="0 0 24 24"><path d="M5 6h2M11 6h2M17 6h2M8 12h2M14 12h2M11 18h2" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg><span id="form-txt"></span></button>
     <button class="chip ghost" id="cam-btn"><svg viewBox="0 0 24 24"><path d="M4 7h3l2-2h6l2 2h3v12H4z M12 10a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>${camLabel(M.camMode)}</span></button>
     <button class="chip ghost sq" id="pause-btn" aria-label="${T('pause')}"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg></button>
   </div>
@@ -348,18 +355,37 @@ function buildHud() {
     <div class="meter" id="meter"><i id="meter-fill"></i><b id="meter-txt">${T('power')}</b></div>
     <button class="power" id="power-btn" hidden>${T('power_shot')}</button>
   </div>
+  <div class="keep" id="keep" hidden><b>${T('pen_pick')}</b><div>${['left', 'middle', 'right'].map(k => `<button class="btn" data-k="${k}">${T('pen_' + k)}</button>`).join('')}</div></div>
   <div class="banner" id="banner"><b></b><small></small></div>`;
   const myRank = M.mode === 'local' ? 0 : RARITY[itemById(P.equip.paper)?.rarity]?.rank || 0, myCol = rarityOf(itemById(P.equip.paper)).color;
   hud.style.setProperty('--rc', myCol); hud.dataset.rank = myRank; M.myRank = myRank;
   hud.querySelector('.sb-c0').append(crestCanvas(t0)); hud.querySelector('.sb-c1').append(crestCanvas(t1));
   hud.querySelectorAll('.shot').forEach(b => b.onclick = () => setShot(+b.dataset.i));
-  $('#cam-btn').onclick = toggleCam; $('#pause-btn').onclick = pause; $('#power-btn').onclick = firePower;
+  $('#cam-btn').onclick = toggleCam; $('#pause-btn').onclick = pause; $('#power-btn').onclick = firePower; $('#form-btn').onclick = showLineup;
+  hud.querySelectorAll('#keep button').forEach(b => b.onclick = () => { $('#keep').hidden = true; SFX.ui(); haptic('medium'); act({ t: 'keep', pick: b.dataset.k }); });
 }
 function updateShotChips() {
   if (!M) return;
   document.querySelectorAll('.shot').forEach(b => b.classList.toggle('on', +b.dataset.i === M.shot));
   const show = humanTurn(); $('#shots').classList.toggle('dim', !show);
+  const fb = $('#form-btn'); if (fb) { fb.hidden = !show || !!M.e.kicks; $('#form-txt').textContent = M.e.opts.formations[M.e.turnTeam]; }
   const pb = $('#power-btn'); if (pb) { const can = show && M.e.canPowerStrike(); pb.hidden = !can; pb.classList.toggle('armed', M.ps); }
+}
+// Penalties: the human keeper picks a side before the kick (as seen from behind the shooter).
+function keeperPicker() {
+  const el = $('#keep'); if (!el || !M) return;
+  const keeperHuman = M.mode === 'local' || (M.mode === 'cpu' && M.e.turnTeam === 1);
+  el.hidden = !(M.e.needPick && keeperHuman && M.e.phase === 'aim');
+}
+// Mid-game formation: own turn only, the turn clock keeps running.
+function showLineup() {
+  if (!M || !humanTurn() || M.e.kicks) return;
+  const e = M.e, team = e.turnTeam, cur = e.opts.formations[team];
+  const o = overlay(`<h2>${T('form_ttl')}</h2><p class="muted">${T('form_note')}</p><div class="form-grid">${Object.keys(FORMATIONS).map(f => `<button class="btn ${f === cur ? 'lime' : ''}" data-f="${f}">${f}</button>`).join('')}</div><button class="btn" id="f-reset">${T('form_reset')}</button><button class="btn ghost" id="f-x">${T('cancel')}</button>`);
+  const send = l => { closeAllOverlays(); if (!humanTurn()) return; SFX.ui(); haptic('light'); act({ t: 'lineup', formation: l.formation, order: l.order }); };
+  o.querySelectorAll('[data-f]').forEach(b => b.onclick = () => send({ formation: b.dataset.f, order: e.lineup(team).order }));
+  o.querySelector('#f-reset').onclick = () => send(e.startLineup(team));
+  o.querySelector('#f-x').onclick = closeAllOverlays;
 }
 function updatePlayerCard() {
   const e = M.e, k = e.kicker; if (!k) return;
@@ -370,7 +396,8 @@ function updatePlayerCard() {
   $('#charge').querySelectorAll('i').forEach((el, i) => el.classList.toggle('on', i < k.charge));
   $('#charge').classList.toggle('full', k.charge >= POWER_CHARGE);
   const who = M.mode === 'cpu' ? T(e.turnTeam === 0 ? 'turn_you' : 'turn_ai') : M.mode === 'online' ? T(e.turnTeam === M.seat ? 'turn_you' : 'turn_opp') : T('turn_of', { name: M.names[e.turnTeam] });
-  const sp = T({ kickoff: 'sp_kickoff', corner: 'sp_corner', goalkick: 'sp_goalkick', throw: 'sp_throw' }[e.setPiece] || 'sp_live');
+  const sp = T({ kickoff: 'sp_kickoff', corner: 'sp_corner', goalkick: 'sp_goalkick', throw: 'sp_throw', penalty: 'sp_penalty' }[e.setPiece] || 'sp_live');
+  if (e.kicks) { $('#pc-state').textContent = `${who}  ·  ${e.kicks[0].map(k => k ? '●' : '○').join('')} : ${e.kicks[1].map(k => k ? '●' : '○').join('')}`; $('#pcard').classList.toggle('opp', !humanTurn()); return; }
   $('#pc-state').textContent = `${who}  ·  ${T('taps', { a: Math.min(MAX_TAPS, (e.lastTapTeam === e.turnTeam ? e.tapsInRow : 0) + 1), b: MAX_TAPS })}${e.setPiece && e.setPiece !== 'kickoff' ? '  ·  ' + sp : ''}`;
   $('#pcard').classList.toggle('opp', !humanTurn());
 }
@@ -429,7 +456,7 @@ async function finishMatch() {
     o.querySelector('#shop2').onclick = () => { quitMatch(); showShop(); };
     o.querySelector('#again').onclick = () => {
       if (M.mode === 'online') { M.ws?.send(JSON.stringify({ t: 'rematch' })); o.querySelector('#again').textContent = T('waiting_opp'); o.querySelector('#again').disabled = true; }
-      else if (M.mode === 'cpu') { const m = M; M = null; beginCpu(); } else { beginLocal(); }
+      else if (M.mode === 'cpu') { const d = M.setup.drill; M = null; beginCpu(d); } else { beginLocal(); }
     };
     if (M.rewardHtml) $('#reward').innerHTML = M.rewardHtml; // back from a replay: never claim twice
     else if (M.mode === 'cpu' && M.mid) {
@@ -603,7 +630,7 @@ function replayCam(clip, f, k) {
 function playReplays(idx, record = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=30" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=31" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -655,7 +682,7 @@ const loadImg = src => new Promise((ok, bad) => { const i = new Image(); i.onloa
 async function sharePoster(clip) {
   if (!clip) return toast(T('rp_none'));
   const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
-  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=30'), loadImg('/sponsor/revolix.png?v=30').catch(() => null)]);
+  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=31'), loadImg('/sponsor/revolix.png?v=31').catch(() => null)]);
   const sc = Math.max(W / art.width, H / art.height); g.drawImage(art, (W - art.width * sc) / 2, (H - art.height * sc) / 2, art.width * sc, art.height * sc);
   let gr = g.createLinearGradient(0, H * 0.5, 0, H); gr.addColorStop(0, 'rgba(5,10,30,0)'); gr.addColorStop(0.45, 'rgba(5,10,30,.82)'); gr.addColorStop(1, 'rgba(5,10,30,.96)'); g.fillStyle = gr; g.fillRect(0, H * 0.5, W, H * 0.5);
   gr = g.createLinearGradient(0, 0, 0, 220); gr.addColorStop(0, 'rgba(5,10,30,.85)'); gr.addColorStop(1, 'rgba(5,10,30,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, 220);
@@ -684,11 +711,11 @@ function localSetup(cpu) {
     custom: [S.kit === -1 ? cleanKit(mySquad().kit, P.owned.includes('k_studio')) : null, null],
     paper: [itemById(P.equip.paper)?.stats || BASE_STATS, BASE_STATS], stars: [mySquad().stars || {}, {}] };
 }
-async function beginCpu() {
+async function beginCpu(drill) {
   const call = await pickSide(true); if (!call) return;
-  let setup = localSetup([false, true]), mid = null;
+  let setup = localSetup([false, true]), mid = null; if (drill) setup.drill = drill;
   if (!P.guest) {
-    try { const r = await api('/api/match/start', { team0: S.team, team1: setup.teams[1], kit0: setup.kits[0], kit1: setup.kits[1], formation: S.formation, skill: S.skill, minutes: S.minutes, call }); setup = r.setup; mid = r.mid; }
+    try { const r = await api('/api/match/start', { team0: S.team, team1: setup.teams[1], kit0: setup.kits[0], kit1: setup.kits[1], formation: S.formation, skill: S.skill, minutes: S.minutes, call, drill }); setup = r.setup; mid = r.mid; }
     catch (e) { toast(T('offline')); }
   }
   if (!setup.coin) { setup.call = call; setup.coin = Math.random() < 0.5 ? 'k' : 'b'; const won = setup.coin === call; setup.first = won ? 0 : 1; setup.home = won ? { pitch: P.equip.pitch, venue: P.equip.venue, ball: P.equip.ball } : aiEquip(setup.seed); }
@@ -728,7 +755,7 @@ function revealToss(coin, iWon, oppName) {
 
 // ── online ─────────────────────────────────────────────────
 const wsUrl = p => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${p}`;
-function joinRoom(code) {
+function joinRoom(code, tries = 0) {
   const o = overlay(`<h2>${T('room', { code: esc(code) })}</h2><p class="muted" id="rstat">${T('connecting')}</p><div class="code">${esc(code)}</div><button class="btn lime" id="share">${T('invite')}</button><button class="btn ghost" id="cx">${T('cancel')}</button>`);
   const ws = new WebSocket(wsUrl(`/ws/room/${code}?pid=${encodeURIComponent(PID)}`)); let state = 'wait';
   o.querySelector('#cx').onclick = () => { state = 'cancel'; ws.close(); closeAllOverlays(); };
@@ -737,14 +764,15 @@ function joinRoom(code) {
     if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
     else navigator.clipboard?.writeText(link).then(() => toast(T('link_copied')));
   };
-  ws.onopen = () => ws.send(JSON.stringify({ t: 'join', initData, profile: { name: P.name, team: S.team, kit: S.kit === -1 ? 'custom' : teamById(S.team).jerseys[S.kit]?.id, formation: S.formation } }));
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'join', initData, profile: { name: P.name, team: S.team, kit: S.kit === -1 ? 'custom' : teamById(S.team).jerseys[S.kit]?.id, formation: S.formation }, v: PROTOCOL }));
   ws.onmessage = ev => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     if (m.t === 'waiting') { const s = $('#rstat'); if (s) s.textContent = T('room_wait'); }
+    else if (m.t === 'err' && m.msg === 'update') { state = 'cancel'; toast(T('need_update'), 4000); setTimeout(() => location.reload(), 1800); }
     else if (m.t === 'err') { toast(T(m.msg === 'room-full' ? 'room_full' : m.msg === 'no-room' ? 'room_gone' : 'oops')); if (m.state && M) { M.e.importState(m.state); M.sent = false; } if (!M) closeAllOverlays(); }
     else if (m.t === 'toss') { if (M) { M.closing = false; } pickSide(m.caller, true).then(side => { if (m.caller && side) ws.send(JSON.stringify({ t: 'call', side })); }); }
     else if (m.t === 'setup') {
-      const fresh = state !== 'play'; state = 'play';
+      const fresh = state !== 'play' && !tries; state = 'play'; tries = 0;
       startMatch({ setup: m.setup, mode: 'online', seat: m.seat, paperIds: m.setup.paperIds || ['p_a4', 'p_a4'], names: m.setup.names });
       M.ws = ws; M.e.importState(m.state); M.turnDeadline = performance.now() + (m.left || 0); M.turnFlag = true;
       if (m.setup.coin && (fresh || m.state?.clock === 0)) revealToss(m.setup.coin, m.setup.first === m.seat, T('opp_name'));
@@ -755,13 +783,14 @@ function joinRoom(code) {
     else if (m.t === 'opp') toast(T(m.here ? 'opp_back' : 'opp_gone'), 3500);
     else if (m.t === 'rematch') toast(T(m.seats.length < 2 ? 'rematch_asked' : 'rematch_go'));
   };
-  ws.onclose = () => { if (state === 'cancel' || M?.closing) return; if (M && M.mode === 'online' && !M.over) { toast(T('conn_lost')); setTimeout(() => { if (M && !M.over) { const c = code; M = null; joinRoom(c); } }, 1500); } };
+  // Keep trying for about a minute (the server holds the seat for 60s), backing off 1, 2, 4, 8s.
+  ws.onclose = () => { if (state === 'cancel' || M?.closing) return; if (M && M.mode === 'online' && !M.over) { if (tries > 9) { toast(T('conn_gone'), 4000); return quitMatch(); } toast(T('conn_lost'), 2400); setTimeout(() => { if (M && !M.over && !M.closing) { M = null; joinRoom(code, tries + 1); } }, [1000, 2000, 4000, 8000][Math.min(tries, 3)]); } };
 }
 function findMatch(ranked = false) {
   const o = overlay(`<h2>${T(ranked ? 'rk_finding' : 'finding')}</h2><div class="spinner"></div><p class="muted">${T('finding_note')}</p><button class="btn" id="inv">${T('invite_only')}</button><button class="btn ghost" id="cx">${T('cancel')}</button>`);
   const ws = new WebSocket(wsUrl('/ws/lobby?pid=' + encodeURIComponent(PID))); let done = false;
-  ws.onopen = () => ws.send(JSON.stringify({ t: 'queue', ranked, initData }));
-  ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.t === 'matched') { done = true; ws.close(); joinRoom(m.code); } else if (m.t === 'err') { done = true; ws.close(); closeAllOverlays(); toast(T('rk_guest')); } };
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'queue', ranked, initData, v: PROTOCOL }));
+  ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.t === 'matched') { done = true; ws.close(); joinRoom(m.code); } else if (m.t === 'err' && m.msg === 'update') { done = true; ws.close(); toast(T('need_update'), 4000); setTimeout(() => location.reload(), 1800); } else if (m.t === 'err') { done = true; ws.close(); closeAllOverlays(); toast(T('rk_guest')); } };
   ws.onclose = () => { if (!done && document.body.contains(o)) o.querySelector('p').textContent = T('no_server'); };
   o.querySelector('#cx').onclick = () => { done = true; try { ws.send(JSON.stringify({ t: 'unqueue' })); } catch {} ws.close(); closeAllOverlays(); };
   o.querySelector('#inv').onclick = () => { done = true; ws.close(); createRoom(); };
@@ -817,7 +846,7 @@ function showHome() {
     <button class="rk-tile" id="rk-tile"><span class="rk-badge" id="rk-badge">🏆</span><span class="mt"><b>${T('ranked')}</b><small id="rk-sub">${T('ranked_s')}</small></span><span class="go"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span></button>
     <button class="play" id="kick"><b>${T('play')}</b><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke-linejoin="round"/></svg></button>
     <section class="modes">
-      ${[['cpu', T('mode_cpu'), T('mode_cpu_s')], ['two', T('mode_two'), T('mode_two_s')], ['web', T('mode_web'), T('mode_web_s'), T('tag_beta')], ['shop', T('mode_shop'), T('mode_shop_s', { a: have, b: sellable.length })], ['studio', T('mode_studio'), T('mode_studio_s'), T('tag_new')], ['help', T('mode_help'), T('mode_help_s')]]
+      ${[['cpu', T('mode_cpu'), T('mode_cpu_s')], ['two', T('mode_two'), T('mode_two_s')], ['pen', T('mode_pen'), T('mode_pen_s'), T('tag_new')], ['web', T('mode_web'), T('mode_web_s'), T('tag_beta')], ['shop', T('mode_shop'), T('mode_shop_s', { a: have, b: sellable.length })], ['studio', T('mode_studio'), T('mode_studio_s'), T('tag_new')], ['help', T('mode_help'), T('mode_help_s')]]
         .map(([k, t, s, tag], i) => `<button class="mode m-${k}" data-k="${k}" style="--i:${i}"><span class="mi" data-icon="${k}"></span><span class="mt"><b>${t}</b><small>${s}</small></span>${tag ? `<em>${tag}</em>` : ''}<span class="go"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span></button>`).join('')}
     </section>
   </main><footer class="foot">${T('footer')}</footer>
@@ -827,8 +856,8 @@ function showHome() {
   m.querySelector('#kick').onclick = () => { SFX.ui(); beginCpu(); };
   m.querySelector('#rk-tile').onclick = () => { SFX.ui(); haptic(); showRanked(); };
   if (!P.guest) api('/api/rank', { tab: 'season' }).then(r => { const t = r.mine, el = m.querySelector('#rk-sub'); if (el) { el.textContent = `${T('t_' + t.tier)}${t.div ? ' ' + 'III II I'.split(' ')[3 - t.div] : ''}  ·  ${T('rk_rp', { n: num(t.rp) })}`; m.querySelector('#rk-badge').style.setProperty('--tc', tierOf(t.rp).color); } }).catch(() => {});
-  m.querySelectorAll('.mode').forEach(b => b.onclick = () => { SFX.ui(); haptic(); ({ cpu: () => showSetup('cpu'), two: () => showSetup('local'), web: showOnline, shop: () => showShop('paper'), studio: () => showStudio(), help: showHelp })[b.dataset.k](); });
-  (async () => { for (const k of ['hero', 'cpu', 'two', 'web', 'shop', 'studio', 'help']) { const url = await L3.icon(k, ctx); if (!m.isConnected) return; paint(k === 'hero' ? m.querySelector('#hero-img') : m.querySelector(`[data-icon="${k}"]`), url); } })();
+  m.querySelectorAll('.mode').forEach(b => b.onclick = () => { SFX.ui(); haptic(); ({ cpu: () => showSetup('cpu'), two: () => showSetup('local'), web: showOnline, shop: () => showShop('paper'), studio: () => showStudio(), help: showHelp, pen: () => beginCpu('penalties') })[b.dataset.k](); });
+  (async () => { for (const k of ['hero', 'cpu', 'two', 'pen', 'web', 'shop', 'studio', 'help']) { const url = await L3.icon(k, ctx); if (!m.isConnected) return; paint(k === 'hero' ? m.querySelector('#hero-img') : m.querySelector(`[data-icon="${k}"]`), url); } })();
 }
 
 function teamGrid(selected, league, onPick) {
@@ -992,7 +1021,7 @@ async function showProfile() {
 function showHelp() {
   const m = screen(`${header(true)}<main class="help"><h2 class="ttl">${T('mode_help')}</h2>
     <ol class="rules">
-      ${[T('h_sling'), T('h_hold'), T('h_shots'), T('h_taps', { n: MAX_TAPS }), T('h_power', { n: POWER_CHARGE }), T('h_gk'), T('h_out'), T('h_cam'), T('h_paper')].map(x => `<li>${x}</li>`).join('')}
+      ${[T('h_sling'), T('h_hold'), T('h_shots'), T('h_taps', { n: MAX_TAPS }), T('h_power', { n: POWER_CHARGE }), T('h_gk'), T('h_form'), T('h_pen'), T('h_out'), T('h_cam'), T('h_paper')].map(x => `<li>${x}</li>`).join('')}
     </ol></main>`);
   bindHeader(m);
 }
@@ -1097,7 +1126,7 @@ window.__bk = {
   get M() { return M; }, get P() { return P; }, world, S,
   snap: () => M && { mode: M.mode, phase: M.e.phase, score: M.e.score, turn: M.e.turnTeam, clock: +M.e.clock.toFixed(1), human: humanTurn(), kicker: M.e.kicker?.id, ball: [+M.e.ball.x.toFixed(2), +M.e.ball.z.toFixed(2)], over: M.over },
   shoot: (dx, dz, power, shot = 0) => humanTurn() && (act({ t: 'aim', dx, dz, power, shot }), true),
-  ballScreen, beginCpu, beginLocal, showShop, showHome, showSquad, playReplays, sharePoster,
+  ballScreen, beginCpu, beginLocal, showShop, showHome, showSquad, playReplays, sharePoster, showLineup, act, showProfile, showRanked,
 };
 
 // Stop Telegram's swipe-down-to-close while aiming.

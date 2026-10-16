@@ -416,3 +416,26 @@ body.playing #menu{display:none}
 .star-opt{display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px;border-radius:16px;border:2.5px solid var(--ink);background:#fff}.star-opt.on{background:#fff3c4;outline:3px solid var(--yel)}
 .star-opt .sth{width:100%;aspect-ratio:1;border-radius:12px;background:#e8eefc center/cover}.star-opt .sth.none{display:grid;place-items:center;font:400 30px/1 var(--disp);color:var(--ink2)}.star-opt b{font:900 11px/1.2 var(--sans);color:var(--ink);text-align:center}
 .star-sheet .btn{width:100%;margin-top:6px}
+
+/* v31: penalty keeper pick + mid-game formation */
+.keep{position:absolute;left:50%;bottom:calc(150px + var(--sab,0px));transform:translateX(-50%);z-index:4;width:min(420px,calc(100vw - 20px));padding:12px;border-radius:18px;background:var(--paper);border:var(--st) solid var(--ink);box-shadow:var(--lift);text-align:center;color:var(--ink)}
+.keep b{display:block;font:400 18px/1.1 var(--disp);margin-bottom:9px}.keep div{display:flex;gap:8px}.keep .btn{flex:1;margin:0;padding:12px 4px;font-size:17px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0 4px}.form-grid .btn{margin:0}
+#form-btn span{font:400 14px/1 var(--disp)}
+/* Telegram avatar: photo over a coloured initial (initial shows if the photo fails) */
+.av{position:relative;display:inline-grid;place-items:center;flex:none;width:32px;height:32px;border-radius:50%;overflow:hidden;background:var(--av);border:2px solid var(--ink);color:#fff;font:400 15px/1 var(--disp)}
+.av img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.nav button i .av.nav-av{width:30px;height:30px}
+.av.big{width:84px;height:84px;font-size:38px;border-width:3px}
+/* Profile */
+.profile{display:flex;flex-direction:column;gap:12px;padding:6px 14px calc(96px + var(--sab,0px))}
+.pf-card{display:flex;align-items:center;gap:14px;padding:14px;border-radius:20px;background:var(--paper);border:var(--st) solid var(--ink);box-shadow:var(--lift)}
+.pf-id{min-width:0}.pf-id h2{font:400 24px/1.1 var(--disp);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pf-id small{color:var(--ink2);font-size:12.5px}
+.pf-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.pf-stats div{padding:10px 6px;border-radius:16px;background:var(--paper);border:2.5px solid var(--ink);text-align:center}
+.pf-stats b{display:block;font:400 17px/1.1 var(--disp);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pf-stats small{font-size:11px;color:var(--ink2)}
+.pf-links{display:flex;flex-direction:column;gap:8px}.pf-link{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:16px;background:var(--paper);border:2.5px solid var(--ink);box-shadow:0 3px 0 var(--ink);text-align:left;color:var(--ink)}
+.pf-link b{flex:1;font:400 17px var(--disp)}.pf-link .go svg{width:18px;height:18px}
+.pro-on{text-align:center;font-weight:900}
+/* screens with the bottom bar: last content clears it; 3 board tabs always fit */
+#menu:has(.nav) main{padding-bottom:calc(96px + var(--sab,0px))}
+.rk-tabs{display:grid;grid-template-columns:repeat(3,1fr);overflow:visible}.rk-tabs .tab{min-width:0;padding-inline:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

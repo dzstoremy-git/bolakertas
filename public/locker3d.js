@@ -1,8 +1,8 @@
 // locker3d.js : Locker and menu art rendered by the match renderer itself.
 // Every thumbnail is a real World (scene.js) with the item applied, so what the shop shows is what the match shows.
 import * as THREE from 'three';
-import { World, makePlayer, makeBall } from './scene.js?v=30';
-import { itemById, DEFAULT_EQUIP } from './items.js?v=30';
+import { World, makePlayer, makeBall } from './scene.js?v=31';
+import { itemById, DEFAULT_EQUIP } from './items.js?v=31';
 
 // HD: thumbnails render at 2x their on-screen size (min 512), live preview at device pixel ratio up to 1024px.
 const DPR = Math.min(2, Math.max(1, devicePixelRatio || 1));
@@ -80,6 +80,7 @@ export async function icon(kind, ctx) {
     web: { ...b, players: [[-0.9, -0.6, 0.5], [0.9, -0.6, -0.5, 1], [0, -1.8, 0, 0, 7]], ball: [0, 0.3], cam: [[0, 1.6, 2.6], [0, 0.2, -0.7], 46] },
     shop: { ...b, equip: { ...b.equip, paper: 'p_gold' }, players: [[0, 0, 0.35]], ball: [-0.62, 0.42], cam: HERO, tap: true },
     studio: { ...b, players: [[-0.5, 0, 0.7], [0.5, 0, -0.7]], ball: [0, 0.9], cam: [[0, 0.95, 2.4], [0, 0.34, 0], 40] },
+    pen: { ...b, players: [[0, -0.2, 0.15]], ball: [0, 0.75], cam: [[0.25, 0.75, -1.9], [0, 0.35, 0.4], 42] },
     help: { ...b, players: [[0, 0, 0.2]], ball: [0.2, 0.7], cam: [[1.35, 1.0, 1.9], [0, 0.3, 0.2], 40], tap: true },
   }[kind];
   do await frame(); while (previewOpen);

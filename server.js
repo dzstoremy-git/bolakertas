@@ -5,7 +5,7 @@ import { join, extname, normalize } from 'node:path';
 import { createHmac, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { WebSocketServer } from 'ws';
-import { Engine, runToRest, isRest, makeCode, BASE_STATS, FORMATIONS } from './public/engine.js';
+import { Engine, runToRest, isRest, makeCode, BASE_STATS, FORMATIONS, PROTOCOL } from './public/engine.js';
 import { teamById, rosterFor, cleanRoster, cleanKit } from './public/teams.js';
 import { ITEMS, itemById, DEFAULT_EQUIP, SLOTS, matchReward, DAILY_COIN_CAP, PRO, isOwned, aiEquip, tossResult } from './public/items.js';
 import { langFrom, itemName, itemDesc, trMs, LANGS } from './public/i18n.js';
@@ -367,9 +367,9 @@ export function buyWithCoins(uid, itemId) {
 // ── CPU match setup + server replay for rewards ────────────
 const SKILLS = [0.25, 0.5, 0.8], MINUTES = [1, 3, 5];
 const skins = e => ({ pitch: e.pitch, venue: e.venue, ball: e.ball });
-export function buildSetup({ team0, team1, kit0, kit1, formation, skill, minutes, seed, paper0, paper1, cpu = [false, true], squad0, squad1, first = 0, home = null }) {
+export function buildSetup({ team0, team1, kit0, kit1, formation, skill, minutes, seed, paper0, paper1, cpu = [false, true], squad0, squad1, first = 0, home = null, drill }) {
   const t0 = teamById(team0), t1 = teamById(team1);
-  return { seed: seed >>> 0, minutes: MINUTES.includes(+minutes) ? +minutes : 3, halves: true, goalsToWin: 0, powerStrike: true,
+  return { ...(drill === 'penalties' ? { drill } : {}), seed: seed >>> 0, minutes: MINUTES.includes(+minutes) ? +minutes : 3, halves: true, goalsToWin: 0, powerStrike: true,
     layout: 'spread', lockstep: true, turnLimit: 15, cpu, cpuSkill: SKILLS.includes(+skill) ? +skill : 0.5,
     formations: [FORMATIONS[formation] ? formation : '4-4-2', '4-4-2'], teams: [t0.id, t1.id],
     kits: [kit0 || t0.jerseys[0].id, kit1 || t1.jerseys[0].id], rosters: [squad0?.roster ? cleanRoster(squad0.roster, t0) : rosterFor(t0), squad1?.roster ? cleanRoster(squad1.roster, t1) : rosterFor(t1)],
@@ -383,7 +383,7 @@ export function replayCpuMatch(setup, actions) {
   let i = 0, guard = 0;
   while (e.phase !== 'over' && guard++ < 2000) {
     if (e.phase === 'halftime') e._applyAction({ t: 'half' });
-    else if (setup.cpu[e.turnTeam]) e._applyAction(e.cpuAction());
+    else if (setup.cpu[e.turnTeam] && !e.needPick) e._applyAction(e.cpuAction());
     else { if (i >= actions.length) return null; if (!e._applyAction(actions[i++])) return null; }
     runToRest(e);
   }
@@ -707,6 +707,7 @@ function act(room, seat, a) {
   if (!e._applyAction(a)) return false;
   if (seat !== null) room.players[seat].idle = 0;
   runToRest(e);
+  if (a.t === 'lineup') return cast(room, { t: 'act', a, state: e.exportState(), left: Math.max(0, room.deadline - Date.now()) }), true; // turn clock keeps running
   cast(room, { t: 'act', a, state: e.exportState(), left: TURN_MS });
   if (e.phase === 'over') { overCast(room, { t: 'over', winner: e.winner, score: e.score }); clearTimeout(room.timer); }
   else armTurn(room);
@@ -766,6 +767,7 @@ function onRoomSocket(ws, pid, code) {
   ws.on('message', raw => {
     let m; try { m = JSON.parse(String(raw)); } catch { return; }
     if (m.t === 'join') {
+      if (m.v !== PROTOCOL) { send(ws, { t: 'err', msg: 'update' }); return ws.close(4010); } // old app after a rules change
       const auth = verifyInitData(m.initData);
       me.uid = auth?.uid || 0; me.paperId = me.uid ? profile(me.uid).equip.paper : 'p_a4';
       if (room.official && !room.uids.includes(me.uid)) { room.players.splice(room.players.indexOf(me), 1); room.players.forEach((p, i) => p.seat = i); send(ws, { t: 'err', msg: 'room-full' }); return ws.close(4009); }
@@ -796,6 +798,7 @@ function onLobbySocket(ws) {
   ws.on('message', raw => {
     let m; try { m = JSON.parse(String(raw)); } catch { return; }
     if (m.t === 'queue' && !queue.includes(ws) && !rqueue.includes(ws)) {
+      if (m.v !== PROTOCOL) return send(ws, { t: 'err', msg: 'update' });
       const ranked = !!m.ranked, Q = ranked ? rqueue : queue;
       if (ranked) { ws.uid = verifyInitData(m.initData)?.uid || 0; if (!ws.uid) return send(ws, { t: 'err', msg: 'ranked-guest' }); }
       Q.push(ws);
