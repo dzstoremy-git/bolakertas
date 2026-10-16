@@ -837,7 +837,7 @@ export const server = createServer(async (req, res) => {
       const id = cm[2] || cm[4], ext = cm[3] || ['.mp4', '.webm', '.jpg'].find(x => existsSync(join(CLIPS, id + x))), file = ext && join(CLIPS, id + ext);
       if (!file || !existsSync(file)) { res.writeHead(404); return res.end('Not found'); }
       if (cm[4]) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }); return res.end(clipPage(id, ext, WEBAPP_URL || `https://${req.headers.host}`)); }
-      res.writeHead(200, { 'Content-Type': MIME[ext], 'Cache-Control': 'public, max-age=604800, immutable', 'X-Content-Type-Options': 'nosniff', 'Content-Length': statSync(file).size }); return res.end(readFileSync(file));
+      res.writeHead(200, { 'Content-Type': MIME[ext], 'Cache-Control': 'public, max-age=604800, immutable', 'X-Content-Type-Options': 'nosniff', 'Content-Length': statSync(file).size, ...(/[?&]dl=1\b/.test(req.url) ? { 'Content-Disposition': `attachment; filename="bola-kertas-gol${ext}"` } : {}) }); return res.end(readFileSync(file));
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
     serveStatic(req, res);

@@ -129,7 +129,7 @@ const D = {
   ol_notify: ['Benarkan bot hantar mesej supaya anda dapat peringatan perlawanan.', 'Allow the bot to message you so you get match reminders.', 'Разреши боту писать тебе, чтобы получать напоминания.'],
   t_scrap: ['Kertas Conteng', 'Scrap Paper', 'Черновик'], t_kajang: ['Kertas Kajang', 'Foolscap', 'Тетрадный лист'], t_manila: ['Kad Manila', 'Manila Card', 'Манильский картон'], t_card: ['Kadbod', 'Cardboard', 'Картон'],
   t_laminate: ['Bod Berlapis', 'Laminate', 'Ламинат'], t_carbon: ['Gentian Karbon', 'Carbon Fibre', 'Карбон'], t_gold: ['Kerajang Emas', 'Gold Leaf', 'Золотая фольга'], t_legend: ['Legenda', 'Legend', 'Легенда'],
-  rp_title: ['ULANG TAYANG', 'REPLAY', 'ПОВТОР'], rp_watch: ['Tonton gol', 'Watch goal', 'Смотреть гол'], rp_skip: ['Langkau', 'Skip', 'Пропустить'], rp_share: ['Kongsi gol', 'Share goal', 'Поделиться'],
+  rp_title: ['ULANG TAYANG', 'REPLAY', 'ПОВТОР'], rp_watch: ['Tonton gol', 'Watch goal', 'Смотреть гол'], rp_skip: ['Langkau', 'Skip', 'Пропустить'], rp_share: ['Kongsi gol', 'Share goal', 'Поделиться'], rp_dl: ['Simpan video', 'Save video', 'Сохранить видео'],
   rp_again: ['Tonton lagi', 'Watch again', 'Ещё раз'], rp_none: ['Tiada gol untuk ditonton.', 'No goals to watch.', 'Нет голов для просмотра.'], rp_saving: ['Sedang sediakan video...', 'Preparing video...', 'Готовим видео...'],
   rp_poster: ['Kongsi poster', 'Share poster', 'Постер'], pst_pick: ['PILIH POSTER', 'PICK A POSTER', 'ВЫБЕРИ ПОСТЕР'], pst_share: ['Kongsi poster ini', 'Share this poster', 'Поделиться'],
   pst_star: ['PENJARING', 'GOALSCORER', 'БОМБАРДИР'], pst_card: ['KAD PERLAWANAN', 'MATCH CARD', 'КАРТОЧКА МАТЧА'], rp_goals: ['SEMUA GOL', 'ALL GOALS', 'ВСЕ ГОЛЫ'], rp_scored: ['{name} jaringkan!', '{name} scores!', '{name} забивает!'],

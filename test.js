@@ -321,6 +321,7 @@ await aok('goal clips: only signed players, real jpg/mp4 bytes, size cap, share 
   assert.equal((await up(Buffer.alloc(9 << 20, 0xff), 'video/mp4')).status, 413);
   const r = await (await up(jpg, 'image/jpeg')).json(); assert.match(r.url, /^\/clip\/[\w-]{12}\.jpg$/);
   const got = await fetch(base + r.url); assert.equal(got.headers.get('content-type'), 'image/jpeg'); assert.equal(Buffer.from(await got.arrayBuffer()).length, jpg.length);
+  assert.equal(got.headers.get('content-disposition'), null); assert.match((await fetch(base + r.url + '?dl=1')).headers.get('content-disposition'), /^attachment; filename="bola-kertas-gol\.jpg"$/);
   const page = await (await fetch(base + r.page)).text(); assert.ok(page.includes('og:image') && page.includes(r.url) && !page.includes('—'));
   assert.equal((await fetch(base + '/clip/../server.js')).status, 404); assert.equal((await fetch(base + '/c/aaaaaaaaaaaa')).status, 404);
   srv.close();
