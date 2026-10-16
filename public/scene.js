@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=46';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=46';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=46';
-import { RARITY } from './items.js?v=46';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=47';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=47';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=47';
+import { RARITY } from './items.js?v=47';
 // [colours, start height, count, speed, gravity, size, glow, life]
 const FX_SIMPLE = {
   x_team: ['team', 0.8, 110, 6.5, 8, 0.11, false, 2.4],
@@ -162,7 +162,7 @@ function paperMaterial(map, look, printed, grain) {
   return m;
 }
 
-const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=46'; });
+const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=47'; });
 export class World {
   // size = [w, h] gives a fixed-size studio World (Locker previews) that renders with the exact match pipeline.
   constructor(canvas, size = null) {
@@ -213,28 +213,62 @@ export class World {
   }
 
   buildGoals() {
-    const post = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.2 });
+    // Box goal like a real one: round posts + crossbar with an ink outline (the game's sticker look), back stanchions,
+    // ground frame, and four net panels (roof, back, two sides) that sag a little and ripple when the ball hits them.
+    // Front frame sits exactly where the physics posts are (FIELD), so what you see is what the ball bounces off.
+    const ink = new THREE.MeshBasicMaterial({ color: 0x2a1f5c, side: THREE.BackSide });
+    const post = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.25, metalness: 0.1 });
+    const frame = new THREE.MeshStandardMaterial({ color: 0xe4e8f0, roughness: 0.45, metalness: 0.35 });
     const nt = tex(netTexture(), false); nt.wrapS = nt.wrapT = THREE.RepeatWrapping;
-    const net = (w, h, rx, ry) => { const t = nt.clone(); t.needsUpdate = true; t.repeat.set(rx, ry); return new THREE.MeshStandardMaterial({ map: t, alphaMap: t, color: 0x9aa3b5, transparent: true, side: THREE.DoubleSide, roughness: 1, depthWrite: false }); };
+    const netM = new THREE.MeshStandardMaterial({ map: nt, alphaMap: nt, color: 0xf4f7ff, transparent: true, side: THREE.DoubleSide, roughness: 0.9, depthWrite: false, alphaTest: 0.02 });
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    const rod = (a, b, r, mat, outline) => { // cylinder between two points, optional ink hull
+      const len = a.distanceTo(b), g = new THREE.Group(); g.position.copy(a).lerp(b, 0.5); g.quaternion.setFromUnitVectors(V(0, 1, 0), b.clone().sub(a).normalize());
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 16), mat); m.castShadow = true; g.add(m);
+      if (outline) g.add(new THREE.Mesh(new THREE.CylinderGeometry(r * 1.32, r * 1.32, len + r * 0.6, 16), ink));
+      return g; };
+    const joint = (p, r, outline) => { const g = new THREE.Group(); g.position.copy(p); g.add(new THREE.Mesh(new THREE.SphereGeometry(r, 16, 10), post)); if (outline) g.add(new THREE.Mesh(new THREE.SphereGeometry(r * 1.32, 16, 10), ink)); return g; };
+    // net panel: bilinear quad p00-p10 (bottom), p01-p11 (top), bulged outward along n; uv in metres so the mesh size is the same on every panel
+    const CELL = 0.11;
+    const panel = (p00, p10, p01, p11, n, sag, nu, nv) => {
+      const pos = [], uv = [], idx = [], wU = p00.distanceTo(p10), wV = p00.distanceTo(p01);
+      for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) { const u = i / nu, v = j / nv;
+        const p = p00.clone().multiplyScalar((1 - u) * (1 - v)).add(p10.clone().multiplyScalar(u * (1 - v))).add(p01.clone().multiplyScalar((1 - u) * v)).add(p11.clone().multiplyScalar(u * v));
+        p.addScaledVector(n, Math.sin(Math.PI * u) * Math.sin(Math.PI * v) * sag); pos.push(p.x, p.y, p.z); uv.push(u * wU / CELL, v * wV / CELL); }
+      for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) { const a = j * (nu + 1) + i, b = a + 1, c = a + nu + 1, d = c + 1; idx.push(a, b, d, a, d, c); }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+      const m = new THREE.Mesh(g, netM); m.renderOrder = 2; m.userData.base = Float32Array.from(pos); m.userData.n = n; return m; };
+    this.nets = [];
     for (const s of [-1, 1]) {
-      const g = new THREE.Group(), gz = s * FIELD.L / 2, hw = FIELD.goalW / 2, H = FIELD.goalH, D = FIELD.goalD, R = FIELD.postR;
-      const cyl = (len) => new THREE.CylinderGeometry(R, R, len, 14);
-      for (const x of [-hw, hw]) { const p = new THREE.Mesh(cyl(H), post); p.position.set(x, H / 2, gz); p.castShadow = true; g.add(p); }
-      const bar = new THREE.Mesh(cyl(FIELD.goalW + R * 2), post); bar.rotation.z = Math.PI / 2; bar.position.set(0, H, gz); bar.castShadow = true; g.add(bar);
-      // back frame
-      const bk = new THREE.MeshStandardMaterial({ color: 0xdedede, roughness: 0.5 });
-      for (const x of [-hw, hw]) { const sp = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.5, R * 0.5, Math.hypot(D, H), 8), bk); sp.position.set(x, H / 2, gz + s * D / 2); sp.rotation.x = s * Math.atan2(D, H); g.add(sp); }
-      const base = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.5, R * 0.5, FIELD.goalW, 8), bk); base.rotation.z = Math.PI / 2; base.position.set(0, R * 0.5, gz + s * D); g.add(base);
-      // nets: sloped back, two side triangles
-      const back = new THREE.Mesh(new THREE.PlaneGeometry(FIELD.goalW, Math.hypot(D, H)), net(0, 0, 10, 4));
-      back.position.set(0, H / 2, gz + s * D / 2); back.rotation.x = -s * (Math.PI / 2 - Math.atan2(H, D)); back.rotation.order = 'YXZ'; if (s < 0) back.rotation.y = Math.PI; g.add(back);
-      for (const x of [-hw, hw]) {
-        const tri = new THREE.BufferGeometry(); tri.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, H, 0, 0, 0, s * D], 3));
-        tri.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 0], 2)); tri.computeVertexNormals();
-        const m = new THREE.Mesh(tri, net(0, 0, 3, 4)); m.position.set(x, 0, gz); g.add(m);
-      }
+      const g = new THREE.Group(), gz = s * FIELD.L / 2, hw = FIELD.goalW / 2, H = FIELD.goalH, D = FIELD.goalD, R = FIELD.postR, Hb = H * 0.8, bz = gz + s * D;
+      // front frame (physics-exact) + rounded corners
+      for (const x of [-hw, hw]) { g.add(rod(V(x, 0, gz), V(x, H, gz), R, post, true)); g.add(joint(V(x, H, gz), R, true)); }
+      g.add(rod(V(-hw, H, gz), V(hw, H, gz), R, post, true));
+      // back stanchions, roof rods, ground frame (thinner, brushed metal)
+      const r2 = R * 0.45;
+      for (const x of [-hw, hw]) { g.add(rod(V(x, H - R * 0.6, gz), V(x, Hb, bz), r2, frame)); g.add(rod(V(x, 0, bz), V(x, Hb, bz), r2, frame)); g.add(rod(V(x, r2, gz), V(x, r2, bz), r2, frame)); }
+      g.add(rod(V(-hw, Hb, bz), V(hw, Hb, bz), r2, frame)); g.add(rod(V(-hw, r2, bz), V(hw, r2, bz), r2, frame));
+      // pegs holding the net down
+      for (let k = 0; k <= 6; k++) { const pg = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.05, 6), frame); pg.position.set(-hw + (k / 6) * hw * 2, 0.02, bz + s * 0.03); g.add(pg); }
+      // nets: inset a hair inside the frame so they never z-fight the rods
+      const i = 0.01, back = panel(V(-hw + i, i, bz), V(hw - i, i, bz), V(-hw + i, Hb, bz), V(hw - i, Hb, bz), V(0, 0, s), 0.07, 18, 8);
+      const roof = panel(V(-hw + i, H - i, gz + s * i), V(hw - i, H - i, gz + s * i), V(-hw + i, Hb, bz), V(hw - i, Hb, bz), V(0, 1, 0), 0.05, 18, 4);
+      g.add(back, roof);
+      for (const x of [-hw, hw]) g.add(panel(V(x, i, gz + s * i), V(x, i, bz), V(x, H - i, gz + s * i), V(x, Hb, bz), V(Math.sign(x), 0, 0), 0.04, 5, 6));
+      this.nets.push({ s, gz, back, roof, hit: null });
       this.static.add(g);
     }
+  }
+  // Ball in the net: a dent where it hit, rippling outward and settling. Only touches the two net panels for ~1.5s.
+  netHit(x, y, z) { const n = this.nets?.find(q => Math.sign(z) === q.s); if (n) n.hit = { x, y: Math.max(0.15, y), t: 0 }; }
+  netTick(dt) {
+    for (const n of this.nets || []) { if (!n.hit) continue; const h = n.hit; h.t += dt; const done = h.t > 1.6;
+      for (const m of [n.back, n.roof]) { const p = m.geometry.attributes.position, b = m.userData.base, nv = m.userData.n;
+        for (let k = 0; k < p.count; k++) { const bx = b[k * 3], by = b[k * 3 + 1], bz = b[k * 3 + 2];
+          const d2 = (bx - h.x) ** 2 + (by - h.y) ** 2, w = done ? 0 : Math.exp(-d2 / 0.18) * Math.exp(-h.t * 3.2) * (Math.cos(h.t * 16 - Math.sqrt(d2) * 9) * 0.5 + 0.5) * 0.22;
+          p.setXYZ(k, bx + nv.x * w, by + nv.y * w, bz + nv.z * w); }
+        p.needsUpdate = true; }
+      if (done) n.hit = null; }
   }
 
   setVenue(id) {
@@ -783,6 +817,7 @@ export class World {
   later(sec, fn) { (this.queue ||= []).push({ sec, fn }); }
   goalFx(kind, x, z, teamColors, setFx, rank = 0) {
     this.boardGoal = 3.5; // LED boards show GOL!
+    this.netHit(x, this.ballMesh?.position.y ?? 0.4, z);
     if (setFx) { this.burst(x, 6, z, setFx, 140, 3, 2.5, 0.13); for (let k = 1; k <= 3; k++) this.later(k * 0.22, () => this.burst(x + (k - 2) * 2.4, 4.5, z, setFx, 60, 4.5, 3, 0.09)); }
     if (rank >= 4) this.burst(x, 0.2, z, ['#ff5fd2', '#39f6ff', '#ffd45a', '#7cff6b', '#ffffff'], 90, 9, 6, 0.07);
     if (kind === 'x_fireworks') {
@@ -801,6 +836,7 @@ export class World {
   }
 
   update(dt, t) {
+    this.netTick(dt);
     if (this.dim > 0 || this._dimK) { this.dim = Math.max(0, (this.dim || 0) - dt); const k = Math.min(1, this.dim / 0.4) * (this.dim > 0 ? 1 : 0); if (this._expo == null) this._expo = this.r.toneMappingExposure;
       this._dimK = k; this.r.toneMappingExposure = this._expo * (1 - 0.62 * k); if (!k) { this.r.toneMappingExposure = this._expo; this._expo = null; this._dimK = 0; } }
     if (this.queue?.length) { for (const q of this.queue) q.sec -= dt; const due = this.queue.filter(q => q.sec <= 0); this.queue = this.queue.filter(q => q.sec > 0); due.forEach(q => q.fn()); }
