@@ -186,7 +186,8 @@ export class Engine {
     for (const p of this.pieces) if (p !== kicker && !p.isGK) { p.x = p.home.x; p.z = p.home.z; }
     this.creditPass(kicker);
     this.kicker = kicker;
-    const gz = this.attackSign(kicker.team) * FIELD.L / 2, dx = -this.ball.x, dz = gz - this.ball.z, l = Math.hypot(dx, dz) || 1;
+    // corners aim at the penalty spot, so the taker stands diagonally behind the ball facing into the box (not side-on along the goal line)
+    const sg = this.attackSign(kicker.team), gz = sg * (FIELD.L / 2 - (this.setPiece === 'corner' ? FIELD.spot : 0)), dx = -this.ball.x, dz = gz - this.ball.z, l = Math.hypot(dx, dz) || 1;
     this.aim = { dx: dx / l, dz: dz / l };
     if (!kicker.isGK || this.setPiece === 'goalkick') { kicker.x = this.ball.x - this.aim.dx * KICK_OFFSET; kicker.z = this.ball.z - this.aim.dz * KICK_OFFSET; }
     this.phase = 'aim'; this.phaseT = 0; this.turnT = 0;

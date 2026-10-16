@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=59';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=59';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=59';
-import { World, Q } from './scene.js?v=59';
-import { crest, ink } from './art.js?v=59';
-import * as L3 from './locker3d.js?v=59';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=59';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=59';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=60';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=60';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=60';
+import { World, Q } from './scene.js?v=60';
+import { crest, ink } from './art.js?v=60';
+import * as L3 from './locker3d.js?v=60';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=60';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=60';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -211,7 +211,10 @@ function syncVisuals(dt, t) {
     let dropY = 0; if (vp.drop > 0) { vp.drop = Math.max(0, vp.drop - dt); const u = Math.min(1, vp.drop / 0.9); dropY = u * u * 6; if (vp.drop === 0) { world.ripple(vp.x, vp.z, vp.color); world.burst(vp.x, 0.3, vp.z, [vp.color, '#ffffff'], 6, 2.5, 8, 0.06, true); } }
     vp.root.position.set(vp.x, lift + dropY, vp.z);
     vp.fall = (vp.fall || 0) + ((p.down ? 1 : 0) - (vp.fall || 0)) * Math.min(1, dt * 9);
-    vp.root.rotation.set(Math.sin(t * 30 + p.id) * p.wobble * 0.18 - vp.fall * 1.45 * e.attackSign(p.team), (e.attackSign(p.team) > 0 ? 0 : Math.PI), Math.sin(t * 26 + p.id) * p.wobble * 0.12);
+    // The kicker turns to face its shot (corners, throws, any angle) so the ball sits in front of its printed face, not by its narrow edge.
+    const am = p === e.kicker ? (M.aim && humanTurn() ? M.aim : e.aim) : null, want = am ? Math.atan2(am.dx, am.dz) : (e.attackSign(p.team) > 0 ? 0 : Math.PI);
+    if (vp.yaw == null) vp.yaw = want; vp.yaw += Math.atan2(Math.sin(want - vp.yaw), Math.cos(want - vp.yaw)) * Math.min(1, k * 1.6);
+    vp.root.rotation.set(Math.sin(t * 30 + p.id) * p.wobble * 0.18 - vp.fall * 1.45, vp.yaw, Math.sin(t * 26 + p.id) * p.wobble * 0.12, 'YXZ');
     const active = p === e.kicker && e.phase === 'aim';
     vp.ring.material.opacity += ((active ? 0.95 : 0) - vp.ring.material.opacity) * k;
     vp.ring.scale.setScalar(1 + (active ? Math.sin(t * 5) * 0.06 : 0));
@@ -637,7 +640,7 @@ function replayCam(clip, t, b, scorer, cam, dt) {
 function playReplays(idx, record = false, auto = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em>${auto && !record && window.MediaRecorder ? `<button class="chip ghost rp-save" id="rp-save">⬇ ${T('rp_dl')}</button>` : ''}<button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=59" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em>${auto && !record && window.MediaRecorder ? `<button class="chip ghost rp-save" id="rp-save">⬇ ${T('rp_dl')}</button>` : ''}<button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=60" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -790,7 +793,7 @@ async function sharePoster(clip) {
     <button class="btn lime" id="pst-go" disabled>📤 ${T('pst_share')}</button><button class="btn ghost" id="pst-x">${T('back')}</button>`); o.classList.add('ov-pst');
   o.querySelector('#pst-x').onclick = () => o.remove();
   await new Promise(r => requestAnimationFrame(r)); // let the sheet paint before the heavy pass
-  const logo = await loadImg('/sponsor/revolix.png?v=59').catch(() => null);
+  const logo = await loadImg('/sponsor/revolix.png?v=60').catch(() => null);
   const cs = await makePosters(clip)(logo), urls = cs.map(c => c.toDataURL('image/jpeg', 0.9));
   if (window.__bkPosterHook) { o.remove(); return window.__bkPosterHook(urls); } // QA capture
   if (!o.isConnected) return;
