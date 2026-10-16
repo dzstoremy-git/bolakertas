@@ -34,6 +34,8 @@ const D = {
   goal: ['GOL!', 'GOAL!', 'ГОЛ!'], half_time: ['SEPARUH MASA', 'HALF TIME', 'ПЕРЕРЫВ'], fulltime: ['TAMAT', 'FULL TIME', 'КОНЕЦ МАТЧА'], time_up: ['MASA HABIS', 'TIME UP', 'ВРЕМЯ ВЫШЛО'],
   swap: ['Giliran bertukar', 'Turn over', 'Смена хода'], own_goal: ['Gol sendiri', 'Own goal', 'Автогол'], opp_ball: ['Bola untuk lawan', "Opponent's ball", 'Мяч сопернику'], taps_out: ['{n} SEPAKAN HABIS', '{n} KICKS USED', 'УДАРЫ ЗАКОНЧИЛИСЬ'],
   menu: ['MENU', 'MENU', 'МЕНЮ'], paused: ['JEDA', 'PAUSED', 'ПАУЗА'], resume: ['Sambung', 'Resume', 'Продолжить'],
+  graphics: ['Grafik: {v}', 'Graphics: {v}', 'Графика: {v}'], gfx_auto: ['Auto', 'Auto', 'Авто'], gfx_hd: ['HD', 'HD', 'HD'], gfx_lite: ['Ringan', 'Lite', 'Лёгкая'],
+  gfx_next: ['Grafik baru berkuat kuasa bila anda keluar dari perlawanan.', 'New graphics apply when you leave the match.', 'Новая графика включится после выхода из матча.'],
   camera: ['Kamera: {v}', 'Camera: {v}', 'Камера: {v}'], sound: ['Bunyi: {v}', 'Sound: {v}', 'Звук: {v}'], on: ['Hidup', 'On', 'Вкл'], off: ['Mati', 'Off', 'Выкл'],
   leave_match: ['Tinggalkan perlawanan', 'Leave match', 'Покинуть матч'], quit_menu: ['Keluar ke menu', 'Back to menu', 'Выйти в меню'],
   draw: ['SERI', 'DRAW', 'НИЧЬЯ'], x_wins: ['{name} MENANG', '{name} WINS', 'ПОБЕДА: {name}'], win: ['MENANG!', 'YOU WIN!', 'ПОБЕДА!'], lose: ['KALAH', 'YOU LOSE', 'ПОРАЖЕНИЕ'],

@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=56';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=56';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=56';
-import { World, Q } from './scene.js?v=56';
-import { crest, ink } from './art.js?v=56';
-import * as L3 from './locker3d.js?v=56';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=56';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=56';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=57';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=57';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=57';
+import { World, Q } from './scene.js?v=57';
+import { crest, ink } from './art.js?v=57';
+import * as L3 from './locker3d.js?v=57';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=57';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=57';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -438,7 +438,7 @@ function pause() {
   o.querySelector('#snd').onclick = () => { S.sound = !S.sound; saveS(); o.querySelector('#snd').textContent = T('sound', { v: T(S.sound ? 'on' : 'off') }); };
   o.querySelector('#quit').onclick = () => { quitMatch(); };
 }
-function quitMatch() { if (M?.ws) { M.closing = true; M.ws.close(); } M = null; closeAllOverlays(); $('#hud').hidden = true; document.body.classList.remove('playing'); showHome(); }
+function quitMatch() { if (window.__gfxReload) return location.reload(); if (M?.ws) { M.closing = true; M.ws.close(); } M = null; closeAllOverlays(); $('#hud').hidden = true; document.body.classList.remove('playing'); showHome(); }
 
 async function finishMatch() {
   M.over = true; const e = M.e, my = myTeam();
@@ -637,7 +637,7 @@ function replayCam(clip, t, b, scorer, cam, dt) {
 function playReplays(idx, record = false, auto = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em>${auto && !record && window.MediaRecorder ? `<button class="chip ghost rp-save" id="rp-save">⬇ ${T('rp_dl')}</button>` : ''}<button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=56" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em>${auto && !record && window.MediaRecorder ? `<button class="chip ghost rp-save" id="rp-save">⬇ ${T('rp_dl')}</button>` : ''}<button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=57" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -787,7 +787,7 @@ async function sharePoster(clip) {
     <button class="btn lime" id="pst-go" disabled>📤 ${T('pst_share')}</button><button class="btn ghost" id="pst-x">${T('back')}</button>`); o.classList.add('ov-pst');
   o.querySelector('#pst-x').onclick = () => o.remove();
   await new Promise(r => requestAnimationFrame(r)); // let the sheet paint before the heavy pass
-  const logo = await loadImg('/sponsor/revolix.png?v=56').catch(() => null);
+  const logo = await loadImg('/sponsor/revolix.png?v=57').catch(() => null);
   const cs = await makePosters(clip)(logo), urls = cs.map(c => c.toDataURL('image/jpeg', 0.9));
   if (window.__bkPosterHook) { o.remove(); return window.__bkPosterHook(urls); } // QA capture
   if (!o.isConnected) return;
@@ -1146,9 +1146,12 @@ function showHelp() {
   bindHeader(m);
 }
 function showSettings() {
-  const o = overlay(`<h2>${T('settings')}</h2><button class="btn lime" id="lang">${T('language', { v: LANG_NAME[S.lang] })}</button><button class="btn" id="snd">${T('sound', { v: T(S.sound ? 'on' : 'off') })}</button><button class="btn" id="hint">${T('hints', { v: T(S.hints ? 'on' : 'off') })}</button><button class="btn" id="ctrl">${T('controls', { v: T(S.ctrl === 'hold' ? 'ctrl_hold' : 'ctrl_sling') })}</button><button class="btn" id="cam">${T('default_cam', { v: camLabel(S.cam) })}</button><button class="btn" id="squad">${T('edit_squad')}</button><button class="btn ghost" id="cl">${T('close')}</button>`);
+  const o = overlay(`<h2>${T('settings')}</h2><button class="btn lime" id="lang">${T('language', { v: LANG_NAME[S.lang] })}</button><button class="btn" id="snd">${T('sound', { v: T(S.sound ? 'on' : 'off') })}</button><button class="btn" id="gfx">${T('graphics', { v: T('gfx_' + Q.pick) })}</button><button class="btn" id="hint">${T('hints', { v: T(S.hints ? 'on' : 'off') })}</button><button class="btn" id="ctrl">${T('controls', { v: T(S.ctrl === 'hold' ? 'ctrl_hold' : 'ctrl_sling') })}</button><button class="btn" id="cam">${T('default_cam', { v: camLabel(S.cam) })}</button><button class="btn" id="squad">${T('edit_squad')}</button><button class="btn ghost" id="cl">${T('close')}</button>`);
   o.querySelector('#lang').onclick = () => { S.lang = LANGS[(LANGS.indexOf(S.lang) + 1) % LANGS.length]; saveS(); document.documentElement.lang = S.lang; closeAllOverlays(); if (!M) showHome(); showSettings(); };
   o.querySelector('#snd').onclick = () => { S.sound = !S.sound; saveS(); showSettings(); };
+  o.querySelector('#gfx').onclick = () => { // sharpness + anti-aliasing are fixed when the 3D view is created, so apply by reloading (or after the match)
+    const GFX = ['auto', 'hd', 'lite'], v = GFX[(GFX.indexOf(Q.pick) + 1) % GFX.length]; localStorage.setItem('bk/gfx', v); localStorage.removeItem('bk/lowgfx'); Q.pick = v;
+    if (M && !M.over) { window.__gfxReload = true; toast(T('gfx_next')); showSettings(); } else location.reload(); };
   o.querySelector('#hint').onclick = () => { S.hints = !S.hints; saveS(); showSettings(); };
   o.querySelector('#cam').onclick = () => { S.cam = CAMS[(CAMS.indexOf(S.cam) + 1) % CAMS.length]; saveS(); showSettings(); };
   o.querySelector('#ctrl').onclick = () => { S.ctrl = S.ctrl === 'hold' ? 'sling' : 'hold'; saveS(); showSettings(); };
@@ -1236,6 +1239,7 @@ let gfxBad = 0;
 // Frame-rate guard: steps quality down only when the device really struggles (<30fps twice in a row), and remembers
 // light mode only once it hits the last step. A phone that dips to 40-50fps on a busy scene keeps full HD.
 function gfxGuard(fps) {
+  if (Q.pick !== 'auto') return; // player chose HD or Lite in Settings
   if (fps >= 30) { gfxBad = 0; return; } if (++gfxBad < 2) return; gfxBad = 0;
   const pr = world.r.getPixelRatio();
   if (pr > 1.25) { world.r.setPixelRatio(Math.max(1.25, pr - 0.25)); world.resize(); }
@@ -1260,7 +1264,7 @@ window.__bk = {
   get M() { return M; }, get P() { return P; }, world, S,
   snap: () => M && { mode: M.mode, phase: M.e.phase, score: M.e.score, turn: M.e.turnTeam, clock: +M.e.clock.toFixed(1), human: humanTurn(), kicker: M.e.kicker?.id, ball: [+M.e.ball.x.toFixed(2), +M.e.ball.z.toFixed(2)], over: M.over },
   shoot: (dx, dz, power, shot = 0) => humanTurn() && (act({ t: 'aim', dx, dz, power, shot }), true),
-  ballScreen, beginCpu, beginLocal, showSetup, showShop, showHome, showSquad, playReplays, sharePoster, showLineup, act, showProfile, showRanked,
+  ballScreen, beginCpu, beginLocal, showSetup, showSettings, showShop, showHome, showSquad, playReplays, sharePoster, showLineup, act, showProfile, showRanked,
 };
 
 // Stop Telegram's swipe-down-to-close while aiming.

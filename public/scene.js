@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=56';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=56';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=56';
-import { RARITY } from './items.js?v=56';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=57';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=57';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=57';
+import { RARITY } from './items.js?v=57';
 // [colours, start height, count, speed, gravity, size, glow, life]
 const FX_SIMPLE = {
   x_team: ['team', 0.8, 110, 6.5, 8, 0.11, false, 2.4],
@@ -15,9 +15,10 @@ const FX_SIMPLE = {
 
 export const Q = (() => { // quality tier. Telegram WebView on mobile gets the lean tier.
   if (localStorage.getItem('bk/gfx2') !== '1') { localStorage.removeItem('bk/lowgfx'); localStorage.setItem('bk/gfx2', '1'); } // one-time: clear light mode set by the old over-eager guard
-  const touch = matchMedia('(pointer:coarse)').matches, slow = localStorage.getItem('bk/lowgfx') === '1'; // set by the frame-rate guard in game.js on a struggling device
+  const pick = localStorage.getItem('bk/gfx') || 'auto'; // Settings > Graphics: auto (frame-rate guard decides), hd (always sharp), lite (always light)
+  const touch = matchMedia('(pointer:coarse)').matches, slow = pick === 'lite' || (pick === 'auto' && localStorage.getItem('bk/lowgfx') === '1');
   const low = slow; // iOS reports 2-4 cores on every iPhone, so core count put flagship phones in blurry low mode; the frame-rate guard decides instead
-  return { dpr: Math.min(devicePixelRatio || 1, slow ? 1 : low ? 1.25 : 2), shadow: low ? 1024 : 2048, aa: !low, ppu: low ? 64 : 96, low, slow }; // sharp like bolatepuk (dpr up to 2, AA on); the frame-rate guard in game.js still steps down on a struggling device
+  return { pick, dpr: Math.min(devicePixelRatio || 1, slow ? 1 : low ? 1.25 : 2), shadow: low ? 1024 : 2048, aa: !low, ppu: low ? 64 : 96, low, slow }; // sharp like bolatepuk (dpr up to 2, AA on); the frame-rate guard in game.js still steps down on a struggling device
 })();
 
 const tex = (canvas, srgb = true, aniso = 8) => { const t = new THREE.CanvasTexture(canvas); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = aniso; return t; };
@@ -166,7 +167,7 @@ function paperMaterial(map, look, printed, grain) {
   return m;
 }
 
-const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=56'; });
+const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=57'; });
 export class World {
   // size = [w, h] gives a fixed-size studio World (Locker previews) that renders with the exact match pipeline.
   constructor(canvas, size = null) {
