@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=38';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=38';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=38';
-import { RARITY } from './items.js?v=38';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=39';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=39';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=39';
+import { RARITY } from './items.js?v=39';
 // [colours, start height, count, speed, gravity, size, glow, life]
 const FX_SIMPLE = {
   x_team: ['team', 0.8, 110, 6.5, 8, 0.11, false, 2.4],
@@ -162,7 +162,7 @@ function paperMaterial(map, look, printed, grain) {
   return m;
 }
 
-const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=38'; });
+const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=39'; });
 export class World {
   // size = [w, h] gives a fixed-size studio World (Locker previews) that renders with the exact match pipeline.
   constructor(canvas, size = null) {
@@ -662,6 +662,12 @@ export class World {
       this.scene.fog = new THREE.Fog('#0d1530', 90, 230);
     }
     sponsor();
+    // Gameplay light is the same from both ends: the key light sits over the halfway line (only a sideways lean, never
+    // toward one goal, which left the near side back-lit and dark), and the pitch always gets floodlight-level light,
+    // whatever the venue mood. Sky, skyline and props keep their look.
+    const lean = Math.sign(this.sun.position.x) || 1;
+    this.sun.position.set(lean * 8, 24, 0); this.sun.target.position.set(0, 0, 0);
+    this.sun.intensity = Math.max(this.sun.intensity, 1.6); this.hemi.intensity = Math.max(this.hemi.intensity, 0.7);
   }
 
   // Team of paper players. look = paper item look.
