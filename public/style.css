@@ -414,6 +414,7 @@ body.playing #menu{display:none}
 .keep b{display:block;font:400 18px/1.1 var(--disp);margin-bottom:9px}.keep div{display:flex;gap:8px}.keep .btn{flex:1;margin:0;padding:12px 4px;font-size:17px}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0 4px}.form-grid .btn{margin:0}
 #form-btn span{font:400 14px/1 var(--disp)}
+#form-btn{position:absolute;top:calc(100% + 8px);right:0;height:34px;padding:0 10px 0 6px} /* own row under camera + pause, so the scoreboard keeps its full width */
 /* Telegram avatar: photo over a coloured initial (initial shows if the photo fails) */
 .av{position:relative;display:inline-grid;place-items:center;flex:none;width:32px;height:32px;border-radius:50%;overflow:hidden;background:var(--av);border:2px solid var(--ink);color:#fff;font:400 15px/1 var(--disp)}
 .av img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
