@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=58';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=58';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=58';
-import { RARITY } from './items.js?v=58';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=59';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=59';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=59';
+import { RARITY } from './items.js?v=59';
 // [colours, start height, count, speed, gravity, size, glow, life]
 const FX_SIMPLE = {
   x_team: ['team', 0.8, 110, 6.5, 8, 0.11, false, 2.4],
@@ -167,12 +167,13 @@ function paperMaterial(map, look, printed, grain) {
   return m;
 }
 
-const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=58'; });
+const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=59'; });
 export class World {
   // size = [w, h] gives a fixed-size studio World (Locker previews) that renders with the exact match pipeline.
   constructor(canvas, size = null) {
     this.size = size;
     this.r = new THREE.WebGLRenderer({ canvas, antialias: size ? true : Q.aa, powerPreference: 'high-performance', alpha: false });
+    this.r.debug.checkShaderErrors = false; // the error check forces every shader to compile synchronously (seconds of freeze on the first match / venue frame)
     this.r.setPixelRatio(size ? 1 : Q.dpr); this.r.outputColorSpace = THREE.SRGBColorSpace;
     this.r.toneMapping = THREE.ACESFilmicToneMapping; this.r.toneMappingExposure = 0.82;
     this.r.shadowMap.enabled = true; this.r.shadowMap.type = Q.low ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;

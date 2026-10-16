@@ -1,6 +1,6 @@
 // art.js : procedural 2D art drawn on canvas. Jerseys, crests, pitch, ball, net, paper surfaces.
 // Used for 3D textures and for menu thumbnails, so the menu and the match always look the same.
-import { FIELD } from './engine.js?v=58';
+import { FIELD } from './engine.js?v=59';
 
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; };
 export const shade = (hex, k) => { // k<0 darker, k>0 lighter

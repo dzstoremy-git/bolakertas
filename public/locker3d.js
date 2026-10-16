@@ -1,8 +1,8 @@
 // locker3d.js : Locker and menu art rendered by the match renderer itself.
 // Every thumbnail is a real World (scene.js) with the item applied, so what the shop shows is what the match shows.
 import * as THREE from 'three';
-import { World, makePlayer, makeBall } from './scene.js?v=58';
-import { itemById, DEFAULT_EQUIP } from './items.js?v=58';
+import { World, makePlayer, makeBall } from './scene.js?v=59';
+import { itemById, DEFAULT_EQUIP } from './items.js?v=59';
 
 // HD: thumbnails render at 2x their on-screen size (min 512), live preview at device pixel ratio up to 1024px.
 const DPR = Math.min(2, Math.max(1, devicePixelRatio || 1));
@@ -10,7 +10,8 @@ const THUMB = Math.max(512, Math.ceil(190 * DPR / 64) * 64);
 let W = null, owner = null; // the live preview that owns the shared World; thumbnails wait while one is open
 const studio = () => W || (W = new World(document.createElement('canvas'), [THUMB, THUMB]));
 const sizeTo = px => { const w = studio(); if (w.size[0] !== px) { w.size = [px, px]; w.resize(); } };
-const urls = new Map(), previewOpen = () => owner && owner.alive;
+// Background art waits while a live preview is open, the coin toss is up, or a match is on screen, so it never steals frames from them.
+const urls = new Map(), previewOpen = () => (owner && owner.alive) || !!document.querySelector('.ov-toss') || document.querySelector('#hud')?.hidden === false;
 
 const lookOf = (id, fb) => { const it = itemById(id) || itemById(fb); return { ...it.look, rarity: it.rarity }; };
 
@@ -53,7 +54,8 @@ function shotFor(it, ctx) {
   return { ...base, players: [[0, 0, 0.35]], ball: [-0.62, 0.42], cam: HERO }; // pass
 }
 
-const snap = (w, px = THUMB) => { sizeTo(px); w.render(); return w.r.domElement.toDataURL('image/webp', 0.95); };
+// toBlob: the pixels are copied at call time like toDataURL, but the image encode runs off the main thread (toDataURL froze the Locker ~1s per card).
+const snap = (w, px = THUMB) => { sizeTo(px); w.render(); return new Promise(ok => w.r.domElement.toBlob(b => ok(URL.createObjectURL(b)), 'image/webp', 0.95)); };
 const ICON = Math.min(1024, Math.ceil(Math.min(innerWidth, 440) * Math.min(3, devicePixelRatio || 1) / 64) * 64);
 const sig = ctx => `${ctx.team.id}|${ctx.kit.id === 'custom' ? JSON.stringify(ctx.kit) : ctx.kit.id}|${Object.values(ctx.equip).join(',')}`;
 const frame = () => new Promise(r => requestAnimationFrame(r));
@@ -65,7 +67,7 @@ export async function thumbs(items, ctx, onEach) {
   const order = [...items].sort((a, b) => (a.slot === 'venue' ? a.id : '').localeCompare(b.slot === 'venue' ? b.id : ''));
   for (const it of order) {
     const k = `${it.id}|${key}`;
-    if (!urls.has(k)) { do await frame(); while (previewOpen()); try { urls.set(k, snap(stage(shotFor(it, ctx)))); } catch (e) { console.warn('thumb', it.id, e); continue; } }
+    if (!urls.has(k)) { do await frame(); while (previewOpen()); try { urls.set(k, await snap(stage(shotFor(it, ctx)))); } catch (e) { console.warn('thumb', it.id, e); continue; } }
     onEach(it.id, urls.get(k));
   }
 }
@@ -86,7 +88,7 @@ export async function icon(kind, ctx) {
     kit: { ...b, lift: 0.35, players: [[0, 0, 0]], ball: [0.62, 0.55], cam: [[0, 0.5, 1.85], [0, 0.36, 0], 30] }, // front-on, little fill so kit colours stay vivid // kit picker: the folded paper player in that kit
   }[kind];
   do await frame(); while (previewOpen());
-  const url = snap(stage(o), Math.max(THUMB, ICON)); urls.set(k, url); return url;
+  const url = await snap(stage(o), kind === 'hero' ? Math.max(THUMB, ICON) : THUMB); urls.set(k, url); return url; // only the wide home hero needs screen-size pixels; small icons are sharp at 512
 }
 
 // Live, touch-rotatable preview inside the item sheet. Returns { tap(), close() }.
@@ -118,7 +120,8 @@ export function preview(host, it, ctx) {
     if (p0 && p0.rank >= 2 && (t % 4) < dt && t > 2.5) { p0.flipT = 0; const r = p0.root.rotation.y; w.tapFx(Math.sin(r) * 0.5, Math.cos(r) * 0.5, p0.rank, p0.color); }
     w.update(dt, t); w.render();
   };
-  requestAnimationFrame(loop);
+  // first frame only after the venue's shaders compile in parallel: no multi-second freeze when opening a venue
+  Promise.race([w.r.compileAsync(w.scene, w.cam), new Promise(r => setTimeout(r, 1500))]).catch(() => {}).then(() => me.alive && requestAnimationFrame(loop));
   return {
     tap() { if (!p0) return; p0.flipT = 0; const r = p0.root.rotation.y; w.tapFx(p0.root.position.x + Math.sin(r) * 0.5, p0.root.position.z + Math.cos(r) * 0.5, p0.rank, p0.color);
       if (it.slot === 'fx') w.goalFx(it.id, 0, 0, [ctx.kit.base, ctx.kit.accent]); },
@@ -144,8 +147,11 @@ function coinKit() {
   const coin = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 0.16, 48), [rim, null, null]); coin.rotation.x = Math.PI / 2; // face +z = top cap
   const pivot = new THREE.Group(); pivot.add(coin); scene.add(pivot);
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(1, 32), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.22, depthWrite: false })); shadow.rotation.x = -Math.PI / 2; shadow.position.y = -1.5; scene.add(shadow);
-  C = { r, scene, cam, coin, pivot, shadow, face, faces: null, run: 0 };
+  r.debug.checkShaderErrors = false; C = { r, scene, cam, coin, pivot, shadow, face, faces: null, run: 0 };
   return C;
+}
+// Build the coin's 3D view ahead of time (called once on the home screen, when idle), so the toss never pays the setup cost.
+export function warmCoin(labels) { const k = coinKit(); if (k.faces) return; k.faces = labels.join('|'); k.coin.material[1] = k.face(labels[0], labels[1]); k.coin.material[2] = k.face(labels[2], labels[3]); k.r.render(k.scene, k.cam);
 }
 export function coin(host, labels) {
   const k = coinKit(), key = labels.join('|');
