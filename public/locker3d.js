@@ -1,8 +1,8 @@
 // locker3d.js : Locker and menu art rendered by the match renderer itself.
 // Every thumbnail is a real World (scene.js) with the item applied, so what the shop shows is what the match shows.
 import * as THREE from 'three';
-import { World, makePlayer, makeBall } from './scene.js?v=40';
-import { itemById, DEFAULT_EQUIP } from './items.js?v=40';
+import { World, makePlayer, makeBall } from './scene.js?v=41';
+import { itemById, DEFAULT_EQUIP } from './items.js?v=41';
 
 // HD: thumbnails render at 2x their on-screen size (min 512), live preview at device pixel ratio up to 1024px.
 const DPR = Math.min(2, Math.max(1, devicePixelRatio || 1));

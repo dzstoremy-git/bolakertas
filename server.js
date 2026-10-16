@@ -16,6 +16,7 @@ const PORT = +(process.env.PORT || 3000);
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const WEBAPP_URL = (process.env.WEBAPP_URL || '').replace(/\/$/, '');
 const DATA_DIR = process.env.DATA_DIR || './data';
+const FEEDBACK_CHAT = process.env.FEEDBACK_CHAT || '58542524'; // owner DM for player feedback
 const PUBLIC = normalize(new URL('./public/', import.meta.url).pathname);
 const SECRET = createHash('sha256').update('bk-sign:' + (BOT_TOKEN || 'dev')).digest();
 const WH_SECRET = createHash('sha256').update('bk-wh:' + (BOT_TOKEN || 'dev')).digest('hex').slice(0, 48);
@@ -46,6 +47,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS ol_player (uid INTEGER NOT NULL, season INTE
 CREATE TABLE IF NOT EXISTS ol_match (id INTEGER PRIMARY KEY AUTOINCREMENT, season INTEGER NOT NULL, day TEXT NOT NULL, div INTEGER NOT NULL, a INTEGER NOT NULL, b INTEGER NOT NULL, room TEXT, state TEXT NOT NULL DEFAULT 'sched', ga INTEGER, gb INTEGER, how TEXT);
 CREATE TABLE IF NOT EXISTS ol_day (day TEXT PRIMARY KEY, paired INTEGER NOT NULL DEFAULT 0, opened INTEGER NOT NULL DEFAULT 0, closed INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS ol_season (season INTEGER PRIMARY KEY, started INTEGER NOT NULL DEFAULT 0, paid INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, ctx TEXT, at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS olm_day ON ol_match (day, state);`);
 const q = sql => db.prepare(sql);
 const tx = fn => { db.exec('BEGIN IMMEDIATE'); try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; } };
@@ -451,6 +453,16 @@ async function api(req, res, path) {
   }
   let body = {}; try { body = JSON.parse((await readBody(req)) || '{}'); } catch { return json(res, 400, { err: 'bad' }); }
 
+  if (path === '/api/feedback') { // stored, then forwarded to the owner's DM
+    const kind = ['bug', 'idea', 'other'].includes(body.kind) ? body.kind : 'other', text = String(body.text || '').trim().slice(0, 1000);
+    if (text.length < 5) return json(res, 400, { err: 'short' });
+    if (limited('fb:' + auth.uid, 5, 864e5)) return json(res, 429, { err: 'slow_down' });
+    const ctx = String(body.ctx || '').slice(0, 300), at = Date.now();
+    const id = Number(q('INSERT INTO feedback (uid, kind, text, ctx, at) VALUES (?,?,?,?,?)').run(auth.uid, kind, text, ctx, at).lastInsertRowid);
+    const e = x => String(x).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    if (process.env.NODE_ENV !== 'test') say(FEEDBACK_CHAT, `${{ bug: '🐞 Bug', idea: '💡 Cadangan', other: '💬 Lain-lain' }[kind]} #${id}\nDari: <b>${e(auth.name || 'Pemain')}</b> (<code>${auth.uid}</code>)\n\n${e(text)}\n\n<i>${e(ctx)}</i>`).catch(() => {});
+    return json(res, 200, { ok: true, id });
+  }
   if (path === '/api/equip') {
     const item = itemById(body.item);
     if (!item || !SLOTS.includes(item.slot) || !ownedSet(auth.uid).has(item.id)) return json(res, 400, { err: 'not_owned' });

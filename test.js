@@ -321,6 +321,11 @@ await aok('goal clips: only signed players, real jpg/mp4 bytes, size cap, share 
   assert.equal((await up(Buffer.alloc(9 << 20, 0xff), 'video/mp4')).status, 413);
   const r = await (await up(jpg, 'image/jpeg')).json(); assert.match(r.url, /^\/clip\/[\w-]{12}\.jpg$/);
   const got = await fetch(base + r.url); assert.equal(got.headers.get('content-type'), 'image/jpeg'); assert.equal(Buffer.from(await got.arrayBuffer()).length, jpg.length);
+  const fb = (body, auth = sign(7201)) => fetch(base + '/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Init-Data': auth }, body: JSON.stringify(body) });
+  assert.equal((await fb({ kind: 'bug', text: 'hi' })).status, 400); assert.equal((await fb({ kind: 'bug', text: 'ok' }, 'x')).status, 401);
+  const f1 = await (await fb({ kind: 'nope', text: 'bola <b>tersangkut</b> di tiang' })).json(); assert.ok(f1.id > 0);
+  assert.deepEqual({ ...S.db.prepare('SELECT kind, text FROM feedback WHERE id=?').get(f1.id) }, { kind: 'other', text: 'bola <b>tersangkut</b> di tiang' });
+  for (let k = 0; k < 4; k++) await fb({ kind: 'idea', text: 'idea ' + k }); assert.equal((await fb({ kind: 'idea', text: 'one too many' })).status, 429);
   assert.equal(got.headers.get('content-disposition'), null); assert.match((await fetch(base + r.url + '?dl=1')).headers.get('content-disposition'), /^attachment; filename="bola-kertas-gol\.jpg"$/);
   const page = await (await fetch(base + r.page)).text(); assert.ok(page.includes('og:image') && page.includes(r.url) && !page.includes('—'));
   assert.equal((await fetch(base + '/clip/../server.js')).status, 404); assert.equal((await fetch(base + '/c/aaaaaaaaaaaa')).status, 404);

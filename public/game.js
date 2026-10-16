@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=40';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=40';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=40';
-import { World, Q } from './scene.js?v=40';
-import { crest, ink } from './art.js?v=40';
-import * as L3 from './locker3d.js?v=40';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=40';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=40';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=41';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=41';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=41';
+import { World, Q } from './scene.js?v=41';
+import { crest, ink } from './art.js?v=41';
+import * as L3 from './locker3d.js?v=41';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=41';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=41';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -636,7 +636,7 @@ function replayCam(clip, t, b, scorer, cam, dt) {
 function playReplays(idx, record = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=40" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=41" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -772,7 +772,7 @@ async function sharePoster(clip) {
     <button class="btn lime" id="pst-go" disabled>📤 ${T('pst_share')}</button><button class="btn ghost" id="pst-x">${T('back')}</button>`); o.classList.add('ov-pst');
   o.querySelector('#pst-x').onclick = () => o.remove();
   await new Promise(r => requestAnimationFrame(r)); // let the sheet paint before the heavy pass
-  const logo = await loadImg('/sponsor/revolix.png?v=40').catch(() => null);
+  const logo = await loadImg('/sponsor/revolix.png?v=41').catch(() => null);
   const cs = await makePosters(clip)(logo), urls = cs.map(c => c.toDataURL('image/jpeg', 0.9));
   if (window.__bkPosterHook) { o.remove(); return window.__bkPosterHook(urls); } // QA capture
   if (!o.isConnected) return;
@@ -1090,16 +1090,36 @@ async function showProfile() {
     <section class="pf-card">${avatar(myName(), myPhoto(), 'big')}<div class="pf-id"><h2>${esc(myName())}${pro ? ' <i class="pro-b">PRO</i>' : ''}</h2><small>${P.guest ? T('rk_guest') : T('pf_synced')}</small></div></section>
     <div class="pf-stats"><div id="pf-rank"><b>…</b><small>${T('ranked')}</small></div><div><b>${num(P.coins)}</b><small>Coins</small></div><div><b>${have}/${sellable.length}</b><small>${T('pf_items')}</small></div></div>
     ${pro ? `<p class="pro-on">✅ ${T('pro_until', { d: new Date(P.proUntil).toLocaleDateString(S.lang) })}</p>` : `<button class="lg-pro" id="pf-pro"><i class="pro-b">PRO</i> ${T('lg_go_pro')}</button>`}
-    <div class="pf-links">${[['squad', '👕', T('squad')], ['studio', '🎨', T('mode_studio')], ['leagues', '👥', T('lg')], ['official', '⭐', T('ol_title')], ['help', '❓', T('mode_help')], ['cog', '⚙️', T('nav_cog')]]
+    <div class="pf-links">${[['squad', '👕', T('squad')], ['studio', '🎨', T('mode_studio')], ['leagues', '👥', T('lg')], ['official', '⭐', T('ol_title')], ['help', '❓', T('mode_help')], ['feedback', '📮', T('fb_title')], ['cog', '⚙️', T('nav_cog')]]
       .map(([k, ic, t]) => `<button class="pf-link" data-k="${k}"><span>${ic}</span><b>${t}</b><span class="go"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span></button>`).join('')}</div>
   </main>${navBar('me')}`, 'm-home');
   bindHeader(m); bindNav(m);
   m.querySelector('#pf-pro')?.addEventListener('click', () => showShop('pass'));
-  m.querySelectorAll('.pf-link').forEach(b => b.onclick = () => { SFX.ui(); haptic(); ({ squad: () => showSquad(showProfile), studio: () => showStudio(showProfile), leagues: showLeagues, official: showOfficial, help: showHelp, cog: showSettings })[b.dataset.k](); });
+  m.querySelectorAll('.pf-link').forEach(b => b.onclick = () => { SFX.ui(); haptic(); ({ squad: () => showSquad(showProfile), studio: () => showStudio(showProfile), leagues: showLeagues, official: showOfficial, help: showHelp, feedback: showFeedback, cog: showSettings })[b.dataset.k](); });
   if (!P.guest) api('/api/rank', { tab: 'season' }).then(r => { const el = m.querySelector('#pf-rank b'); if (el) el.textContent = `${T('t_' + r.mine.tier)}${r.mine.div ? ' ' + 'III II I'.split(' ')[3 - r.mine.div] : ''}`; }).catch(() => {});
   else m.querySelector('#pf-rank b').textContent = '-';
 }
 
+function showFeedback() {
+  if (P.guest) return toast(T('fb_guest'));
+  let kind = 'bug';
+  const o = overlay(`<h2>${T('fb_title')}</h2><p class="fb-s">${T('fb_sub')}</p>
+    <div class="seg fb-k">${['bug', 'idea', 'other'].map(k => `<button data-k="${k}" class="${k === kind ? 'on' : ''}">${T('fb_' + k)}</button>`).join('')}</div>
+    <textarea id="fb-t" maxlength="1000" rows="6" placeholder="${esc(T('fb_ph'))}"></textarea><small class="fb-n" id="fb-n">0/1000</small>
+    <div class="rp-row"><button class="btn" id="fb-x">${T('close')}</button><button class="btn lime" id="fb-go">${T('fb_send')}</button></div>`);
+  const t = o.querySelector('#fb-t'), go = o.querySelector('#fb-go');
+  o.querySelectorAll('.fb-k button').forEach(b => b.onclick = () => { kind = b.dataset.k; o.querySelectorAll('.fb-k button').forEach(x => x.classList.toggle('on', x === b)); haptic(); });
+  t.oninput = () => { o.querySelector('#fb-n').textContent = `${t.value.length}/1000`; };
+  o.querySelector('#fb-x').onclick = () => o.remove();
+  go.onclick = async () => {
+    if (t.value.trim().length < 5) return toast(T('fb_short'));
+    go.disabled = true;
+    try { await api('/api/feedback', { kind, text: t.value, ctx: `v${(import.meta.url.match(/v=(\d+)/) || [])[1] || '?'} · ${S.lang} · ${innerWidth}x${innerHeight} · ${(window.Telegram?.WebApp?.platform) || 'web'} · ${navigator.userAgent.slice(0, 160)}` });
+      o.remove(); toast(T('fb_ok')); SFX.ui?.();
+    } catch (e) { go.disabled = false; toast(T(e.code === 'slow_down' ? 'fb_limit' : 'fb_err')); }
+  };
+  setTimeout(() => t.focus(), 50);
+}
 function showHelp() {
   const m = screen(`${header(true)}<main class="help"><h2 class="ttl">${T('mode_help')}</h2>
     <ol class="rules">
