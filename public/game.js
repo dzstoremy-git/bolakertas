@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=31';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=31';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=31';
-import { World, Q } from './scene.js?v=31';
-import { crest, ink } from './art.js?v=31';
-import * as L3 from './locker3d.js?v=31';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=31';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=31';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=32';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=32';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=32';
+import { World, Q } from './scene.js?v=32';
+import { crest, ink } from './art.js?v=32';
+import * as L3 from './locker3d.js?v=32';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=32';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=32';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -630,7 +630,7 @@ function replayCam(clip, f, k) {
 function playReplays(idx, record = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=31" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=32" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -682,7 +682,7 @@ const loadImg = src => new Promise((ok, bad) => { const i = new Image(); i.onloa
 async function sharePoster(clip) {
   if (!clip) return toast(T('rp_none'));
   const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
-  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=31'), loadImg('/sponsor/revolix.png?v=31').catch(() => null)]);
+  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=32'), loadImg('/sponsor/revolix.png?v=32').catch(() => null)]);
   const sc = Math.max(W / art.width, H / art.height); g.drawImage(art, (W - art.width * sc) / 2, (H - art.height * sc) / 2, art.width * sc, art.height * sc);
   let gr = g.createLinearGradient(0, H * 0.5, 0, H); gr.addColorStop(0, 'rgba(5,10,30,0)'); gr.addColorStop(0.45, 'rgba(5,10,30,.82)'); gr.addColorStop(1, 'rgba(5,10,30,.96)'); g.fillStyle = gr; g.fillRect(0, H * 0.5, W, H * 0.5);
   gr = g.createLinearGradient(0, 0, 0, 220); gr.addColorStop(0, 'rgba(5,10,30,.85)'); gr.addColorStop(1, 'rgba(5,10,30,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, 220);

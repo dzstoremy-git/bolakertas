@@ -220,7 +220,7 @@ const IT = {
   v_kopitiam: [['Kopitiam', 'Marble tables, black coffee, ceiling fans.'], ['Копитиам', 'Мраморные столики, чёрный кофе, потолочные вентиляторы.']],
   v_night: [['Night Stadium', 'Floodlights and a roaring crowd.'], ['Ночной стадион', 'Прожекторы и ревущие трибуны.']],
   v_beach: [['Sunset Beach', 'Sand, waves and a setting sun.'], ['Пляж на закате', 'Песок, волны и закат.']],
-  v_rooftop: [['KL Rooftop', 'City towers twinkling behind the goal.'], ['Крыша Куала-Лумпура', 'Огни башен за воротами.']],
+  v_rooftop: [['KL Rooftop', 'KLCC, Merdeka 118, KL Tower and the city all around.'], ['Крыша Куала-Лумпура', 'KLCC, Merdeka 118, телебашня и город вокруг.']],
   v_final: [['Final Stadium', 'The biggest stage. Golden confetti.'], ['Стадион финала', 'Главная сцена. Золотое конфетти.']],
   b_classic: [['Classic Ball', 'Black and white, the timeless look.'], ['Классический мяч', 'Чёрно-белая классика.']],
   b_candy: [['Candy Cane', 'Sweet pink stripes.'], ['Леденец', 'Сладкие розовые полосы.']],

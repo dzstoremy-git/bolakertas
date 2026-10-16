@@ -38,7 +38,7 @@ export const ITEMS = [
   { id: 'v_kopitiam', rarity: 'rare', slot: 'venue', name: 'Kopitiam', desc: 'Meja marmar, kopi O dan kipas siling.', coins: 1500 },
   { id: 'v_night', rarity: 'epic', slot: 'venue', name: 'Stadium Malam', desc: 'Lampu limpah dan penonton bersorak.', stars: 29 },
   { id: 'v_beach', rarity: 'epic', slot: 'venue', name: 'Pantai Senja', desc: 'Pasir, ombak dan matahari terbenam.', stars: 39 },
-  { id: 'v_rooftop', rarity: 'legend', slot: 'venue', name: 'Atas Bumbung KL', desc: 'Menara berkelip di belakang gol.', stars: 49 },
+  { id: 'v_rooftop', rarity: 'legend', slot: 'venue', name: 'Atas Bumbung KL', desc: 'KLCC, Merdeka 118, Menara KL dan kota 360 darjah.', stars: 49 },
   { id: 'v_final', rarity: 'myth', slot: 'venue', name: 'Stadium Final', desc: 'Pentas terbesar. Konfeti emas.', stars: 99, tag: 'PRESTIJ' },
 
   // BALL
