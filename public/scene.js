@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=54';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=54';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=54';
-import { RARITY } from './items.js?v=54';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=55';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=55';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=55';
+import { RARITY } from './items.js?v=55';
 // [colours, start height, count, speed, gravity, size, glow, life]
 const FX_SIMPLE = {
   x_team: ['team', 0.8, 110, 6.5, 8, 0.11, false, 2.4],
@@ -165,7 +165,7 @@ function paperMaterial(map, look, printed, grain) {
   return m;
 }
 
-const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=54'; });
+const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=55'; });
 export class World {
   // size = [w, h] gives a fixed-size studio World (Locker previews) that renders with the exact match pipeline.
   constructor(canvas, size = null) {
@@ -326,7 +326,8 @@ export class World {
       const st = tex(sc); st.repeat.set(3, 1); // one narrow band, edges fade to clear
       const sweep = new THREE.MeshBasicMaterial({ map: st, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
       const L = 9.6, H = 0.75, ez = TL / 2 + 0.62, sx = TW / 2 + 0.62;
-      for (const [x, z, ry] of [[0, -ez, 0], [0, ez, Math.PI], [-sx, -5, Math.PI / 2], [sx, 5, -Math.PI / 2]]) {
+      // all four on the touchlines: nothing behind the goals, so the goal and keeper stay clear from every camera
+      for (const [x, z, ry] of [[-sx, -5, Math.PI / 2], [-sx, 5, Math.PI / 2], [sx, -5, -Math.PI / 2], [sx, 5, -Math.PI / 2]]) {
         const b = add(new THREE.BoxGeometry(L, H, 0.1), [dark, dark, dark, dark, mat, dark], x, H / 2 + 0.02, z); b.rotation.y = ry; b.castShadow = true;
         const s = new THREE.Mesh(new THREE.PlaneGeometry(L, H * 0.92), sweep); s.position.set(0, 0, 0.056); b.add(s);
       }
