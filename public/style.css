@@ -462,9 +462,7 @@ body.playing #menu{display:none}
 /* kit picker: real shirts */
 .seg.kits{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px}
 .seg.kits button{flex-direction:column;gap:6px;padding:8px 6px 9px;justify-content:flex-end;font-size:14px}
-.kit-img{width:64px;height:72px;object-fit:cover;filter:drop-shadow(0 3px 0 rgba(42,31,92,.35));
-  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 72'%3E%3Cpath d='M22 2 Q32 9 42 2 L60 10 L64 28 L52 31 L52 70 L12 70 L12 31 L0 28 L4 10 Z'/%3E%3C/svg%3E") center/100% 100% no-repeat;
-          mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 72'%3E%3Cpath d='M22 2 Q32 9 42 2 L60 10 L64 28 L52 31 L52 70 L12 70 L12 31 L0 28 L4 10 Z'/%3E%3C/svg%3E") center/100% 100% no-repeat}
+.kit-img{width:72px;height:72px;border-radius:12px;background:#cfe9ff center/cover no-repeat;border:2px solid var(--ink)}
 .seg.kits button.on .kit-img{transform:translateY(-2px) scale(1.06)}
 .seg.kits button{position:relative}.seg.kits button.on{box-shadow:0 0 0 3px var(--yel),0 4px 0 var(--ink)}
 .seg.kits button.on::after{content:'✓';position:absolute;top:-8px;right:-8px;width:24px;height:24px;border-radius:50%;background:var(--yel);border:2.5px solid var(--ink);color:var(--ink);font:700 14px/19px system-ui;text-align:center;-webkit-text-stroke:0}

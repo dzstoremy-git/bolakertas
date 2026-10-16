@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=53';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=53';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=53';
-import { World, Q } from './scene.js?v=53';
-import { crest, ink, jerseyFront } from './art.js?v=53';
-import * as L3 from './locker3d.js?v=53';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=53';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=53';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=54';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=54';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=54';
+import { World, Q } from './scene.js?v=54';
+import { crest, ink } from './art.js?v=54';
+import * as L3 from './locker3d.js?v=54';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=54';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=54';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -636,7 +636,7 @@ function replayCam(clip, t, b, scorer, cam, dt) {
 function playReplays(idx, record = false, auto = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em>${auto && !record && window.MediaRecorder ? `<button class="chip ghost rp-save" id="rp-save">⬇ ${T('rp_dl')}</button>` : ''}<button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=53" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em>${auto && !record && window.MediaRecorder ? `<button class="chip ghost rp-save" id="rp-save">⬇ ${T('rp_dl')}</button>` : ''}<button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=54" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -786,7 +786,7 @@ async function sharePoster(clip) {
     <button class="btn lime" id="pst-go" disabled>📤 ${T('pst_share')}</button><button class="btn ghost" id="pst-x">${T('back')}</button>`); o.classList.add('ov-pst');
   o.querySelector('#pst-x').onclick = () => o.remove();
   await new Promise(r => requestAnimationFrame(r)); // let the sheet paint before the heavy pass
-  const logo = await loadImg('/sponsor/revolix.png?v=53').catch(() => null);
+  const logo = await loadImg('/sponsor/revolix.png?v=54').catch(() => null);
   const cs = await makePosters(clip)(logo), urls = cs.map(c => c.toDataURL('image/jpeg', 0.9));
   if (window.__bkPosterHook) { o.remove(); return window.__bkPosterHook(urls); } // QA capture
   if (!o.isConnected) return;
@@ -961,9 +961,6 @@ function teamGrid(selected, league, onPick) {
   return `<div class="tabs">${LEAGUES.map(l => `<button class="tab ${l.id === lg.id ? 'on' : ''}" data-l="${l.id}">${esc(T('lg_' + l.id))}</button>`).join('')}</div>
   <div class="teams">${lg.teams.map(t => `<button class="team ${t.id === selected ? 'on' : ''}" data-t="${t.id}" style="--c:${t.jerseys[0].base};--a:${t.jerseys[0].accent}"><span class="sw"></span><b>${esc(t.short)}</b><small>${esc(t.name)}</small></button>`).join('')}</div>`;
 }
-// Kit picker shows the real printed shirt (pattern, crest, sponsor, number) instead of a colour dot, so players can see what they'll wear.
-const KIT_PICS = new Map();
-const kitPic = (team, kit) => { const k = `${team.id}|${JSON.stringify(kit)}`; if (!KIT_PICS.has(k)) KIT_PICS.set(k, jerseyFront(team, kit, 10, 192, 240).toDataURL('image/webp', 0.9)); return KIT_PICS.get(k); };
 function showSetup(mode) {
   let step = 0;
   const render = () => {
@@ -972,7 +969,7 @@ function showSetup(mode) {
       <div class="steps"><span class="${step === 0 ? 'on' : ''}">${T('step_team')}</span><span class="${step === 1 ? 'on' : ''}">${T('step_opp')}</span><span class="${step === 2 ? 'on' : ''}">${T('step_rules')}</span></div>
       ${step < 2 ? teamGrid(sel, lg) : `
       <div class="opts">
-        <label>${T('kit')}<div class="seg kits" data-k="kit">${teamById(S.team).jerseys.map((j, i) => `<button class="${S.kit === i ? 'on' : ''}" data-v="${i}"><img class="kit-img" alt="" src="${kitPic(teamById(S.team), j)}">${j.label === 'Home' ? T('kit_home') : j.label === 'Away' ? T('kit_away') : esc(j.label)}</button>`).join('')}${mySquad().kit ? `<button class="${S.kit === -1 ? 'on' : ''}" data-v="-1"><img class="kit-img" alt="" src="${kitPic(teamById(S.team), mySquad().kit)}">Studio</button>` : ''}<button class="kit-add" data-go="studio"><b>+</b>Studio</button></div></label>
+        <label>${T('kit')}<div class="seg kits" data-k="kit">${teamById(S.team).jerseys.map((j, i) => `<button class="${S.kit === i ? 'on' : ''}" data-v="${i}"><span class="kit-img" data-kit="${i}"></span>${j.label === 'Home' ? T('kit_home') : j.label === 'Away' ? T('kit_away') : esc(j.label)}</button>`).join('')}${mySquad().kit ? `<button class="${S.kit === -1 ? 'on' : ''}" data-v="-1"><span class="kit-img" data-kit="-1"></span>Studio</button>` : ''}<button class="kit-add" data-go="studio"><b>+</b>Studio</button></div></label>
         <label>${T('formation')}<div class="seg" data-k="formation">${Object.keys(FORMATIONS).map(f => `<button class="${S.formation === f ? 'on' : ''}" data-v="${f}">${f}</button>`).join('')}</div></label>
         ${mode === 'cpu' ? `<label>${T('ai_level')}<div class="seg" data-k="skill">${[[0.25, T('ai_easy')], [0.5, T('ai_normal')], [0.8, T('ai_hard')]].map(([v, l]) => `<button class="${S.skill === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div></label>` : ''}
         <label>${T('match_len')}<div class="seg" data-k="minutes">${[1, 3, 5].map(v => `<button class="${S.minutes === v ? 'on' : ''}" data-v="${v}">${T('minutes', { n: v })}</button>`).join('')}</div></label>
@@ -985,6 +982,9 @@ function showSetup(mode) {
     m.querySelector('[data-go="studio"]')?.addEventListener('click', ev => { ev.stopPropagation(); showStudio(() => showSetup(mode)); });
     m.querySelectorAll('.seg').forEach(seg => seg.querySelectorAll('button:not([data-go])').forEach(b => b.onclick = () => { const k = seg.dataset.k, v = b.dataset.v; S[k] = k === 'formation' ? v : +v; saveS(); SFX.ui(); render(); }));
     m.querySelector('#next').onclick = () => { SFX.ui(); if (step < 2) { step++; render(); } else mode === 'cpu' ? beginCpu() : beginLocal(); };
+    // the same folded paper player the match uses, wearing each kit (rendered once per kit, cached by locker3d)
+    (async () => { const t0 = teamById(S.team); for (const el of m.querySelectorAll('.kit-img')) { const i = +el.dataset.kit;
+      const kit = i === -1 ? cleanKit(mySquad().kit, P.owned.includes('k_studio')) : t0.jerseys[i]; const url = await L3.icon('kit', { ...artCtx(), kit }).catch(() => null); if (m.isConnected) paint(el, url); } })();
   };
   render();
 }
