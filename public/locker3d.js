@@ -1,8 +1,8 @@
 // locker3d.js : Locker and menu art rendered by the match renderer itself.
 // Every thumbnail is a real World (scene.js) with the item applied, so what the shop shows is what the match shows.
 import * as THREE from 'three';
-import { World, makePlayer, makeBall } from './scene.js?v=37';
-import { itemById, DEFAULT_EQUIP } from './items.js?v=37';
+import { World, makePlayer, makeBall } from './scene.js?v=38';
+import { itemById, DEFAULT_EQUIP } from './items.js?v=38';
 
 // HD: thumbnails render at 2x their on-screen size (min 512), live preview at device pixel ratio up to 1024px.
 const DPR = Math.min(2, Math.max(1, devicePixelRatio || 1));
@@ -92,6 +92,11 @@ export function preview(host, it, ctx) {
   if (owner) owner.alive = false; // only one live preview at a time
   const me = { alive: true }; owner = me;
   const w = studio(), o = shotFor(it, ctx); delete o.fx; delete o.tap; stage(o);
+  // Showcase lights for the item preview only: warm key from the camera side + a rim in the rarity colour behind,
+  // so dark venues (night rooftop) never swallow the paper. Removed on close.
+  const rank = { rare: 1, epic: 2, legend: 3, myth: 4 }[it.rarity] || 0, hero = ['paper', 'star', 'bundle', 'pass'].includes(it.slot);
+  const key = new THREE.PointLight('#fff2d6', hero ? 2.6 : 0, 7, 1.2), rim = new THREE.PointLight({ 3: '#ffb21e', 4: '#ff5fd2' }[rank] || '#7fd0ff', hero && rank >= 3 ? 7 : 0, 5, 1.2);
+  w.scene.add(key, rim);
   sizeTo(Math.min(1024, Math.ceil((host.clientWidth || Math.min(innerWidth, 440)) * DPR / 64) * 64));
   const c = w.r.domElement; host.append(c); c.style.cssText = 'width:100%;height:100%;display:block;touch-action:none';
   const [pos, look] = o.cam, tgt = new THREE.Vector3(...look), off = new THREE.Vector3(...pos).sub(tgt);
@@ -101,12 +106,14 @@ export function preview(host, it, ctx) {
   c.onpointerup = c.onpointercancel = () => { drag = null; };
   const p0 = w.pieces[0];
   const loop = now => {
-    if (!me.alive || !c.isConnected) { me.alive = false; return; } requestAnimationFrame(loop);
-    const dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt; if (auto) yaw += dt * 0.35;
+    if (!me.alive || !c.isConnected) { me.alive = false; w.scene.remove(key, rim); return; } requestAnimationFrame(loop);
+    const dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt; if (auto) yaw = hero ? Math.sin(t * 0.7) * 0.6 : yaw + dt * 0.35; // players sway to show the front, never the plain back
     const v = off.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw); w.cam.position.copy(tgt).add(v); w.cam.lookAt(tgt);
+    key.position.copy(w.cam.position).lerp(tgt, 0.35).add(new THREE.Vector3(0, 0.6, 0)); rim.position.copy(tgt).sub(v.clone().setY(0).normalize().multiplyScalar(1.2)).setY(1.1);
+    if (p0 && hero) p0.root.position.y = rank >= 3 ? 0.04 + Math.sin(t * 2) * 0.03 : 0; // mythic and legend hover
     if (p0 && p0.flipT != null) { p0.flipT += dt; const u = p0.flipT, sq = u < 0.08 ? Math.sin(u / 0.08 * Math.PI / 2) : u < 0.2 ? 1 : u < 0.9 ? Math.exp(-4 * (u - 0.2) / 0.7) * Math.cos(8.5 * (u - 0.2) / 0.7) * (1 - (u - 0.2) / 0.7) : 0;
       p0.body.scale.set(1 + sq * 0.12, Math.max(0.2, 1 - sq * 0.7), 1 + sq * 0.9); }
-    if (p0 && p0.rank >= 2 && (t % 1.8) < dt) { p0.flipT = 0; const r = p0.root.rotation.y; w.tapFx(Math.sin(r) * 0.5, Math.cos(r) * 0.5, p0.rank, p0.color); }
+    if (p0 && p0.rank >= 2 && (t % 4) < dt && t > 2.5) { p0.flipT = 0; const r = p0.root.rotation.y; w.tapFx(Math.sin(r) * 0.5, Math.cos(r) * 0.5, p0.rank, p0.color); }
     w.update(dt, t); w.render();
   };
   requestAnimationFrame(loop);
@@ -114,7 +121,7 @@ export function preview(host, it, ctx) {
     tap() { if (!p0) return; p0.flipT = 0; const r = p0.root.rotation.y; w.tapFx(p0.root.position.x + Math.sin(r) * 0.5, p0.root.position.z + Math.cos(r) * 0.5, p0.rank, p0.color);
       if (it.slot === 'fx') w.goalFx(it.id, 0, 0, [ctx.kit.base, ctx.kit.accent]); },
     goal() { w.goalFx(it.slot === 'fx' ? it.id : ctx.equip.fx, 0, 0, [ctx.kit.base, ctx.kit.accent], it.setFx); },
-    close() { me.alive = false; if (c.parentNode) c.remove(); },
+    close() { me.alive = false; w.scene.remove(key, rim); key.dispose(); rim.dispose(); if (c.parentNode) c.remove(); },
   };
 }
 // Coin toss: one small renderer, made once and reused. Gold coin with KEPALA / BUNGA faces.

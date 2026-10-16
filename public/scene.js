@@ -1,9 +1,9 @@
 // scene.js : Three.js world for Bola Kertas. Paper players, pitch, goals, venues, ball, aim guide, effects.
 import * as THREE from 'three';
-import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=37';
-import { FIELD, BALL_R, PIECE } from './engine.js?v=37';
-import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=37';
-import { RARITY } from './items.js?v=37';
+import { RoomEnvironment } from './vendor/addons/environments/RoomEnvironment.js?v=38';
+import { FIELD, BALL_R, PIECE } from './engine.js?v=38';
+import { jerseyFront, jerseyBack, paperSurface, pitchTexture, boardTexture, netTexture, ballTexture, APRON, shade, rng } from './art.js?v=38';
+import { RARITY } from './items.js?v=38';
 // [colours, start height, count, speed, gravity, size, glow, life]
 const FX_SIMPLE = {
   x_team: ['team', 0.8, 110, 6.5, 8, 0.11, false, 2.4],
@@ -162,7 +162,7 @@ function paperMaterial(map, look, printed, grain) {
   return m;
 }
 
-const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=37'; });
+const SPONSOR_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = '/sponsor/revolix.png?v=38'; });
 export class World {
   // size = [w, h] gives a fixed-size studio World (Locker previews) that renders with the exact match pipeline.
   constructor(canvas, size = null) {
@@ -788,7 +788,7 @@ export class World {
     if (this.rip && this.ripT < 0.5) { this.ripT += dt; const s = 1 + 9 * this.ripT; this.rip.scale.set(s, s, s); this.rip.material.opacity = 0.8 * (1 - this.ripT / 0.5); }
     for (const vp of this.pieces) if (vp.aura) { vp.aura.material.opacity = 0.6 + Math.sin(t * 3 + vp.data.id) * 0.25; vp.aura.rotation.z += dt * 0.6; }
     HOLO_T.value = t;
-    for (const m of SHIMMER) { if (m.userData.shimmer === 'gold') m.emissiveIntensity = 0.14 + Math.max(0, Math.sin(t * 2.2)) * 0.3; else m.emissiveIntensity = 0; }
+    for (const m of SHIMMER) { if (m.userData.shimmer === 'gold') m.emissiveIntensity = 0.1 + Math.max(0, Math.sin(t * 2.2)) * 0.14; else m.emissiveIntensity = 0; }
     if (this.fan) this.fan.rotation.y += dt * 2.5;
     if (this.tick) for (const f of this.tick) f(dt, t);
     this.pitchFx?.userData.tick(dt, t); if (this.ballMesh) animBall(this.ballMesh, t);

@@ -435,3 +435,14 @@ body.playing #menu{display:none}
 .ov-pst .sheet{padding:18px 14px 14px}.pst{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;width:100%;min-height:200px;align-items:center;justify-content:flex-start;scrollbar-width:none}
 .pst::-webkit-scrollbar{display:none}.pst img{flex:0 0 100%;width:100%;aspect-ratio:4/5;object-fit:cover;border-radius:18px;border:4px solid var(--ink);scroll-snap-align:center;box-shadow:0 5px 0 var(--ink)}
 .pst .spinner{margin:80px auto}.pst-dots{display:flex;gap:6px;justify-content:center;margin:10px 0 2px}.pst-dots i{width:9px;height:9px;border-radius:50%;background:var(--line)}.pst-dots i.on{background:var(--ink);width:22px;border-radius:5px}
+
+/* Legend / Mythic item sheet: animated foil frame, light sweep over the preview, shimmering badge */
+.isheet.r-myth .ipv,.isheet.r-legend .ipv{border-bottom:0}
+.isheet.r-myth .ipv::before,.isheet.r-legend .ipv::before{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;border:5px solid transparent;border-image:linear-gradient(var(--fa,0deg),var(--rc),#fff6c8,var(--rc)) 1;animation:foil 3s linear infinite}
+.isheet.r-myth .ipv::before{border-image:linear-gradient(var(--fa,0deg),#ff5fd2,#39c6ff,#ffd45a,#ff5fd2) 1}
+.isheet.r-myth .ipv::after,.isheet.r-legend .ipv::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(115deg,transparent 44%,rgba(255,246,200,.16) 49%,rgba(255,255,255,.24) 50%,rgba(255,246,200,.16) 51%,transparent 56%);background-size:250% 100%;mix-blend-mode:screen;animation:sweep 4.5s cubic-bezier(.4,0,.2,1) infinite}
+.isheet.r-myth .ipv .rb,.isheet.r-legend .ipv .rb{background-size:200% 100%;animation:badge 2.4s linear infinite;box-shadow:0 0 0 2px var(--ink),0 0 16px var(--rc)}
+.isheet.r-myth h2,.isheet.r-legend h2{background:linear-gradient(90deg,var(--ink),var(--rc),var(--ink));background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:badge 3s linear infinite}
+@property --fa{syntax:"<angle>";inherits:false;initial-value:0deg}
+@keyframes foil{to{--fa:360deg}}@keyframes sweep{0%{background-position:150% 0}60%,100%{background-position:-50% 0}}@keyframes badge{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.isheet .ipv::before,.isheet .ipv::after,.isheet .rb,.isheet h2{animation:none!important}}
