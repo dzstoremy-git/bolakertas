@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=42';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=42';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=42';
-import { World, Q } from './scene.js?v=42';
-import { crest, ink } from './art.js?v=42';
-import * as L3 from './locker3d.js?v=42';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=42';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=42';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=43';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=43';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=43';
+import { World, Q } from './scene.js?v=43';
+import { crest, ink } from './art.js?v=43';
+import * as L3 from './locker3d.js?v=43';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=43';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=43';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -615,7 +615,8 @@ function recordFrame(e) {
   while (M.tape.length && now - M.tape[0].t > TAPE_S) M.tape.shift();
   const G = M.goalAt; if (!G) return;
   if (!G.t0) G.t0 = now;
-  if (now - G.t0 >= POST_S) { const from = G.t0 - PRE_S; M.goals.push({ ...G, frames: M.tape.filter(f => f.t >= from).map(f => ({ ...f, t: f.t - from })), goalT: PRE_S }); M.goalAt = null; }
+  if (now - G.t0 >= POST_S) { const from = G.t0 - PRE_S; M.goals.push({ ...G, frames: M.tape.filter(f => f.t >= from).map(f => ({ ...f, t: f.t - from })), goalT: PRE_S }); M.goalAt = null;
+    if (M.mode !== 'online' && !e.kicks && S.autoReplay !== false) playReplays(M.goals.length - 1, false, true); } // instant replay; online keeps playing (both phones must stay in step), penalties would replay every kick
 }
 // Cinematic: chase cam behind the ball that keeps the scorer in frame, swings to a low side angle on the net, slow motion
 // at the goal. The look point is the ball itself (eased), so the ball never leaves the centre of the shot.
@@ -633,10 +634,10 @@ function replayCam(clip, t, b, scorer, cam, dt) {
   cam.pos.lerp(pos, k); cam.look.lerp(look, 1 - Math.exp(-dt * 10));
   world.cam.position.copy(cam.pos); world.cam.lookAt(cam.look); world.cam.fov = 46 - 8 * e; world.cam.updateProjectionMatrix();
 }
-function playReplays(idx, record = false) {
+function playReplays(idx, record = false, auto = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=42" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button>${auto ? `<i class="rp-auto"></i>` : ''}<span class="rp-sp"><img src="/sponsor/revolix.png?v=43" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
@@ -660,6 +661,7 @@ function playReplays(idx, record = false) {
   const done = () => {
     if (!M?.replaying) return; M.replaying = null; bar.remove();
     if (rec) { rec.onstop = () => record(new Blob(chunks, { type: rec.mimeType })); rec.stop(); }
+    if (auto) { $('#hud').hidden = false; M.prevP = null; return; } // back to the match exactly where it paused
     replayMenu(idx);
   };
   bar.querySelector('#rp-x').onclick = done;
@@ -689,15 +691,16 @@ async function saveVideo(blob) {
   } catch { local(); }
 }
 // Share: native share sheet when the phone allows files, else upload and let Telegram share the link / save the file.
+const refLink = () => `https://t.me/BolaKertasBot?start=ref_${P.uid || 0}`; // personal invite: inviter gets coins when the friend finishes a first match
 async function shareFile(blob, name) {
   const file = new File([blob], name, { type: blob.type });
-  try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], text: T('share_goal') }); return; } } catch (e) { if (e?.name === 'AbortError') return; }
+  try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], text: `${T('share_goal')}\n${refLink()}` }); return; } } catch (e) { if (e?.name === 'AbortError') return; }
   if (P.guest) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); return toast(T('share_saved')); }
   try {
     const r = await fetch('/api/clip', { method: 'POST', headers: { 'Content-Type': blob.type.split(';')[0], 'X-Init-Data': initData }, body: blob }).then(r => r.ok ? r.json() : Promise.reject(r.status));
     const url = location.origin + r.url;
-    if (blob.type.startsWith('image/') && tg?.shareToStory) { tg.shareToStory(url, { text: T('share_goal'), widget_link: { url: 'https://t.me/BolaKertasBot', name: 'Bola Kertas' } }); return; }
-    if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(location.origin + r.page)}&text=${encodeURIComponent(T('share_goal'))}`);
+    if (blob.type.startsWith('image/') && tg?.shareToStory) { tg.shareToStory(url, { text: T('share_goal'), widget_link: { url: refLink(), name: T('share_widget') } }); return; }
+    if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(location.origin + r.page)}&text=${encodeURIComponent(`${T('share_goal')}\n\n${T('share_join')} ${refLink()}`)}`);
     else { navigator.clipboard?.writeText(location.origin + r.page); toast(T('link_copied')); }
   } catch { toast(T('oops')); }
 }
@@ -772,7 +775,7 @@ async function sharePoster(clip) {
     <button class="btn lime" id="pst-go" disabled>📤 ${T('pst_share')}</button><button class="btn ghost" id="pst-x">${T('back')}</button>`); o.classList.add('ov-pst');
   o.querySelector('#pst-x').onclick = () => o.remove();
   await new Promise(r => requestAnimationFrame(r)); // let the sheet paint before the heavy pass
-  const logo = await loadImg('/sponsor/revolix.png?v=42').catch(() => null);
+  const logo = await loadImg('/sponsor/revolix.png?v=43').catch(() => null);
   const cs = await makePosters(clip)(logo), urls = cs.map(c => c.toDataURL('image/jpeg', 0.9));
   if (window.__bkPosterHook) { o.remove(); return window.__bkPosterHook(urls); } // QA capture
   if (!o.isConnected) return;

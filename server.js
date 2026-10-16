@@ -32,7 +32,13 @@ CREATE TABLE IF NOT EXISTS payments (charge_id TEXT PRIMARY KEY, uid INTEGER NOT
 CREATE TABLE IF NOT EXISTS matches (mid TEXT PRIMARY KEY, uid INTEGER NOT NULL, setup TEXT NOT NULL, created INTEGER, done INTEGER NOT NULL DEFAULT 0);`);
 try { db.exec("ALTER TABLE users ADD COLUMN squad TEXT NOT NULL DEFAULT '{}'"); } catch {} // per-team names/numbers + studio kit
 try { db.exec('ALTER TABLE users ADD COLUMN pro_until INTEGER NOT NULL DEFAULT 0'); } catch {} // PRO subscription paid up to
-try { db.exec("ALTER TABLE users ADD COLUMN photo TEXT NOT NULL DEFAULT ''"); } catch {} // Telegram profile photo URL (from signed initData)
+try { db.exec("ALTER TABLE users ADD COLUMN photo TEXT NOT NULL DEFAULT ''"); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN ref INTEGER NOT NULL DEFAULT 0'); } catch {} // who invited this player (share link); 0 = nobody or already paid
+export const REF_REWARD = 100;
+// Invite link /start ref_<uid>: only a brand-new player can be credited, never yourself.
+export function setRef(uid, by) { if (!by || by === uid || !q('SELECT 1 FROM users WHERE uid=?').get(by)) return false; return q('UPDATE users SET ref=? WHERE uid=? AND ref=0 AND created > ?').run(by, uid, Date.now() - 600e3).changes > 0; }
+// First finished match pays the inviter once (ref reset to 0 so it can never pay twice).
+export function payRef(uid) { const r = q('SELECT ref FROM users WHERE uid=?').get(uid)?.ref; if (!r || r < 0) return 0; q('UPDATE users SET ref=-1 WHERE uid=?').run(uid); q('UPDATE users SET coins=coins+? WHERE uid=?').run(REF_REWARD, r); return r; } // Telegram profile photo URL (from signed initData)
 // Ranked: one row per player per season; every settled ranked match logged (weekly board + same-pair daily cap).
 db.exec(`CREATE TABLE IF NOT EXISTS rank (uid INTEGER NOT NULL, season INTEGER NOT NULL, rp INTEGER NOT NULL, best INTEGER NOT NULL, w INTEGER NOT NULL DEFAULT 0, l INTEGER NOT NULL DEFAULT 0, d INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (uid, season));
 CREATE TABLE IF NOT EXISTS rmatch (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, season INTEGER NOT NULL, week INTEGER NOT NULL, a INTEGER NOT NULL, b INTEGER NOT NULL, sa REAL NOT NULL, da INTEGER NOT NULL, db INTEGER NOT NULL);
@@ -524,6 +530,7 @@ async function api(req, res, path) {
     if (pro && !pass) reward = Math.round(reward * PRO.coinBoost);
     const used = u.day === day ? u.day_coins : 0; reward = Math.max(0, Math.min(reward, cap - used));
     q('UPDATE users SET coins=coins+?, day=?, day_coins=? WHERE uid=?').run(reward, day, used + reward, auth.uid);
+    const inviter = payRef(auth.uid); if (inviter && process.env.NODE_ENV !== 'test') say(inviter, botText('ref_paid', { lang: 'ms', name: u.name || '', n: REF_REWARD })).catch(() => {});
     return json(res, 200, { reward, score: e.score, winner: e.winner, capped: used + reward >= cap, profile: profile(auth.uid) });
   }
   return json(res, 404, { err: 'nope' });
@@ -623,6 +630,7 @@ const fmtL = (n, lang) => Number(n).toLocaleString(lang === 'ru' ? 'ru-RU' : lan
 const tagL = (tag, lang) => trMs(lang, tag);
 export function botText(kind, d = {}) {
   const lang = d.lang || 'ms', x = L(lang), f = n => fmtL(n, lang), nm = it => h(itemName(it, lang));
+  if (kind === 'ref_paid') return `🎉 <b>+${d.n} coins!</b>\n${h(d.name || 'Kawan anda')} masuk Bola Kertas guna pautan anda dan dah habis perlawanan pertama. Kongsi lagi gol anda untuk dapat lebih banyak coins!`;
   if (kind === 'start') return `<b>⚽ Bola Kertas</b>\n<i>${x.tagline}</i>\n\n<blockquote>${x.howto}</blockquote>\n\n`
     + `${x.hi(h(d.name || 'Bola Kertas'))}\n🪙 ${x.coins}: <b>${f(d.coins)}</b>\n🎒 ${x.items}: <b>${d.owned}</b> ${x.in_locker}\n\n`
     + `<blockquote expandable><b>${x.whats}</b>\n${x.feats(d.items)}</blockquote>`;
@@ -683,6 +691,7 @@ export async function onUpdate(u) {
   const sp = /^\/start (room|lg)_([a-z0-9]{4,8})(?:_(\d+))?$/.exec(text);
   if (sp) { const code = sp[2].toUpperCase(), q2 = sp[1] === 'room' ? `room=${code}` : `league=${code}${sp[3] ? '&by=' + sp[3] : ''}`;
     return say(m.chat.id, botText(sp[1] === 'room' ? 'invite_room' : 'invite_league', { lang, code }), kb([[{ text: x.b_play, web_app: { url: `${WEBAPP_URL}/?${q2}` } }]])); }
+  const rf = /^\/start ref_(\d{1,15})$/.exec(text); if (rf) { getUser(uid, name); setRef(uid, +rf[1]); }
   if (text === '/start official') return say(m.chat.id, botText('ol_invite', { lang }), kb([[{ text: x.b_play, web_app: { url: `${WEBAPP_URL}/?official=1` } }]]));
   if (text.startsWith('/start')) return say(m.chat.id, botText('start', userSnap(uid, name, lang)), kb([[playBtn(lang)], [{ text: x.b_coins, callback_data: 'menu:coins' }, { text: x.b_profile, callback_data: 'menu:profil' }], [{ text: x.b_help, callback_data: 'menu:help' }]]));
   if (text.startsWith('/coins')) return say(m.chat.id, botText('coins', userSnap(uid, name, lang)), packsKb(lang));

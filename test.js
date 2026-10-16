@@ -321,6 +321,10 @@ await aok('goal clips: only signed players, real jpg/mp4 bytes, size cap, share 
   assert.equal((await up(Buffer.alloc(9 << 20, 0xff), 'video/mp4')).status, 413);
   const r = await (await up(jpg, 'image/jpeg')).json(); assert.match(r.url, /^\/clip\/[\w-]{12}\.jpg$/);
   const got = await fetch(base + r.url); assert.equal(got.headers.get('content-type'), 'image/jpeg'); assert.equal(Buffer.from(await got.arrayBuffer()).length, jpg.length);
+  { const g = id => S.db.prepare('SELECT coins, ref FROM users WHERE uid=?').get(id); await fetch(base + '/api/me', { headers: { 'X-Init-Data': sign(7301) } }); await fetch(base + '/api/me', { headers: { 'X-Init-Data': sign(7302) } });
+    assert.equal(S.setRef(7302, 7302), false); assert.equal(S.setRef(7302, 999999), false); assert.equal(S.setRef(7302, 7301), true); assert.equal(S.setRef(7302, 7201), false); // self, unknown, ok, only once
+    const c0 = g(7301).coins; assert.equal(S.payRef(7302), 7301); assert.equal(g(7301).coins, c0 + S.REF_REWARD); assert.equal(S.payRef(7302), 0); assert.equal(g(7301).coins, c0 + S.REF_REWARD); // paid exactly once
+    S.db.prepare('UPDATE users SET created=0 WHERE uid=7201').run(); assert.equal(S.setRef(7201, 7301), false); } // existing players cannot be claimed
   const fb = (body, auth = sign(7201)) => fetch(base + '/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Init-Data': auth }, body: JSON.stringify(body) });
   assert.equal((await fb({ kind: 'bug', text: 'hi' })).status, 400); assert.equal((await fb({ kind: 'bug', text: 'ok' }, 'x')).status, 401);
   const f1 = await (await fb({ kind: 'nope', text: 'bola <b>tersangkut</b> di tiang' })).json(); assert.ok(f1.id > 0);
