@@ -1,13 +1,13 @@
 // game.js : Bola Kertas app. Menus, shop, match loop, camera, controls, HUD, sound, online.
 import * as THREE from 'three';
-import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=32';
-import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=32';
-import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=32';
-import { World, Q } from './scene.js?v=32';
-import { crest, ink } from './art.js?v=32';
-import * as L3 from './locker3d.js?v=32';
-import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=32';
-import { tierOf, TIERS, seasonOf } from './rank.js?v=32';
+import { Engine, FIELD, STEP, SHOT_TYPES, FORMATIONS, MAX_TAPS, POWER_CHARGE, MAX_DRAG, predictPath, isRest, BASE_STATS, statF, PROTOCOL } from './engine.js?v=33';
+import { LEAGUES, ALL_TEAMS, teamById, rosterFor, cleanRoster, cleanKit, KIT_PATTERNS, PREMIUM_PATTERNS, COLLARS } from './teams.js?v=33';
+import { ITEMS, itemById, DEFAULT_EQUIP, RARITY, rarityOf, perksUpTo, isOwned, completeSet, aiEquip } from './items.js?v=33';
+import { World, Q } from './scene.js?v=33';
+import { crest, ink } from './art.js?v=33';
+import * as L3 from './locker3d.js?v=33';
+import { tr, trMs, itemName, itemDesc, langFrom, LANGS, LANG_NAME } from './i18n.js?v=33';
+import { tierOf, TIERS, seasonOf } from './rank.js?v=33';
 
 const tg = window.Telegram?.WebApp;
 const beacon = o => { try { navigator.sendBeacon('/api/log', JSON.stringify({ ...o, v: 21, ua: navigator.userAgent.slice(0, 120), tgv: window.Telegram?.WebApp?.version })); } catch {} };
@@ -156,7 +156,7 @@ function drainEvents() {
       SFX.goal(); notify('success'); M.shake = 0.7; world.cheer = 3; M.goalCam = 2.2;
       const k = M.art.kits[ev.team], mine = ev.team === myTeam() && M.mode !== 'local', set = mine ? completeSet(P.equip) : null, rank = mine ? (RARITY[itemById(P.equip.paper)?.rarity]?.rank || 0) : 0;
       world.goalFx(mine ? P.equip.fx : 'x_basic', e.ball.x, e.ball.z, [k.base, k.accent], set?.setFx, rank); if (rank >= 4) SFX.goalMyth();
-      M.goalAt = { team: ev.team, own: !!e.lastGoal?.own, who: e.lastGoal?.own ? T('own_goal') : e.lastGoal?.name ? `#${e.lastGoal.number} ${e.lastGoal.name}` : M.names[ev.team], score: [...e.score], fx: mine ? P.equip.fx : 'x_basic', colors: [k.base, k.accent], set: set?.setFx, rank, t: 0 };
+      M.goalAt = { team: ev.team, sid: e.lastTapper?.id ?? -1, own: !!e.lastGoal?.own, who: e.lastGoal?.own ? T('own_goal') : e.lastGoal?.name ? `#${e.lastGoal.number} ${e.lastGoal.name}` : M.names[ev.team], score: [...e.score], fx: mine ? P.equip.fx : 'x_basic', colors: [k.base, k.accent], set: set?.setFx, rank, t: 0 };
     }
     else if (ev.type === 'turn') M.turnFlag = true;
     else if (ev.type === 'blast') { const vp = world.pieces[ev.id]; vp.hop = 1; SFX.post(); haptic('heavy'); world.burst(vp.x, 0.4, vp.z, ['#ff7a1a', '#ffd45a', '#ffffff'], 18, 4, 6, 0.06); }
@@ -611,38 +611,50 @@ const TAPE_S = 5, PRE_S = 4, POST_S = 1.4;
 function recordFrame(e) {
   if (!M || M.replaying) return;
   const now = performance.now() / 1000, b = world.ballMesh.position;
-  M.tape.push({ t: now, b: [b.x, b.y, b.z], p: world.pieces.map(v => [v.root.position.x, v.root.position.y, v.root.position.z, v.root.rotation.y]) });
+  M.tape.push({ t: now, b: [b.x, b.y, b.z], p: world.pieces.map(v => { const r = v.root, s = v.body.scale; return [r.position.x, r.position.y, r.position.z, r.rotation.x, r.rotation.y, r.rotation.z, s.x, s.y, s.z]; }) });
   while (M.tape.length && now - M.tape[0].t > TAPE_S) M.tape.shift();
   const G = M.goalAt; if (!G) return;
   if (!G.t0) G.t0 = now;
   if (now - G.t0 >= POST_S) { const from = G.t0 - PRE_S; M.goals.push({ ...G, frames: M.tape.filter(f => f.t >= from).map(f => ({ ...f, t: f.t - from })), goalT: PRE_S }); M.goalAt = null; }
 }
-// Cinematic: low orbit behind the net, slow motion near the goal, then a push-in on the celebration.
-function replayCam(clip, f, k) {
-  const gs = Math.sign(clip.frames.at(-1).b[2]) || 1, b = f.b, near = Math.min(1, Math.max(0, 1 - (clip.goalT - f.t) / 2.2)); // 0 build-up, 1 at the net
-  const side = (clip.frames.at(-1).b[0] >= 0 ? -1 : 1);
-  const track = new THREE.Vector3(b[0] * 0.6 + side * 2.2, 2.6, b[2] - gs * 5.2), trackLook = new THREE.Vector3(b[0] * 0.5, 0.3, b[2] + gs * 2.5);
-  const net = new THREE.Vector3(side * 4.6, 1.5, gs * (FIELD.L / 2 - 2.6)), netLook = new THREE.Vector3(b[0] * 0.5, 0.45, gs * (FIELD.L / 2 + 0.2));
-  const e = near * near * (3 - 2 * near), pos = track.lerp(net, e), look = trackLook.lerp(netLook, e);
-  const after = Math.max(0, f.t - clip.goalT); pos.y += after * 0.5; pos.x += side * after * 0.6; // slow lift and drift on the celebration
-  world.cam.position.copy(pos); world.cam.lookAt(look); world.cam.fov = 46 - 6 * e; world.cam.updateProjectionMatrix();
+// Cinematic: chase cam behind the ball that keeps the scorer in frame, swings to a low side angle on the net, slow motion
+// at the goal. The look point is the ball itself (eased), so the ball never leaves the centre of the shot.
+function replayCam(clip, t, b, scorer, cam, dt) {
+  const gs = Math.sign(clip.frames.at(-1).b[2]) || 1, side = clip.frames.at(-1).b[0] >= 0 ? -1 : 1;
+  const near = Math.min(1, Math.max(0, 1 - (clip.goalT - t) / 2.2)), e = near * near * (3 - 2 * near); // 0 build-up, 1 at the net
+  const keep = scorer ? (t < clip.goalT - 0.6 ? 0.5 : t > clip.goalT + 0.3 ? 0.35 : 0) : 0; // scorer in shot on the build-up and the celebration
+  const mid = scorer ? new THREE.Vector3(b.x + (scorer.x - b.x) * keep, 0.3, b.z + (scorer.z - b.z) * keep) : new THREE.Vector3(b.x, 0.3, b.z);
+  const chase = new THREE.Vector3(mid.x * 0.85 + side * 1.6, 2.4, mid.z - gs * 4.6);
+  const net = new THREE.Vector3(b.x * 0.4 + side * 4.2, 1.3, gs * (FIELD.L / 2 - 2.8));
+  const after = Math.max(0, t - clip.goalT), pos = chase.lerp(net, e), gap = scorer ? Math.hypot(scorer.x - b.x, scorer.z - b.z) : 0;
+  pos.y += after * 0.45 + keep * gap * 0.35; pos.x += side * after * 0.5; pos.z -= gs * keep * gap * 0.3; // pull back far enough to fit ball + scorer
+  const look = new THREE.Vector3(b.x, Math.max(0.25, b.y * 0.6), b.z).lerp(mid, 0.25 * (1 - e));
+  const k = cam.first ? 1 : 1 - Math.exp(-dt * 6); cam.first = false; // ease, never snap
+  cam.pos.lerp(pos, k); cam.look.lerp(look, 1 - Math.exp(-dt * 10));
+  world.cam.position.copy(cam.pos); world.cam.lookAt(cam.look); world.cam.fov = 46 - 8 * e; world.cam.updateProjectionMatrix();
 }
 function playReplays(idx, record = false) {
   const clip = M?.goals[idx]; if (!clip) return toast(T('rp_none'));
   closeAllOverlays(); $('#hud').hidden = true;
-  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=32" alt=""><small>revolixgaming.com</small></span></div>`);
+  const bar = h(`<div class="rp-bar"><span class="rp-tag">⟲ ${T('rp_title')}</span><b>${esc(clip.who)}</b><em>${clip.score[0]} : ${clip.score[1]}</em><button class="chip ghost" id="rp-x">${T('rp_skip')}</button><span class="rp-sp"><img src="/sponsor/revolix.png?v=33" alt=""><small>revolixgaming.com</small></span></div>`);
   document.body.append(bar);
   const end = clip.frames.at(-1).t; let t = 0, fxDone = false, rec = null, chunks = [];
   if (record && window.MediaRecorder) {
     const type = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(x => MediaRecorder.isTypeSupported(x));
     try { rec = new MediaRecorder(canvas.captureStream(30), { mimeType: type, videoBitsPerSecond: 2.5e6 }); rec.ondataavailable = ev => ev.data.size && chunks.push(ev.data); rec.start(); } catch { rec = null; }
   }
+  const F = clip.frames, cam = { pos: new THREE.Vector3(), look: new THREE.Vector3(), first: true }, bm = world.ballMesh, prevB = new THREE.Vector3(...F[0].b);
+  const scorer = world.pieces[clip.sid]; let i = 1;
   M.replaying = { step(dt) {
-    const near = Math.abs(t - clip.goalT) < 1.2; t += dt * (near ? 0.4 : 0.9);
-    let i = clip.frames.findIndex(f => f.t >= t); if (i < 0) i = clip.frames.length - 1; const f = clip.frames[i];
-    world.ballMesh.position.set(...f.b); f.p.forEach((p, j) => { const v = world.pieces[j]; if (v) { v.root.position.set(p[0], p[1], p[2]); v.root.rotation.y = p[3]; } });
-    world.showAim(null); replayCam(clip, f, Math.min(1, t / end));
-    if (!fxDone && t >= clip.goalT) { fxDone = true; world.goalFx(clip.fx, f.b[0], f.b[2], clip.colors, clip.set, clip.rank); SFX.goal(); }
+    const slow = Math.abs(t - clip.goalT) < 1.2 ? 0.4 : 0.9, warp = Math.min(1, 0.25 + t * 1.5); t += dt * slow * warp; // ease in, slow motion at the net
+    while (i < F.length - 1 && F[i].t < t) i++; if (F[i - 1].t > t) i = 1;
+    const a = F[i - 1], c = F[i], u = Math.min(1, Math.max(0, (t - a.t) / ((c.t - a.t) || 1))), L = (x, y) => x + (y - x) * u; // blend the two recorded frames around t
+    bm.position.set(L(a.b[0], c.b[0]), L(a.b[1], c.b[1]), L(a.b[2], c.b[2]));
+    const dx = bm.position.x - prevB.x, dz = bm.position.z - prevB.z; bm.rotation.x += dz / 0.16; bm.rotation.z -= dx / 0.16; prevB.copy(bm.position); // roll with the distance travelled
+    a.p.forEach((p, j) => { const v = world.pieces[j], q = c.p[j]; if (!v || !q) return; v.root.position.set(L(p[0], q[0]), L(p[1], q[1]), L(p[2], q[2]));
+      if (p.length > 4) { v.root.rotation.set(L(p[3], q[3]), L(p[4], q[4]), L(p[5], q[5])); v.body.scale.set(L(p[6], q[6]), L(p[7], q[7]), L(p[8], q[8])); } else v.root.rotation.y = p[3]; });
+    world.showAim(null); replayCam(clip, t, bm.position, scorer?.root.position, cam, dt);
+    if (!fxDone && t >= clip.goalT) { fxDone = true; world.goalFx(clip.fx, bm.position.x, bm.position.z, clip.colors, clip.set, clip.rank); SFX.goal(); }
     if (t >= end) done();
   } };
   const done = () => {
@@ -682,7 +694,7 @@ const loadImg = src => new Promise((ok, bad) => { const i = new Image(); i.onloa
 async function sharePoster(clip) {
   if (!clip) return toast(T('rp_none'));
   const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
-  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=32'), loadImg('/sponsor/revolix.png?v=32').catch(() => null)]);
+  const [art, logo] = await Promise.all([loadImg('/poster/goal.webp?v=33'), loadImg('/sponsor/revolix.png?v=33').catch(() => null)]);
   const sc = Math.max(W / art.width, H / art.height); g.drawImage(art, (W - art.width * sc) / 2, (H - art.height * sc) / 2, art.width * sc, art.height * sc);
   let gr = g.createLinearGradient(0, H * 0.5, 0, H); gr.addColorStop(0, 'rgba(5,10,30,0)'); gr.addColorStop(0.45, 'rgba(5,10,30,.82)'); gr.addColorStop(1, 'rgba(5,10,30,.96)'); g.fillStyle = gr; g.fillRect(0, H * 0.5, W, H * 0.5);
   gr = g.createLinearGradient(0, 0, 0, 220); gr.addColorStop(0, 'rgba(5,10,30,.85)'); gr.addColorStop(1, 'rgba(5,10,30,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, 220);
