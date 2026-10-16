@@ -457,3 +457,4 @@ body.playing #menu{display:none}
 @media (prefers-reduced-motion:reduce){.m-web:after,.m-pen:after{animation:none}}
 .mode.m-pen{--t:var(--red);--d:var(--red-d)}
 .rp-auto{position:absolute;left:0;bottom:-3px;height:3px;width:100%;background:var(--yel);transform-origin:left;animation:rpauto 6s linear forwards}@keyframes rpauto{from{transform:scaleX(0)}}
+.rp-bar .rp-save{margin-left:auto;background:var(--yel)}.rp-bar .rp-save+.chip{margin-left:0}

@@ -325,6 +325,9 @@ await aok('goal clips: only signed players, real jpg/mp4 bytes, size cap, share 
     assert.equal(S.setRef(7302, 7302), false); assert.equal(S.setRef(7302, 999999), false); assert.equal(S.setRef(7302, 7301), true); assert.equal(S.setRef(7302, 7201), false); // self, unknown, ok, only once
     const c0 = g(7301).coins; assert.equal(S.payRef(7302), 7301); assert.equal(g(7301).coins, c0 + S.REF_REWARD); assert.equal(S.payRef(7302), 0); assert.equal(g(7301).coins, c0 + S.REF_REWARD); // paid exactly once
     S.db.prepare('UPDATE users SET created=0 WHERE uid=7201').run(); assert.equal(S.setRef(7201, 7301), false); } // existing players cannot be claimed
+  { const send = (body, auth = sign(7201)) => fetch(base + '/api/clip/send', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Init-Data': auth }, body: JSON.stringify(body) });
+    assert.equal((await send({ url: '/clip/../../etc/passwd' })).status, 404); assert.equal((await send({ url: '/clip/aaaaaaaaaaaa.mp4' })).status, 404); assert.equal((await send({ url: r.url }, 'x')).status, 401);
+    const vid = await (await up(Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom'), Buffer.alloc(2000)]), 'video/mp4')).json(); assert.equal((await send({ url: vid.url })).status, 200); assert.equal((await send({ url: r.url })).status, 404); } // jpg posters are not sent as video
   const fb = (body, auth = sign(7201)) => fetch(base + '/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Init-Data': auth }, body: JSON.stringify(body) });
   assert.equal((await fb({ kind: 'bug', text: 'hi' })).status, 400); assert.equal((await fb({ kind: 'bug', text: 'ok' }, 'x')).status, 401);
   const f1 = await (await fb({ kind: 'nope', text: 'bola <b>tersangkut</b> di tiang' })).json(); assert.ok(f1.id > 0);

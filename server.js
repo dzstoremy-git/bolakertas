@@ -458,6 +458,17 @@ async function api(req, res, path) {
     return json(res, 200, { url: `/clip/${id}${ext}`, page: `/c/${id}` });
   }
   let body = {}; try { body = JSON.parse((await readBody(req)) || '{}'); } catch { return json(res, 400, { err: 'bad' }); }
+  if (path === '/api/clip/send') { // the bot sends a saved replay to the player's own chat, so it lands in Telegram (and the gallery from there)
+    const m = /^\/clip\/([\w-]{12})(\.mp4|\.webm)$/.exec(String(body.url || '')), file = m && join(CLIPS, m[1] + m[2]);
+    if (!file || !existsSync(file)) return json(res, 404, { err: 'no_clip' });
+    if (limited('clipsend:' + auth.uid, 20, 864e5)) return json(res, 429, { err: 'slow_down' });
+    if (process.env.NODE_ENV === 'test') return json(res, 200, { ok: true });
+    const fd = new FormData(); fd.set('chat_id', String(auth.uid)); fd.set('caption', String(body.caption || '').slice(0, 900)); fd.set('supports_streaming', 'true');
+    fd.set('video', new Blob([readFileSync(file)], { type: m[2] === '.mp4' ? 'video/mp4' : 'video/webm' }), 'bola-kertas-gol' + m[2]);
+    try { const r = await (await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/send${m[2] === '.mp4' ? 'Video' : 'Document'}`, { method: 'POST', body: fd })).json();
+      return r.ok ? json(res, 200, { ok: true }) : json(res, r.error_code === 403 ? 403 : 502, { err: r.error_code === 403 ? 'bot_blocked' : 'send' }); }
+    catch { return json(res, 502, { err: 'send' }); }
+  }
 
   if (path === '/api/feedback') { // stored, then forwarded to the owner's DM
     const kind = ['bug', 'idea', 'other'].includes(body.kind) ? body.kind : 'other', text = String(body.text || '').trim().slice(0, 1000);
