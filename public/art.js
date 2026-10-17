@@ -1,6 +1,6 @@
 // art.js : procedural 2D art drawn on canvas. Jerseys, crests, pitch, ball, net, paper surfaces.
 // Used for 3D textures and for menu thumbnails, so the menu and the match always look the same.
-import { FIELD } from './engine.js?v=65';
+import { FIELD } from './engine.js?v=66';
 
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; };
 export const shade = (hex, k) => { // k<0 darker, k>0 lighter
@@ -67,14 +67,81 @@ function collar(g, w, h, k) {
   else { g.beginPath(); g.moveTo(w * 0.36, 0); g.lineTo(w / 2, h * 0.09); g.lineTo(w * 0.64, 0); g.lineTo(w * 0.58, 0); g.lineTo(w / 2, h * 0.055); g.lineTo(w * 0.42, 0); g.fill(); }
 }
 
+// Club crests: our own take on each badge (shape, colours, stripes), never the real artwork.
+// id: 'shape|c1,c2,rim|stripe'. Shapes: shield heater round oval castle hex square lobed. Stripes: none vs3 vs5 halves hhalves
+// band3 sash cross quarter chevron ring check. Teams not listed fall back to their home kit.
+const CRESTS = {
+  jdt: 'castle|#1b3f94,#d71920,#f2c230|halves', sel: 'round|#d0111b,#ffd400,#ffd400|hhalves', kdh: 'shield|#ffd400,#0f7a3a,#0f7a3a|vs5',
+  tfc: 'round|#ffffff,#111111,#111111|ring', phg: 'shield|#ffffff,#111111,#ffd400|hhalves', prk: 'hex|#111111,#ffd400,#ffffff|halves',
+  sab: 'round|#0a6cc4,#e11d2a,#ffffff|sash', kel: 'round|#c8102e,#ffffff,#ffffff|cross', ns: 'heater|#ffd400,#c8102e,#111111|quarter',
+  png: 'oval|#2a7de1,#ffffff,#ffd400|band3', klc: 'castle|#d71920,#ffd700,#ffd700|chevron', swk: 'shield|#ffd400,#e11d2a,#111111|sash',
+  mci: 'round|#6CABDD,#1C2C5B,#f2c230|ring', ars: 'heater|#EF0107,#ffffff,#d4a017|hhalves', liv: 'castle|#C8102E,#00a398,#f2c230|none',
+  mun: 'shield|#DA291C,#111111,#ffd400|chevron', tot: 'oval|#ffffff,#132257,#132257|ring', che: 'round|#034694,#f2c230,#ffffff|ring',
+  avl: 'heater|#670E36,#95BFE5,#f2c230|hhalves', new: 'round|#ffffff,#241F20,#c9a227|vs5', bha: 'round|#0057B8,#ffffff,#ffffff|vs3',
+  whu: 'shield|#7A263A,#1BB1E7,#f2c230|sash', ful: 'heater|#ffffff,#111111,#c8102e|none', cry: 'round|#1B458F,#C4122E,#ffffff|halves',
+  wol: 'hex|#FDB913,#231F20,#231F20|chevron', bou: 'square|#DA291C,#111111,#ffffff|vs5', nfo: 'square|#DD0000,#ffffff,#ffffff|none',
+  bre: 'round|#e30613,#ffffff,#111111|ring', eve: 'shield|#003399,#ffffff,#ffffff|band3', ips: 'heater|#0000FF,#ffffff,#d71920|hhalves',
+  lei: 'round|#003090,#FDBE11,#FDBE11|ring', sou: 'round|#ffffff,#D71920,#111111|vs5',
+  rma: 'round|#ffffff,#5b2a86,#FEBE10|sash', fcb: 'lobed|#004D98,#A50044,#FEBE10|vs5', atm: 'heater|#CE3524,#ffffff,#272E61|vs5',
+  sev: 'shield|#ffffff,#D4021D,#111111|band3', rso: 'round|#143C8B,#ffffff,#ffffff|vs5', vil: 'round|#FFD700,#005187,#005187|ring',
+  bet: 'heater|#00954C,#ffffff,#ffffff|vs5', ath: 'shield|#EE2523,#ffffff,#111111|vs5', val: 'round|#ffffff,#111111,#FF7F00|ring',
+  gir: 'shield|#CD1719,#ffffff,#ffffff|vs5', bay: 'round|#DC052D,#0066b2,#ffffff|check', bvb: 'round|#FDE100,#000000,#000000|ring',
+  rbl: 'oval|#ffffff,#DD0741,#001F47|ring', b04: 'round|#E32221,#000000,#ffd400|halves', sgf: 'heater|#D4213D,#ffffff,#111111|cross',
+  fra: 'round|#111111,#E1000F,#ffffff|ring', vfb: 'shield|#ffd400,#E32219,#111111|chevron', wob: 'square|#65B32E,#ffffff,#ffffff|chevron',
+  bra: 'shield|#FFDF00,#009739,#002776|ring', arg: 'shield|#75AADB,#ffffff,#f2c230|band3', ger: 'shield|#111111,#DD0000,#FFCE00|band3',
+  fra2: 'shield|#002654,#ffffff,#ED2939|halves', esp: 'shield|#C60B1E,#FFC400,#FFC400|band3', eng: 'heater|#ffffff,#CE1124,#002366|cross',
+  ned: 'shield|#FF6600,#ffffff,#21468B|ring', por: 'shield|#006600,#C8102E,#FFE000|halves', ita: 'shield|#0066FF,#ffffff,#f2c230|ring',
+  jpn: 'oval|#002366,#ffffff,#c8102e|ring', kor: 'heater|#ffffff,#CD2E3A,#003478|ring', mys: 'shield|#010066,#FFCC00,#cc0001|band3',
+  idn: 'shield|#ffffff,#FF0000,#c9a227|hhalves', tha: 'shield|#003DA5,#ED1C24,#ffffff|band3', sau: 'oval|#006C35,#ffffff,#ffffff|ring',
+  usa: 'shield|#002868,#BF0A30,#ffffff|vs5', mex: 'round|#006847,#CE1126,#ffffff|halves', cmr: 'shield|#007A5E,#CE1126,#FCD116|band3',
+  ngr: 'oval|#008751,#ffffff,#ffffff|band3', aus: 'shield|#00843D,#FFC72C,#FFC72C|chevron',
+};
+const KIT_STRIPE = { pinstripes: 'vs5', stripes: 'vs5', halves: 'halves', sash: 'sash', hoops: 'band3', band: 'band3', shoulders: 'chevron', checkers: 'check', gradient: 'ring' };
+export function crestSpec(team) {
+  const c = CRESTS[team.id], k = team.jerseys[0];
+  if (c) { const [shape, cols, stripe] = c.split('|'), [c1, c2, rim] = cols.split(','); return { shape, c1, c2, rim, stripe }; }
+  return { shape: 'shield', c1: k.base, c2: k.accent === k.base ? shade(k.base, -0.3) : k.accent, rim: k.trim, stripe: KIT_STRIPE[k.pattern] || 'none' };
+}
+// Outline path centred on 0,0; s = width, about s*1.15 tall.
+function crestPath(g, shape, s) {
+  const w = s / 2, h = s * 0.58; g.beginPath();
+  if (shape === 'round') g.arc(0, 0, w, 0, Math.PI * 2);
+  else if (shape === 'oval') g.ellipse(0, 0, w * 0.86, h, 0, 0, Math.PI * 2);
+  else if (shape === 'hex') for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3; g[i ? 'lineTo' : 'moveTo'](Math.cos(a) * w * 1.05, Math.sin(a) * h); }
+  else if (shape === 'square') g.roundRect(-w * 0.9, -h * 0.9, w * 1.8, h * 1.8, s * 0.12);
+  else if (shape === 'heater') { g.moveTo(-w, -h); g.lineTo(w, -h); g.lineTo(w, -h * 0.1); g.bezierCurveTo(w, h * 0.55, w * 0.35, h * 0.8, 0, h); g.bezierCurveTo(-w * 0.35, h * 0.8, -w, h * 0.55, -w, -h * 0.1); }
+  else if (shape === 'castle') { const t = -h * 0.72, m = -h; g.moveTo(-w, t); g.lineTo(-w, m); g.lineTo(-w * 0.55, m); g.lineTo(-w * 0.55, m + h * 0.14); g.lineTo(-w * 0.18, m + h * 0.14); g.lineTo(-w * 0.18, m - h * 0.06);
+    g.lineTo(w * 0.18, m - h * 0.06); g.lineTo(w * 0.18, m + h * 0.14); g.lineTo(w * 0.55, m + h * 0.14); g.lineTo(w * 0.55, m); g.lineTo(w, m); g.lineTo(w, h * 0.05); g.quadraticCurveTo(w, h * 0.7, 0, h); g.quadraticCurveTo(-w, h * 0.7, -w, h * 0.05); }
+  else if (shape === 'lobed') { g.moveTo(0, -h * 0.72); g.bezierCurveTo(w * 0.25, -h * 1.05, w * 1.05, -h * 1.05, w, -h * 0.5); g.bezierCurveTo(w, h * 0.2, w * 0.5, h * 0.7, 0, h);
+    g.bezierCurveTo(-w * 0.5, h * 0.7, -w, h * 0.2, -w, -h * 0.5); g.bezierCurveTo(-w * 1.05, -h * 1.05, -w * 0.25, -h * 1.05, 0, -h * 0.72); }
+  else { g.moveTo(-w, -h * 0.86); g.quadraticCurveTo(0, -h * 1.05, w, -h * 0.86); g.lineTo(w, h * 0.05); g.quadraticCurveTo(w, h * 0.72, 0, h); g.quadraticCurveTo(-w, h * 0.72, -w, h * 0.05); } // shield
+  g.closePath();
+}
+function crestStripes(g, st, s, c2) {
+  const w = s / 2, h = s * 0.62; g.fillStyle = c2;
+  if (st === 'vs3' || st === 'vs5') { const n = st === 'vs3' ? 3 : 5, sw = s / (n * 2); for (let i = 0; i < n; i++) g.fillRect(-w + sw * (i * 2 + 0.5), -h, sw, h * 2); }
+  else if (st === 'halves') g.fillRect(0, -h, w, h * 2);
+  else if (st === 'hhalves') g.fillRect(-w, 0, s, h);
+  else if (st === 'band3') g.fillRect(-w, -h * 0.22, s, h * 0.44);
+  else if (st === 'sash') { g.beginPath(); g.moveTo(-w, -h * 0.55); g.lineTo(-w * 0.45, -h); g.lineTo(w, h * 0.55); g.lineTo(w * 0.45, h); g.closePath(); g.fill(); }
+  else if (st === 'cross') { g.fillRect(-s * 0.09, -h, s * 0.18, h * 2); g.fillRect(-w, -h * 0.25, s, s * 0.18); }
+  else if (st === 'quarter') { g.fillRect(-w, -h, w, h); g.fillRect(0, 0, w, h); }
+  else if (st === 'chevron') { g.beginPath(); g.moveTo(-w, -h * 0.15); g.lineTo(0, h * 0.35); g.lineTo(w, -h * 0.15); g.lineTo(w, h * 0.15); g.lineTo(0, h * 0.65); g.lineTo(-w, h * 0.15); g.closePath(); g.fill(); }
+  else if (st === 'ring') { g.lineWidth = s * 0.13; g.strokeStyle = c2; g.beginPath(); g.arc(0, 0, w * 0.82, 0, Math.PI * 2); g.stroke(); }
+  else if (st === 'check') { const q = s / 7; for (let y = -4; y < 4; y++) for (let x = -4; x < 4; x++) if ((x + y) & 1) g.fillRect(x * q, y * q, q, q); }
+}
 export function crest(g, x, y, s, team) {
-  const c = team.jerseys[0];
-  g.save(); g.translate(x, y);
-  g.beginPath(); g.moveTo(-s / 2, -s / 2); g.lineTo(s / 2, -s / 2); g.lineTo(s / 2, s * 0.05); g.quadraticCurveTo(s / 2, s * 0.42, 0, s * 0.6); g.quadraticCurveTo(-s / 2, s * 0.42, -s / 2, s * 0.05); g.closePath();
-  g.fillStyle = c.accent === c.base ? shade(c.base, -0.3) : c.accent; g.fill();
-  g.lineWidth = s * 0.08; g.strokeStyle = c.trim; g.stroke();
-  g.fillStyle = ink(g.fillStyle.startsWith('#') ? g.fillStyle : c.accent); g.font = F(800, s * 0.36); g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText(team.short.slice(0, 3), 0, s * 0.02);
+  const { shape, c1, c2, rim, stripe } = crestSpec(team), lw = Math.max(1.2, s * 0.07);
+  g.save(); g.translate(x, y + s * 0.02);
+  crestPath(g, shape, s); g.fillStyle = c1; g.fill();
+  g.save(); g.clip(); crestStripes(g, stripe, s, c2); g.restore();
+  crestPath(g, shape, s * 0.86); g.lineWidth = lw * 0.6; g.strokeStyle = rim; g.stroke(); // inner rim in the club's trim colour
+  crestPath(g, shape, s); g.lineWidth = lw; g.strokeStyle = '#14123a'; g.lineJoin = 'round'; g.stroke(); // ink outline, like the rest of the game
+  const tw = s * 0.72, th = s * 0.3; // name plate: always readable over any stripe
+  g.fillStyle = '#14123a'; g.beginPath(); g.roundRect(-tw / 2, -th / 2 + s * 0.05, tw, th, th * 0.35); g.fill();
+  g.lineWidth = lw * 0.45; g.strokeStyle = rim; g.stroke();
+  g.fillStyle = '#ffffff'; g.font = F(700, s * 0.3); g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(team.short.slice(0, 3), 0, s * 0.075);
   g.restore();
 }
 
