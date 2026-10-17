@@ -397,5 +397,14 @@ await aok('ranked call-out: late acceptor told it is full and stays queued; next
   assert.equal(later.msgs[0]?.t, 'matched'); assert.equal(late.msgs[1]?.t, 'matched'); assert.equal(late.msgs[1].code, later.msgs[0].code); // leftovers pair up
   [seek, fast, late, later].forEach(x => x.ws.close()); srv.close();
 });
+ok('online (lockstep): half time still whistles when the half ends on a throw-in/goal kick/corner restart', () => {
+  // Server runs to rest and stops at 'aim'; the restart must check the clock itself or server waits for a kick while phones sit in half time.
+  const st = S.buildSetup({ team0: 'jdt', team1: 'sel', seed: 5, minutes: 3, cpu: [false, false] });
+  for (const dir of [[1, 0.05], [0.05, 1], [0.6, 1]]) { // touchline, goal line ends: throw-in / goal kick or corner
+    const e = new Engine(st); runToRest(e); e.clock = e.halfLength - 0.5;
+    e._applyAction({ t: 'aim', dx: dir[0], dz: dir[1] * e.attackSign(e.turnTeam), power: 1, shot: 0 }); runToRest(e, 120);
+    assert.ok(e.clock >= e.halfLength); assert.equal(e.phase, 'halftime', 'restart after the half ended must go to half time, got ' + e.phase);
+  }
+});
 console.log(`\n${n} checks passed`);
 process.exit(0);

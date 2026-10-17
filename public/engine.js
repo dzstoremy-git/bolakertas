@@ -28,7 +28,7 @@ export const POWER_CHARGE = 5;
 export const POWER_SPEED = 28;
 export const STEP = 1 / 120; // 120Hz: ball moves ~11cm per step at full power, so bounces off posts and paper land on contact, not a step late
 export const LOCKSTEP_AIM_S = 2;
-export const PROTOCOL = 3; // 3: 120Hz physics (old apps would desync online)
+export const PROTOCOL = 4; // 3: 120Hz physics; 4: restarts check the clock (half time after a throw-in/goal kick/corner)
 export const DIVE = { left: 1.1, middle: 0, right: -1.1 }; // as seen from behind the shooter, who always shoots at +z
 export const PEN_KICKS = 5; // bump when engine rules change: older clients are told to reload
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -176,6 +176,9 @@ export class Engine {
   giveTurn(team, msg, sub, kicker) {
     this.turnTeam = team;
     if (this.lastTapTeam !== team) this.tapsInRow = 0;
+    // Every restart (throw-in, goal kick, corner, time-up, tap limit, kickoff) checks the clock here: online the server
+    // stops at 'aim' and would wait for a kick while the phones' own step() already whistled half time.
+    if (!this.kicks && this.checkTime()) return;
     this.startAim(kicker || this.nearest(team, false));
     if (msg) this.say(msg, sub);
   }
