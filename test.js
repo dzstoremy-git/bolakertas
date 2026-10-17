@@ -363,13 +363,13 @@ await aok('ranked queue: guests refused, two signed players matched into a ranke
   assert.equal(got.length, 2); assert.equal(got[0].code, got[1].code); assert.ok(b.msgs[0]?.t === 'matched');
   [g, a, a2, b].forEach(x => x.ws.close()); srv.close();
 });
-await aok('ranked call-out: 10 min gap, 2 per day, quiet hours, mute, blocked, busy and stale players skipped', async () => {
+await aok('ranked call-out: all players, 10 min gap, 2 per day, quiet hours, snooze 24h, blocked and busy skipped', async () => {
   const now = Date.UTC(2026, 9, 17, 4, 0); // 12:00 Malaysia
   for (const u of [8101, 8102, 8103, 8104, 8105]) S.db.prepare('INSERT OR REPLACE INTO users (uid,name,equip,created,seen) VALUES (?,?,?,?,?)').run(u, 'P' + u, '{}', now, now);
-  S.db.prepare('UPDATE users SET seen=? WHERE uid=8104').run(now - 20 * 864e5); // inactive
-  S.db.prepare('UPDATE users SET ping_off=1 WHERE uid=8105').run();
-  S.db.prepare('UPDATE users SET seen=0 WHERE uid NOT BETWEEN 8101 AND 8105').run();
-  const log = []; const fake = blocked => async (uid, text, kbd) => { log.push(uid); assert.ok(kbd.inline_keyboard[0][0].web_app.url.endsWith('/?ranked=1')); return uid === blocked ? { ok: false, error_code: 403 } : { ok: true }; };
+  S.db.prepare('UPDATE users SET seen=?, snooze=? WHERE uid=8104').run(now - 90 * 864e5, now + 3600e3); // long inactive but snoozed for another hour
+  S.db.prepare('UPDATE users SET ping_off=2 WHERE uid NOT BETWEEN 8101 AND 8104').run(); // other test users out of the way
+  const log = []; const fake = blocked => async (uid, text, kbd) => { log.push(uid); assert.ok(kbd.inline_keyboard[0][0].web_app.url.endsWith('/?ranked=1'));
+    assert.deepEqual(kbd.inline_keyboard[1].map(b => b.callback_data), ['rk:no', 'rk:snooze']); return uid === blocked ? { ok: false, error_code: 403 } : { ok: true }; };
   S.resetPing();
   assert.equal(await S.rankedPing(8101, Date.UTC(2026, 9, 16, 20, 0), fake()), 0); // 04:00 Malaysia: quiet
   assert.equal(await S.rankedPing(8101, now, fake(8103), [8102]), 0); // 8102 busy in queue, 8103 blocked
@@ -378,7 +378,7 @@ await aok('ranked call-out: 10 min gap, 2 per day, quiet hours, mute, blocked, b
   log.length = 0; assert.equal(await S.rankedPing(8101, now + S.PING_GAP, fake()), 1); assert.deepEqual(log, [8102]);
   assert.equal(await S.rankedPing(8103, now + 2 * S.PING_GAP, fake()), 2); // 8101 + 8102 (2nd today)
   log.length = 0; assert.equal(await S.rankedPing(8103, now + 3 * S.PING_GAP, fake()), 1); assert.deepEqual(log, [8101]); // 8102 capped at 2
-  log.length = 0; await S.rankedPing(8103, now + 864e5, fake()); assert.ok(log.includes(8102)); // new day resets
+  log.length = 0; await S.rankedPing(8103, now + 864e5, fake()); assert.ok(log.includes(8102) && log.includes(8104)); // new day resets; snooze over, inactive players included
 });
 await aok('ranked call-out: late acceptor told it is full and stays queued; next one pairs with them', async () => {
   const { WebSocket } = await import('ws');

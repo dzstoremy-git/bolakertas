@@ -36,7 +36,7 @@ try { db.exec('ALTER TABLE users ADD COLUMN pro_until INTEGER NOT NULL DEFAULT 0
 try { db.exec("ALTER TABLE users ADD COLUMN photo TEXT NOT NULL DEFAULT ''"); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN ref INTEGER NOT NULL DEFAULT 0'); } catch {} // who invited this player (share link); 0 = nobody or already paid
 // Ranked call-out: last app open, opt-out (1 = tapped mute, 2 = bot blocked), pings received today.
-for (const c of ['seen INTEGER NOT NULL DEFAULT 0', 'ping_off INTEGER NOT NULL DEFAULT 0', "ping_day TEXT NOT NULL DEFAULT ''", 'ping_n INTEGER NOT NULL DEFAULT 0']) try { db.exec('ALTER TABLE users ADD COLUMN ' + c); } catch {}
+for (const c of ['seen INTEGER NOT NULL DEFAULT 0', 'ping_off INTEGER NOT NULL DEFAULT 0', "ping_day TEXT NOT NULL DEFAULT ''", 'ping_n INTEGER NOT NULL DEFAULT 0', 'snooze INTEGER NOT NULL DEFAULT 0']) try { db.exec('ALTER TABLE users ADD COLUMN ' + c); } catch {}
 db.exec('UPDATE users SET seen=created WHERE seen=0 AND created IS NOT NULL'); // existing players count as active from sign-up
 export const REF_REWARD = 100;
 // Invite link /start ref_<uid>: only a brand-new player can be credited, never yourself.
@@ -595,8 +595,8 @@ const BT = {
     inv_room: c => `🎮 <b>Anda dicabar!</b>\nKawan anda tunggu dalam bilik <code>${c}</code>. Tekan butang di bawah untuk masuk terus.`,
     inv_league: c => `🏆 <b>Jemputan Liga</b>\nAnda dijemput sertai liga <code>${c}</code>. Lawan kawan, kumpul mata, rebut piala musim ini.`,
     rk_call: '🔔 <b>Ada pemain tengah cari lawan Ranked!</b>\nBerani terima cabaran? Siapa cepat, dia dapat lawan.',
-    b_rk_take: '⚔️ TERIMA CABARAN', b_rk_mute: '🔕 Jangan ping lagi', b_rk_unmute: '🔔 Hidupkan notifikasi Ranked',
-    rk_muted: '🔕 Okay, anda takkan terima notifikasi Ranked lagi.', rk_unmuted: '🔔 Notifikasi Ranked dihidupkan semula.',
+    b_rk_take: '⚔️ TERIMA', b_rk_no: '❌ Tolak', b_rk_snooze: '💤 Snooze 1 hari',
+    rk_rejected: 'Okay, cabaran ditolak.', rk_snoozed: '💤 Tiada ajakan Ranked untuk 24 jam.',
     b_play: '⚽ MAIN SEKARANG', b_coins: '🪙 Beli Coins', b_profile: '👤 Profil', b_help: '📖 Cara Main', b_locker: '🎒 Buka Loker', b_more: '🪙 Beli lagi', coins_w: 'coins',
   },
   en: {
@@ -624,8 +624,8 @@ const BT = {
     inv_room: c => `🎮 <b>You have been challenged!</b>\nYour friend is waiting in room <code>${c}</code>. Tap the button below to jump in.`,
     inv_league: c => `🏆 <b>League invite</b>\nYou are invited to league <code>${c}</code>. Play your friends, collect points, win this season's trophy.`,
     rk_call: '🔔 <b>A player is looking for a Ranked match!</b>\nUp for the challenge? First one in gets the game.',
-    b_rk_take: '⚔️ ACCEPT CHALLENGE', b_rk_mute: '🔕 Stop these pings', b_rk_unmute: '🔔 Turn Ranked pings back on',
-    rk_muted: '🔕 Done, no more Ranked pings.', rk_unmuted: '🔔 Ranked pings are back on.',
+    b_rk_take: '⚔️ ACCEPT', b_rk_no: '❌ Reject', b_rk_snooze: '💤 Snooze 1 day',
+    rk_rejected: 'Okay, challenge declined.', rk_snoozed: '💤 No Ranked invites for 24 hours.',
     b_play: '⚽ PLAY NOW', b_coins: '🪙 Buy Coins', b_profile: '👤 Profile', b_help: '📖 How to Play', b_locker: '🎒 Open Locker', b_more: '🪙 Buy more', coins_w: 'coins',
   },
   ru: {
@@ -653,8 +653,8 @@ const BT = {
     inv_room: c => `🎮 <b>Тебе бросили вызов!</b>\nДруг ждёт в комнате <code>${c}</code>. Нажми кнопку ниже, чтобы войти.`,
     inv_league: c => `🏆 <b>Приглашение в лигу</b>\nТебя пригласили в лигу <code>${c}</code>. Играй с друзьями, набирай очки, бери кубок сезона.`,
     rk_call: '🔔 <b>Игрок ищет соперника в рейтинге!</b>\nПримешь вызов? Кто первый, тот и играет.',
-    b_rk_take: '⚔️ ПРИНЯТЬ ВЫЗОВ', b_rk_mute: '🔕 Больше не звать', b_rk_unmute: '🔔 Включить уведомления рейтинга',
-    rk_muted: '🔕 Готово, уведомлений рейтинга больше не будет.', rk_unmuted: '🔔 Уведомления рейтинга снова включены.',
+    b_rk_take: '⚔️ ПРИНЯТЬ', b_rk_no: '❌ Отклонить', b_rk_snooze: '💤 Не звать 1 день',
+    rk_rejected: 'Хорошо, вызов отклонён.', rk_snoozed: '💤 Без приглашений в рейтинг на 24 часа.',
     b_play: '⚽ ИГРАТЬ', b_coins: '🪙 Купить монеты', b_profile: '👤 Профиль', b_help: '📖 Как играть', b_locker: '🎒 Открыть шкаф', b_more: '🪙 Купить ещё', coins_w: 'монет',
   },
 };
@@ -705,10 +705,12 @@ export async function onUpdate(u) {
   }
   if (u.callback_query) {
     const cq = u.callback_query, [act, id] = String(cq.data || '').split(':');
+    if (act === 'rk' && cq.message) { const x = L(langFrom(cq.from.language_code)), snooze = id === 'snooze';
+      if (snooze) q('UPDATE users SET snooze=? WHERE uid=?').run(Date.now() + SNOOZE_MS, cq.from.id);
+      bot('answerCallbackQuery', { callback_query_id: cq.id, text: snooze ? x.rk_snoozed : x.rk_rejected });
+      return bot('deleteMessage', { chat_id: cq.message.chat.id, message_id: cq.message.message_id }); }
     bot('answerCallbackQuery', { callback_query_id: cq.id });
     if (act === 'buy' && cq.message) return sendInvoiceFor(cq.message.chat.id, cq.from.id, PACKS.find(p => p.id === id), langFrom(cq.from.language_code));
-    if (act === 'rkmute' && cq.message) { const on = id === '0'; q('UPDATE users SET ping_off=? WHERE uid=? AND ping_off<>2').run(on ? 0 : 1, cq.from.id);
-      return say(cq.message.chat.id, L(langFrom(cq.from.language_code))[on ? 'rk_unmuted' : 'rk_muted'], on ? undefined : kb([[{ text: L(langFrom(cq.from.language_code)).b_rk_unmute, callback_data: 'rkmute:0' }]])); }
     if (act === 'menu' && cq.message && ['coins', 'profil', 'help'].includes(id)) return onUpdate({ message: { chat: cq.message.chat, from: cq.from, text: '/' + id } });
     return;
   }
@@ -730,8 +732,7 @@ export async function onUpdate(u) {
   if (text === '/start official') return say(m.chat.id, botText('ol_invite', { lang }), kb([[{ text: x.b_play, web_app: { url: `${WEBAPP_URL}/?official=1` } }]]));
   if (text.startsWith('/start')) return say(m.chat.id, botText('start', userSnap(uid, name, lang)), kb([[playBtn(lang)], [{ text: x.b_coins, callback_data: 'menu:coins' }, { text: x.b_profile, callback_data: 'menu:profil' }], [{ text: x.b_help, callback_data: 'menu:help' }]]));
   if (text.startsWith('/coins')) return say(m.chat.id, botText('coins', userSnap(uid, name, lang)), packsKb(lang));
-  if (text.startsWith('/profil')) return say(m.chat.id, botText('profile', userSnap(uid, name, lang)), kb([[playBtn(lang)], [{ text: x.b_coins, callback_data: 'menu:coins' }],
-    ...(q('SELECT ping_off FROM users WHERE uid=?').get(uid)?.ping_off === 1 ? [[{ text: x.b_rk_unmute, callback_data: 'rkmute:0' }]] : [])]));
+  if (text.startsWith('/profil')) return say(m.chat.id, botText('profile', userSnap(uid, name, lang)), kb([[playBtn(lang)], [{ text: x.b_coins, callback_data: 'menu:coins' }]]));
   if (text.startsWith('/bantuan') || text.startsWith('/help')) return say(m.chat.id, botText('help', { lang }), kb([[playBtn(lang)]]));
   if (text.startsWith('/paysupport')) return say(m.chat.id, botText('support', { lang }));
   if (text.startsWith('/terms')) return say(m.chat.id, botText('terms', { lang }));
@@ -852,16 +853,16 @@ function onRoomSocket(ws, pid, code) {
   });
 }
 // ── ranked call-out: someone waits alone in the ranked queue -> DM recently active players ──
-// Anti-spam: one call-out per 10 min server-wide, max 2 per player per day, active in last 14 days,
-// no pings 00:00-08:00 Malaysia time, mute button is permanent, blocked bots are never retried.
-export const PING_GAP = 10 * 60e3, PING_PER_DAY = 2, PING_ACTIVE = 14 * 864e5, PING_WAIT = 15e3;
+// Sent to every player. Anti-spam: one call-out per 10 min server-wide, max 2 per player per day,
+// no pings 00:00-08:00 Malaysia time, Snooze = 24h off, blocked bots are never retried.
+export const PING_GAP = 10 * 60e3, PING_PER_DAY = 2, PING_WAIT = 15e3, SNOOZE_MS = 864e5;
 let lastPing = 0;
 export const resetPing = () => { lastPing = 0; };
 export function pingTargets(seeker, now = Date.now(), busy = []) {
   const day = new Date(now + 8 * 3600e3).toISOString().slice(0, 10);
   return q(`SELECT u.uid, COALESCE((SELECT lang FROM ol_player o WHERE o.uid=u.uid ORDER BY season DESC LIMIT 1),'ms') lang FROM users u
-    WHERE u.uid<>? AND u.ping_off=0 AND u.seen>? AND NOT (u.ping_day=? AND u.ping_n>=?) ORDER BY u.seen DESC LIMIT 500`)
-    .all(seeker, now - PING_ACTIVE, day, PING_PER_DAY).filter(r => !busy.includes(r.uid)).map(r => ({ ...r, day }));
+    WHERE u.uid<>? AND u.ping_off=0 AND u.snooze<=? AND NOT (u.ping_day=? AND u.ping_n>=?) ORDER BY u.seen DESC`)
+    .all(seeker, now, day, PING_PER_DAY).filter(r => !busy.includes(r.uid)).map(r => ({ ...r, day }));
 }
 export async function rankedPing(seeker, now = Date.now(), send = say, busy = rqueue.map(w => w.uid)) {
   const myHour = new Date(now + 8 * 3600e3).getUTCHours();
@@ -869,7 +870,7 @@ export async function rankedPing(seeker, now = Date.now(), send = say, busy = rq
   lastPing = now; let sent = 0;
   for (const t of pingTargets(seeker, now, busy)) {
     q("UPDATE users SET ping_n=CASE WHEN ping_day=? THEN ping_n+1 ELSE 1 END, ping_day=? WHERE uid=?").run(t.day, t.day, t.uid);
-    const r = await send(t.uid, L(t.lang).rk_call, kb([[{ text: L(t.lang).b_rk_take, web_app: { url: `${WEBAPP_URL}/?ranked=1` } }], [{ text: L(t.lang).b_rk_mute, callback_data: 'rkmute:1' }]]));
+    const r = await send(t.uid, L(t.lang).rk_call, kb([[{ text: L(t.lang).b_rk_take, web_app: { url: `${WEBAPP_URL}/?ranked=1` } }], [{ text: L(t.lang).b_rk_no, callback_data: 'rk:no' }, { text: L(t.lang).b_rk_snooze, callback_data: 'rk:snooze' }]]));
     if (r?.ok) sent++; else if (r?.error_code === 403) q('UPDATE users SET ping_off=2 WHERE uid=?').run(t.uid);
     await new Promise(ok => setTimeout(ok, 60)); // ponytail: ~16 msg/s serial; batch per-chat if users go past a few thousand
   }
