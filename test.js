@@ -406,5 +406,25 @@ ok('online (lockstep): half time still whistles when the half ends on a throw-in
     assert.ok(e.clock >= e.halfLength); assert.equal(e.phase, 'halftime', 'restart after the half ended must go to half time, got ' + e.phase);
   }
 });
+ok('coins: AI reward random 0.8x-1.4x with clean-sheet bonus; ranked pays win/draw/loss; friend rooms pay; leaver and early forfeit unpaid; 3 paid games per pair a day', () => {
+  const I2 = { won: true, draw: false, goals: 2, skill: 0.5 };
+  const { matchReward, onlineReward } = S.catalog.rewards;
+  assert.ok(matchReward({ ...I2, conceded: 1, rand: 0 }) < matchReward({ ...I2, conceded: 1, rand: 1 }));
+  assert.ok(matchReward({ ...I2, conceded: 0, rand: 0.5 }) > matchReward({ ...I2, conceded: 1, rand: 0.5 })); // clean-sheet bonus (scaled with AI level)
+  assert.ok(onlineReward({ won: false, draw: false, goals: 0, ranked: true }) > 0 && onlineReward({ won: false, draw: false, goals: 0, ranked: false }) > 0);
+  const now = Date.UTC(2026, 9, 18, 6), coins = uid => S.db.prepare('SELECT coins FROM users WHERE uid=?').get(uid).coins;
+  for (const u of [8301, 8302, 8303]) S.db.prepare('INSERT OR REPLACE INTO users (uid,name,equip,created) VALUES (?,?,?,?)').run(u, 'C' + u, '{}', now);
+  const room = (w, sc, ranked = true, uids = [8301, 8302]) => ({ ranked, startedAt: now - 200e3, players: uids.map(uid => ({ uid })), engine: { winner: w, score: sc } });
+  const c0 = [coins(8301), coins(8302)];
+  const r1 = S.onlinePay(room(1, [0, 2]), false, now); // ranked loss still pays
+  assert.equal(r1[8301].reward, onlineReward({ won: false, draw: false, goals: 0, ranked: true })); assert.equal(r1[8302].reward, onlineReward({ won: true, draw: false, goals: 2, ranked: true }));
+  assert.equal(coins(8301), c0[0] + r1[8301].reward); assert.equal(r1[8301].bal, coins(8301));
+  const r2 = S.onlinePay(room(null, [1, 1], false), false, now); assert.ok(r2[8301].reward > 0 && r2[8302].reward > 0); // friend room draw
+  const r3 = S.onlinePay(room(0, [0, 0]), true, now); assert.ok(r3[8301] && !r3[8302]); // opponent left: winner paid, leaver not
+  assert.deepEqual(S.onlinePay(room(0, [0, 0]), false, now), {}); // 4th game same pair today
+  assert.deepEqual(S.onlinePay({ ...room(0, [0, 0], true, [8301, 8303]), startedAt: now - 10e3 }, true, now), {}); // quit after 10s
+  assert.deepEqual(S.onlinePay(room(0, [0, 0], false, [8303, 8303]), false, now), {}); // same account both seats
+  assert.deepEqual(S.onlinePay(room(0, [0, 0], false, [8303, 0]), false, now), {}); // guest seat
+});
 console.log(`\n${n} checks passed`);
 process.exit(0);

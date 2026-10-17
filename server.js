@@ -8,10 +8,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { WebSocketServer } from 'ws';
 import { Engine, runToRest, isRest, makeCode, BASE_STATS, FORMATIONS, PROTOCOL } from './public/engine.js';
 import { teamById, rosterFor, cleanRoster, cleanKit } from './public/teams.js';
-import { ITEMS, itemById, DEFAULT_EQUIP, SLOTS, matchReward, DAILY_COIN_CAP, PRO, isOwned, aiEquip, tossResult } from './public/items.js';
+import { ITEMS, itemById, DEFAULT_EQUIP, SLOTS, matchReward, onlineReward, DAILY_COIN_CAP, PRO, isOwned, aiEquip, tossResult } from './public/items.js';
 import { langFrom, itemName, itemDesc, trMs, LANGS } from './public/i18n.js';
 import { seasonOf, weekOf, rpDelta, softReset, tierOf, START_RP, seasonEnds } from './public/rank.js';
-export const catalog = { ITEMS, itemById };
+export const catalog = { ITEMS, itemById, rewards: { matchReward, onlineReward } };
 
 const PORT = +(process.env.PORT || 3000);
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
@@ -548,14 +548,9 @@ async function api(req, res, path) {
     const setup = JSON.parse(m.setup), e = replayCpuMatch(setup, actions);
     q('UPDATE matches SET done=1 WHERE mid=?').run(m.mid);
     if (!e) return json(res, 400, { err: 'replay_failed' });
-    const won = e.winner === 0, draw = e.winner === null, u = getUser(auth.uid), day = new Date().toISOString().slice(0, 10);
-    const pass = u.pass_until > Date.now(), pro = u.pro_until > Date.now(), cap = pro ? PRO.cap : DAILY_COIN_CAP;
-    let reward = matchReward({ won, draw, goals: e.score[0], skill: setup.cpuSkill, passActive: pass });
-    if (pro && !pass) reward = Math.round(reward * PRO.coinBoost);
-    const used = u.day === day ? u.day_coins : 0; reward = Math.max(0, Math.min(reward, cap - used));
-    q('UPDATE users SET coins=coins+?, day=?, day_coins=? WHERE uid=?').run(reward, day, used + reward, auth.uid);
+    const u = getUser(auth.uid), { reward, capped } = payCoins(auth.uid, matchReward({ won: e.winner === 0, draw: e.winner === null, goals: e.score[0], conceded: e.score[1], skill: setup.cpuSkill, rand: Math.random() }));
     const inviter = payRef(auth.uid); if (inviter && process.env.NODE_ENV !== 'test') say(inviter, botText('ref_paid', { lang: 'ms', name: u.name || '', n: REF_REWARD })).catch(() => {});
-    return json(res, 200, { reward, score: e.score, winner: e.winner, capped: used + reward >= cap, profile: profile(auth.uid) });
+    return json(res, 200, { reward, score: e.score, winner: e.winner, capped, profile: profile(auth.uid) });
   }
   return json(res, 404, { err: 'nope' });
 }
@@ -776,6 +771,27 @@ function forfeit(room, loser) {
   clearTimeout(room.timer); e.phase = 'over'; e.winner = 1 - loser;
   overCast(room, { t: 'over', winner: e.winner, score: e.score, forfeit: true, state: e.exportState() }, true);
 }
+// One gate for every match payout: weekly pass x2 (or PRO boost), then the daily cap.
+export function payCoins(uid, base, now = Date.now()) {
+  const u = getUser(uid), day = new Date(now).toISOString().slice(0, 10), cap = u.pro_until > now ? PRO.cap : DAILY_COIN_CAP;
+  const boosted = u.pass_until > now ? base * 2 : u.pro_until > now ? Math.round(base * PRO.coinBoost) : base;
+  const used = u.day === day ? u.day_coins : 0, reward = Math.max(0, Math.min(boosted, cap - used));
+  q('UPDATE users SET coins=coins+?, day=?, day_coins=? WHERE uid=?').run(reward, day, used + reward, uid);
+  return { reward, capped: used + reward >= cap, bal: u.coins + reward };
+}
+// Online payout (ranked and friend rooms): two different signed players, full time or the other left after 1 min
+// (leaver gets nothing), max PAIR_DAILY paid games per pair a day.
+const paidPairs = new Map(); // ponytail: in-memory pair count, resets on restart; the daily coin cap still bounds farming
+export function onlinePay(room, forfeited, now = Date.now()) {
+  const [a, b] = room.players, e = room.engine;
+  if (!a?.uid || !b?.uid || a.uid === b.uid || (forfeited && now - room.startedAt < MIN_RANKED_MS)) return {};
+  const day = new Date(now).toISOString().slice(0, 10), key = [a.uid, b.uid].sort().join(':'), pp = paidPairs.get(key), n = pp?.day === day ? pp.n : 0;
+  if (n >= PAIR_DAILY) return {};
+  paidPairs.set(key, { day, n: n + 1 });
+  const out = {};
+  room.players.forEach((p, i) => { if (!forfeited || e.winner === i) out[p.uid] = payCoins(p.uid, onlineReward({ won: e.winner === i, draw: e.winner === null, goals: e.score[i], ranked: room.ranked }), now); });
+  return out;
+}
 // Match over: settle ranked once, then tell each player their own points change.
 function overCast(room, msg, forfeited = false) {
   let res = null;
@@ -790,7 +806,8 @@ function overCast(room, msg, forfeited = false) {
   if (lres) msg = { ...msg, league: { counted: lres.counted, why: lres.why } };
   if (room.official && !room.officialDone) { room.officialDone = true; const m = q('SELECT * FROM ol_match WHERE id=?').get(room.official), sc = room.engine.score, [x] = room.players;
     if (m) { const flip = x.uid !== m.a; olRecord(m.id, flip ? sc[1] : sc[0], flip ? sc[0] : sc[1]); msg = { ...msg, official: true }; } }
-  room.players.forEach(p => { const r = res?.[p.uid]; send(p.ws, { ...msg, rank: room.ranked ? (r ? { ...r, tier: tierOf(r.rp).id, div: tierOf(r.rp).div } : { counted: false, why: res?.why }) : undefined }); });
+  const pay = room.paid ? {} : (room.paid = true, onlinePay(room, forfeited));
+  room.players.forEach(p => { const r = res?.[p.uid]; send(p.ws, { ...msg, coins: pay[p.uid], rank: room.ranked ? (r ? { ...r, tier: tierOf(r.rp).id, div: tierOf(r.rp).div } : { counted: false, why: res?.why }) : undefined }); });
 }
 // Seat 0 calls the coin (10s, else auto). Winner kicks off and is home: both players see the winner's venue, pitch and ball.
 function askToss(room) {
@@ -810,7 +827,7 @@ function startMatch(room, call = 'k') {
   setup.names = [a.profile.name, b.profile.name]; setup.paperIds = [a.paperId, b.paperId];
   setup.stars = [squadOf(a.uid).stars || {}, squadOf(b.uid).stars || {}]; setup.pro = [isPro(a.uid), isPro(b.uid)];
   setup.ranked = room.ranked;
-  room.setup = setup; room.engine = new Engine(setup); runToRest(room.engine); room.rematch = new Set(); room.startedAt = Date.now(); room.settled = false; room.leagueDone = false;
+  room.setup = setup; room.engine = new Engine(setup); runToRest(room.engine); room.rematch = new Set(); room.startedAt = Date.now(); room.settled = false; room.leagueDone = false; room.paid = false;
   room.players.forEach((p, i) => send(p.ws, { t: 'setup', setup, seat: i, state: room.engine.exportState(), left: TURN_MS }));
   armTurn(room);
 }

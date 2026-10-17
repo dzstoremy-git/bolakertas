@@ -149,11 +149,12 @@ export const tossResult = (call, coin) => call === coin;
 export const itemById = id => ITEMS.find(i => i.id === id) || null;
 export const freeItems = () => ITEMS.filter(i => i.free).map(i => i.id);
 
-// Coins earned per CPU match (server computes this from a replay, never trusts the client).
-export function matchReward({ won, draw, goals, skill, passActive }) {
-  let c = won ? 60 : draw ? 30 : 15;
-  c += Math.min(goals, 10) * 5;
-  c = Math.round(c * (0.6 + 0.8 * Math.max(0, Math.min(1, skill))));
-  return passActive ? c * 2 : c;
+// Coins per CPU match (server computes this from a replay, never trusts the client): result, goals, AI level,
+// clean sheet, then a random 0.8x-1.4x swing (rand 0..1 drawn on the server). Pass/PRO/daily cap applied by the server.
+export function matchReward({ won, draw, goals, conceded = 0, skill, rand = 0.5 }) {
+  let c = (won ? 60 : draw ? 30 : 15) + Math.min(goals, 10) * 5 + (won && conceded === 0 ? 20 : 0);
+  return Math.round(c * (0.6 + 0.8 * Math.max(0, Math.min(1, skill))) * (0.8 + 0.6 * rand));
 }
+// Online: every result pays. Ranked pays more; friend rooms less (two accounts could farm them).
+export const onlineReward = ({ won, draw, goals, ranked }) => (ranked ? [30, 50, 80] : [15, 25, 40])[won ? 2 : draw ? 1 : 0] + Math.min(goals, 10) * (ranked ? 5 : 3);
 export const DAILY_COIN_CAP = 1500, PRO = { coinBoost: 1.5, cap: 2250, leagues: { own: 5, members: 32 } };
