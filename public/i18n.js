@@ -72,6 +72,7 @@ const D = {
   mode_help: ['CARA MAIN', 'HOW TO PLAY', 'КАК ИГРАТЬ'], mode_help_s: ['Tarik, bidik, gol', 'Pull, aim, score', 'Тяни, целься, забивай'],
   ranked: ['RANKED', 'RANKED', 'РЕЙТИНГ'], ranked_s: ['Naik pangkat, rebut takhta', 'Climb the ranks, take the crown', 'Поднимайся, бери корону'],
   rk_play: ['MAIN RANKED', 'PLAY RANKED', 'В БОЙ'], rk_fair: ['Semua kertas sama kuat dalam Ranked. Hanya skil yang menang.', 'Every paper is equally strong in Ranked. Only skill wins.', 'В рейтинге вся бумага одинаково сильна. Побеждает только мастерство.'],
+  rk_full: ['Lawan tadi dah dapat pasangan. Kami cari lawan baru untuk anda, tunggu sekejap.', 'That challenger already got an opponent. Finding you a new one, hang on.', 'Этот соперник уже занят. Ищем тебе нового, подожди.'],
   rk_guest: ['Buka game dalam Telegram untuk main Ranked.', 'Open the game in Telegram to play Ranked.', 'Открой игру в Telegram, чтобы играть в рейтинге.'],
   rk_board: ['PAPAN KEDUDUKAN', 'LEADERBOARD', 'ТАБЛИЦА ЛИДЕРОВ'], rk_week: ['Minggu Ini', 'This Week', 'Неделя'], rk_season: ['Musim', 'Season', 'Сезон'], rk_all: ['Semua Masa', 'All Time', 'За всё время'],
   rk_season_n: ['MUSIM {n}', 'SEASON {n}', 'СЕЗОН {n}'], rk_ends: ['Tamat dalam {d} hari', 'Ends in {d} days', 'Конец через {d} дн.'], rk_week_reset: ['Reset setiap Isnin', 'Resets every Monday', 'Сброс каждый понедельник'],

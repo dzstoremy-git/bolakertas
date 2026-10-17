@@ -363,5 +363,39 @@ await aok('ranked queue: guests refused, two signed players matched into a ranke
   assert.equal(got.length, 2); assert.equal(got[0].code, got[1].code); assert.ok(b.msgs[0]?.t === 'matched');
   [g, a, a2, b].forEach(x => x.ws.close()); srv.close();
 });
+await aok('ranked call-out: 10 min gap, 2 per day, quiet hours, mute, blocked, busy and stale players skipped', async () => {
+  const now = Date.UTC(2026, 9, 17, 4, 0); // 12:00 Malaysia
+  for (const u of [8101, 8102, 8103, 8104, 8105]) S.db.prepare('INSERT OR REPLACE INTO users (uid,name,equip,created,seen) VALUES (?,?,?,?,?)').run(u, 'P' + u, '{}', now, now);
+  S.db.prepare('UPDATE users SET seen=? WHERE uid=8104').run(now - 20 * 864e5); // inactive
+  S.db.prepare('UPDATE users SET ping_off=1 WHERE uid=8105').run();
+  S.db.prepare('UPDATE users SET seen=0 WHERE uid NOT BETWEEN 8101 AND 8105').run();
+  const log = []; const fake = blocked => async (uid, text, kbd) => { log.push(uid); assert.ok(kbd.inline_keyboard[0][0].web_app.url.endsWith('/?ranked=1')); return uid === blocked ? { ok: false, error_code: 403 } : { ok: true }; };
+  S.resetPing();
+  assert.equal(await S.rankedPing(8101, Date.UTC(2026, 9, 16, 20, 0), fake()), 0); // 04:00 Malaysia: quiet
+  assert.equal(await S.rankedPing(8101, now, fake(8103), [8102]), 0); // 8102 busy in queue, 8103 blocked
+  assert.deepEqual(log, [8103]); assert.equal(S.db.prepare('SELECT ping_off FROM users WHERE uid=8103').get().ping_off, 2);
+  assert.equal(await S.rankedPing(8101, now + 60e3, fake()), 0); // inside the 10 min gap
+  log.length = 0; assert.equal(await S.rankedPing(8101, now + S.PING_GAP, fake()), 1); assert.deepEqual(log, [8102]);
+  assert.equal(await S.rankedPing(8103, now + 2 * S.PING_GAP, fake()), 2); // 8101 + 8102 (2nd today)
+  log.length = 0; assert.equal(await S.rankedPing(8103, now + 3 * S.PING_GAP, fake()), 1); assert.deepEqual(log, [8101]); // 8102 capped at 2
+  log.length = 0; await S.rankedPing(8103, now + 864e5, fake()); assert.ok(log.includes(8102)); // new day resets
+});
+await aok('ranked call-out: late acceptor told it is full and stays queued; next one pairs with them', async () => {
+  const { WebSocket } = await import('ws');
+  const srv = S.server.listen(0), port = srv.address().port;
+  const sign = uid => { const p = new URLSearchParams({ auth_date: String(Math.floor(Date.now() / 1000)), user: JSON.stringify({ id: uid, first_name: 'R' + uid }) });
+    const dc = [...p.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join('\n');
+    const key = createHmac('sha256', 'WebAppData').update('123:TEST').digest(); p.set('hash', createHmac('sha256', key).update(dc).digest('hex')); return p.toString(); };
+  const lobby = (uid, via) => new Promise(ok => { const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/lobby?pid=${Math.random()}`); const box = { ws, msgs: [] };
+    ws.on('message', m => box.msgs.push(JSON.parse(String(m)))); ws.on('open', () => { ws.send(JSON.stringify({ t: 'queue', ranked: true, initData: sign(uid), v: E.PROTOCOL, via })); ok(box); }); });
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const seek = await lobby(8201); await wait(100);
+  const fast = await lobby(8202, 'ping'); await wait(150);
+  assert.equal(seek.msgs[0]?.t, 'matched'); assert.equal(fast.msgs[0]?.t, 'matched'); // first acceptor wins
+  const late = await lobby(8203, 'ping'); await wait(150); assert.equal(late.msgs[0]?.t, 'full');
+  const later = await lobby(8204, 'ping'); await wait(150);
+  assert.equal(later.msgs[0]?.t, 'matched'); assert.equal(late.msgs[1]?.t, 'matched'); assert.equal(late.msgs[1].code, later.msgs[0].code); // leftovers pair up
+  [seek, fast, late, later].forEach(x => x.ws.close()); srv.close();
+});
 console.log(`\n${n} checks passed`);
 process.exit(0);
